@@ -22,7 +22,7 @@ const READS: Record<Role, Q[]> = {
   abu: [Tbl("projects"), Tbl("subcontractors"), Tbl("txns"), Tbl("progress", "created_at", 5000), Tbl("items"), Tbl("prices"), Tbl("quotes", "updated_at"), View("project_ledger"), View("vat_by_company"), View("sub_ledger"),
     Tbl("suppliers"), Tbl("supplier_requests"), View("preferences")],
   engineer: [Tbl("projects"), Tbl("subcontractors"), Tbl("progress", "created_at", 5000), Tbl("quotes", "updated_at"), Tbl("documents"), Tbl("profiles")],
-  supervisor: [Tbl("projects"), Tbl("txns"), Tbl("documents"), Rpc("sub_names", "sub_names"), Rpc("progress", "sup_progress")],
+  supervisor: [Tbl("projects"), Tbl("txns"), Tbl("documents"), Rpc("sub_names", "sub_names"), Rpc("progress", "sup_progress"), View("preferences")],
 };
 // which base-table change refreshes which keys
 const DERIVED: Record<string, string[]> = {
@@ -141,6 +141,7 @@ export function DataProvider({ profile, children }: { profile: Profile; children
 export const pname = (d: Record<string, any[]>, id?: string) => (d.projects || []).find((p) => p.id === id)?.name ?? "—";
 export const companiesOf = (d: Record<string, any[]>) => {
   const s = new Set<string>();
+  ((d.preferences || []).find((p: any) => p.key === "companies")?.value?.list || []).forEach((n: string) => n && s.add(n));
   (d.projects || []).forEach((p) => p.company && s.add(p.company));
   (d.txns || []).forEach((x) => x.vat_company && s.add(x.vat_company));
   return [...s];
