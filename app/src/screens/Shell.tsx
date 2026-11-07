@@ -125,7 +125,9 @@ export default function Shell() {
             <View style={{ padding: 10, gap: 6 }}>
               {!online && <Text style={{ color: c.warn, fontWeight: "700" }}>Offline · آف لائن — entries are kept on the phone</Text>}
               {pending > 0 && <Text style={{ color: c.warn }}>{pending} waiting to upload</Text>}
-              {failed.map((j) => <Card key={j.id}><T color={c.bad}>Not saved: {j.row?._error}</T><Btn title="Remove" onPress={() => dropFailed(j.id)} /></Card>)}
+              {/* Same error many times → shown once with a count; Remove clears all of them. */}
+              {Object.values(failed.reduce((m: Record<string, any[]>, j) => { const k = String(j.row?._error || "?"); (m[k] ||= []).push(j); return m; }, {})).map((js) => (
+                <Card key={js[0].id}><T color={c.bad}>Not saved{js.length > 1 ? ` (${js.length}×)` : ""}: {js[0].row?._error}</T><Btn title={js.length > 1 ? `Remove all ${js.length}` : "Remove"} onPress={async () => { for (const j of js) await dropFailed(j.id); }} /></Card>))}
             </View>
           </SafeAreaView>
         )}
