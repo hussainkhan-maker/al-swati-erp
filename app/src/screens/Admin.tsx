@@ -155,33 +155,63 @@ export function Projects() {
   );
 }
 
+/** A starting password the person changes on first sign-in: 10 letters and digits, no look-alikes (0/O, 1/l). */
+const startPassword = () => { const a = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789"; let p = ""; for (let i = 0; i < 10; i++) p += a[Math.floor(Math.random() * a.length)]; return /\d/.test(p) ? p : p.slice(0, 9) + "7"; };
+const waTo = (phone: string) => { let n = String(phone || "").replace(/\D/g, ""); if (n.startsWith("00")) n = n.slice(2); if (n.startsWith("05")) n = "966" + n.slice(1); return n; };
+
 export function People() {
   const { d, update } = useData();
   const [f, setF] = useState<any>(null), [busy, setBusy] = useState(false), [err, setErr] = useState("");
+  const [reset, setReset] = useState<any>(null), [done, setDone] = useState<any>(null);
   const ROLE: Record<string, string> = { admin: "Super-Admin", abu: "Abu", engineer: "Engineer", supervisor: "Supervisor" };
-  const add = async () => {
+  const call = async (body: any) => {
     setBusy(true); setErr("");
-    const { data, error } = await supabase.functions.invoke("invite-user", { body: f });
+    const { data, error } = await supabase.functions.invoke("invite-user", { body });
     setBusy(false);
-    if (error || (data as any)?.error) setErr((data as any)?.error || error!.message); else setF(null);
+    if (error || (data as any)?.error) { setErr((data as any)?.error || error!.message); return null; }
+    return (data as any) || {};
   };
+  const add = async () => { if (await call(f)) { setDone({ name: f.name, email: f.email, phone: f.phone, password: f.password }); setF(null); } };
+  const doReset = async () => { const r = await call({ action: "reset", user_id: reset.id, password: reset.password }); if (r) { setDone({ ...reset, email: r.email || "" }); setReset(null); } };
+  const message = (x: any) => `AL-Swati app\nEmail: ${x.email}\nStarting password: ${x.password}\nAfter signing in, choose your own password.`;
   return (
     <Screen>
-      <Row><View style={{ flex: 1 }}><H1>People</H1></View><Btn kind="primary" icon={<Icon name="plus" color="#fff" />} title="Add person" onPress={() => setF({ name: "", email: "", role: "supervisor", phone: "", projects: [] })} /></Row>
+      <Row><View style={{ flex: 1 }}><H1>People</H1></View><Btn kind="primary" icon={<Icon name="plus" color="#fff" />} title="Add person" onPress={() => { setErr(""); setF({ name: "", email: "", role: "supervisor", phone: "", projects: [], password: startPassword() }); }} /></Row>
+      <T muted size={13}>Each person signs in with their own email and a password only they know. If they forget it, set a new starting password here and send it to their phone.</T>
       {(d.profiles || []).map((u: any) => (
         <Card key={u.id}>
-          <Row><View style={{ flex: 1 }}><T bold>{u.name}</T><T muted size={13}>{ROLE[u.role]} · {u.phone || ""}</T></View><Pill kind={u.active ? "good" : "bad"} text={u.active ? "Active" : "Off"} /></Row>
-          <Btn kind="ghost" title={u.active ? "Switch off" : "Switch on"} onPress={() => update("profiles", u.id, { active: !u.active })} />
+          <Row><View style={{ flex: 1 }}><T bold>{u.name}</T><T muted size={13}>{ROLE[u.role]} · {u.phone || "no phone"}</T></View><Pill kind={u.active ? "good" : "bad"} text={u.active ? "Active" : "Off"} /></Row>
+          <Row wrap>
+            <Btn kind="ghost" title={u.active ? "Switch off" : "Switch on"} onPress={() => update("profiles", u.id, { active: !u.active })} />
+            <Btn kind="ghost" title="New password" onPress={() => { setErr(""); setReset({ id: u.id, name: u.name, phone: u.phone, password: startPassword() }); }} />
+          </Row>
         </Card>))}
       <Sheet open={!!f} onClose={() => setF(null)} title="Add person">
         {f && <>
           <Field label="Name" value={f.name} onChange={(v) => setF({ ...f, name: v })} />
-          <Field label="Email (the sign-in code goes here)" value={f.email} onChange={(v) => setF({ ...f, email: v.trim() })} />
-          <Field label="Phone" value={f.phone} onChange={(v) => setF({ ...f, phone: v })} />
+          <Field label="Email (their Gmail, used to sign in)" value={f.email} onChange={(v) => setF({ ...f, email: v.trim() })} />
+          <Field label="Phone (for a new password if they forget)" value={f.phone} numeric onChange={(v) => setF({ ...f, phone: v })} />
           <Select label="Role" value={f.role} onChange={(v) => setF({ ...f, role: v })} options={Object.entries(ROLE).map(([k, v]) => ({ value: k, label: v }))} />
           {["supervisor", "engineer"].includes(f.role) && <><T bold>Sites</T><Row wrap>{(d.projects || []).map((p: any) => { const on = f.projects.includes(p.id); return <Btn key={p.id} kind={on ? "primary" : "default"} title={p.name} onPress={() => setF({ ...f, projects: on ? f.projects.filter((x: string) => x !== p.id) : [...f.projects, p.id] })} />; })}</Row></>}
+          <Field label="Starting password (they change it on first sign-in)" value={f.password} onChange={(v) => setF({ ...f, password: v.trim() })} />
           {err ? <T color="#B42318">{err}</T> : null}
-          <Btn big kind="primary" title="Add" busy={busy} disabled={!f.name || !/.+@.+\..+/.test(f.email)} onPress={add} />
+          <Btn big kind="primary" title="Add" busy={busy} disabled={!f.name || !/.+@.+\..+/.test(f.email) || waTo(f.phone).length < 9 || f.password.length < 8} onPress={add} />
+        </>}
+      </Sheet>
+      <Sheet open={!!reset} onClose={() => setReset(null)} title={`New password for ${reset?.name || ""}`}>
+        {reset && <>
+          <Field label="New starting password" value={reset.password} onChange={(v) => setReset({ ...reset, password: v.trim() })} />
+          <T muted size={13}>Their old password stops working now. They sign in with this one, then choose their own.</T>
+          {err ? <T color="#B42318">{err}</T> : null}
+          <Btn big kind="primary" title="Set new password" busy={busy} disabled={reset.password.length < 8} onPress={doReset} />
+        </>}
+      </Sheet>
+      <Sheet open={!!done} onClose={() => setDone(null)} title="Send the sign-in details">
+        {done && <>
+          <T>{message(done)}</T>
+          {done.phone ? <Btn big kind="primary" icon={<Icon name="share" color="#fff" />} title="Send on WhatsApp" onPress={() => Linking.openURL(`https://wa.me/${waTo(done.phone)}?text=${encodeURIComponent(message(done))}`)} /> : null}
+          {done.phone ? <Btn title="Send as SMS" onPress={() => Linking.openURL(`sms:${done.phone}?body=${encodeURIComponent(message(done))}`)} /> : null}
+          <T muted size={13}>You press send. Nobody else sees this password, and it works only until they choose their own.</T>
         </>}
       </Sheet>
     </Screen>
