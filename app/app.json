@@ -1,0 +1,57 @@
+{
+  "expo": {
+    "name": "Al-Swati ERP",
+    "slug": "al-swati-erp",
+    "scheme": "alswati",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "icon": "./assets/icon.png",
+    "splash": { "image": "./assets/icon.png", "resizeMode": "contain", "backgroundColor": "#0E6B5C" },
+    "ios": {
+      "bundleIdentifier": "com.alswati.erp",
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "To record entries by voice in Urdu, Arabic or English.",
+        "NSSpeechRecognitionUsageDescription": "To turn your spoken entries into text.",
+        "NSCameraUsageDescription": "To photograph receipts and invoices.",
+        "NSPhotoLibraryUsageDescription": "To attach receipt photos.",
+        "NSLocationWhenInUseUsageDescription": "To show which site you are at during working hours.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Your location is shared with the company only from 06:00 to 18:00 on working days.",
+        "NSFaceIDUsageDescription": "To unlock the app.",
+        "UIBackgroundModes": ["location"],
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "package": "com.alswati.erp",
+      "adaptiveIcon": { "foregroundImage": "./assets/icon.png", "backgroundColor": "#0E6B5C" },
+      "permissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.CAMERA",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_BACKGROUND_LOCATION",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_LOCATION",
+        "android.permission.USE_BIOMETRIC"
+      ]
+    },
+    "plugins": [
+      ["expo-speech-recognition", {
+        "microphonePermission": "To record entries by voice in Urdu, Arabic or English.",
+        "speechRecognitionPermission": "To turn your spoken entries into text.",
+        "androidSpeechServicePackages": ["com.google.android.googlequicksearchbox"]
+      }],
+      ["expo-image-picker", { "cameraPermission": "To photograph receipts and invoices." }],
+      ["expo-location", {
+        "locationAlwaysAndWhenInUsePermission": "Your location is shared with the company only from 06:00 to 18:00.",
+        "isAndroidBackgroundLocationEnabled": true,
+        "isAndroidForegroundServiceEnabled": true
+      }],
+      ["expo-local-authentication", { "faceIDPermission": "To unlock the app." }],
+      ["expo-build-properties", { "android": { "minSdkVersion": 26 } }]
+    ],
+    "extra": { "eas": { "projectId": "REPLACE_WITH_EAS_PROJECT_ID" } }
+  }
+}
