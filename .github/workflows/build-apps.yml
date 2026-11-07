@@ -1,0 +1,24 @@
+# Builds the Android APK and the iPhone app in Expo's cloud when you press "Run workflow" on GitHub.
+name: Build apps
+on:
+  workflow_dispatch:
+    inputs:
+      platform: { description: "android, ios or all", default: "android", required: true }
+      profile: { description: "preview (APK to install directly) or production (Play Store / App Store)", default: "preview", required: true }
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: app } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - uses: expo/expo-github-action@v8
+        with: { eas-version: latest, token: "${{ secrets.EXPO_TOKEN }}" }
+      - run: npm install
+      - run: npx expo install --fix
+      - run: npx tsc --noEmit
+      - run: eas build --platform ${{ github.event.inputs.platform }} --profile ${{ github.event.inputs.profile }} --non-interactive --no-wait
+        env:
+          EXPO_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
