@@ -33,7 +33,7 @@ export default function Login({ problem }: { problem?: string }) {
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
         <ScrollView contentContainerStyle={{ padding: 24, gap: 16, flexGrow: 1, justifyContent: "center" }} keyboardShouldPersistTaps="handled">
           <View style={{ gap: 4 }}>
-            <Text style={{ fontSize: 28, fontWeight: "800", color: c.ink }}>Al-Swati ERP</Text>
+            <Text style={{ fontSize: 28, fontWeight: "800", color: c.ink }}>AL-Swati</Text>
             <Text style={{ fontSize: 15, color: c.muted }}>Stone · Marble · Granite · Porcelain · Flooring</Text>
           </View>
           <TextInput style={input} value={email} onChangeText={setEmail} placeholder="Email" placeholderTextColor={c.muted} autoCapitalize="none" keyboardType="email-address" editable={!sent} />
