@@ -152,6 +152,7 @@ function PurchaseSheet({ init, onClose }: { init?: any; onClose: () => void }) {
     supplier: v.supplier || "", subtotal: "", vat: v.vat_amount ?? "", total: v.amount ?? "", company: v.vat_company || "",
     lines: (v.lines || []).map((l: any) => ({ name: l.name, qty: l.qty ?? "", unit: l.unit || "", price: l.price ?? "" })),
     split: (v.split?.length ? v.split : [{ project_id: v.project_id || "", pct: 100 }]).concat([{ project_id: "", pct: "" }, { project_id: "", pct: "" }]).slice(0, 3),
+    splitOn: (v.split?.length || 0) > 1, otherCo: "",
   });
   const set = (k: string, val: any) => setF((x: any) => ({ ...x, [k]: val }));
 
@@ -171,8 +172,11 @@ function PurchaseSheet({ init, onClose }: { init?: any; onClose: () => void }) {
 
   const x = useMemo(() => {
     const lines = f.lines.filter((l: any) => l.name).map((l: any) => ({ name: l.name, qty: num(l.qty), unit: l.unit, price: num(l.price), total: r2(num(l.qty) * num(l.price)) }));
-    const split = f.split.filter((s: any) => s.project_id && num(s.pct) > 0).map((s: any) => ({ project_id: s.project_id, pct: num(s.pct) }));
-    return { photo: !!photo, supplier: f.supplier, lines, subtotal: num(f.subtotal), vat: num(f.vat || 0) || 0, total: num(f.total), split, company: f.company };
+    // Most invoices go to one project (100%); splitting is only when the purchase is shared.
+    const split = !f.splitOn ? (f.split[0]?.project_id ? [{ project_id: f.split[0].project_id, pct: 100 }] : [])
+      : f.split.filter((s: any) => s.project_id && num(s.pct) > 0).map((s: any) => ({ project_id: s.project_id, pct: num(s.pct) }));
+    const company = f.company === "__other" ? String(f.otherCo || "").trim() : f.company;
+    return { photo: !!photo, supplier: f.supplier, lines, subtotal: num(f.subtotal), vat: num(f.vat || 0) || 0, total: num(f.total), split, company };
   }, [f, photo]);
   const checks = purchaseChecks(t, x, { txns: d.txns || [], pname: (id) => pname(d, id) });
   const blocked = checks.some((k) => k.s === "bad");
@@ -188,7 +192,7 @@ function PurchaseSheet({ init, onClose }: { init?: any; onClose: () => void }) {
       if (r.queued) setErr(t("queued")); else onClose();
     } catch (e: any) { setErr(e.message); } finally { setBusy(false); }
   };
-  const companies = [{ value: "", label: t("noVat") }, ...companiesOf(d).map((n) => ({ value: n, label: n }))];
+  const companies = [{ value: "", label: t("noVat") }, ...companiesOf(d).map((n) => ({ value: n, label: n })), { value: "__other", label: t("otherCompany") }];
 
   return (
     <Sheet open onClose={onClose} title={t("purchase")}>
@@ -218,13 +222,15 @@ function PurchaseSheet({ init, onClose }: { init?: any; onClose: () => void }) {
         </Row>
       </Card>
       <Card>
-        <T bold>{t("split")}</T>
-        {f.split.map((s: any, i: number) => (
+        <T bold>{t("project")}</T>
+        {(f.splitOn ? f.split : f.split.slice(0, 1)).map((s: any, i: number) => (
           <Row key={i}>
             <Select value={s.project_id} options={projOpts(projects)} onChange={(val) => set("split", f.split.map((y: any, j: number) => (j === i ? { ...y, project_id: val } : y)))} />
-            <Field value={s.pct} numeric placeholder="%" onChange={(val) => set("split", f.split.map((y: any, j: number) => (j === i ? { ...y, pct: val } : y)))} style={{ maxWidth: 90, minWidth: 80 }} />
+            {f.splitOn && <Field value={s.pct} numeric placeholder="%" onChange={(val) => set("split", f.split.map((y: any, j: number) => (j === i ? { ...y, pct: val } : y)))} style={{ maxWidth: 90, minWidth: 80 }} />}
           </Row>))}
+        <Btn kind="ghost" title={f.splitOn ? t("noSplit") : t("split")} onPress={() => set("splitOn", !f.splitOn)} />
         {x.vat > 0 && <Select label={t("company")} value={f.company} options={companies} onChange={(val) => set("company", val)} />}
+        {x.vat > 0 && f.company === "__other" && <Field label={t("companyName")} value={f.otherCo} onChange={(val) => set("otherCo", val)} />}
       </Card>
       <Checks title={t("checks")} list={checks} />
       {err ? <T color={c.warn}>{err}</T> : null}
