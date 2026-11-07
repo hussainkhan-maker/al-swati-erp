@@ -52,6 +52,8 @@
       ["expo-local-authentication", { "faceIDPermission": "To unlock the app." }],
       ["expo-build-properties", { "android": { "minSdkVersion": 26 } }]
     ],
+    "web": { "bundler": "metro", "output": "single", "name": "AL-Swati", "shortName": "AL-Swati", "themeColor": "#0E6B5C", "backgroundColor": "#ffffff", "favicon": "./assets/icon.png" },
+    "experiments": { "baseUrl": "/al-swati-erp" },
     "extra": { "eas": { "projectId": "REPLACE_WITH_EAS_PROJECT_ID" } }
   }
 }
