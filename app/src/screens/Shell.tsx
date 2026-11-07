@@ -1,5 +1,6 @@
 // The frame around every account: bottom tabs, offline / waiting banners, fingerprint lock, 06:00–18:00 location.
 import * as LocalAuthentication from "expo-local-authentication";
+import { Platform } from "react-native";
 import React, { useEffect, useRef, useState } from "react";
 import { AppState, Pressable, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -73,14 +74,18 @@ export default function Shell() {
   const bgAt = useRef(0);
 
   const unlock = async () => {
-    const has = (await LocalAuthentication.hasHardwareAsync()) && (await LocalAuthentication.isEnrolledAsync());
-    if (!has) { setLocked(false); return; }
-    const r = await LocalAuthentication.authenticateAsync({ promptMessage: "Al-Swati ERP", cancelLabel: t("cancel") });
-    if (r.success) setLocked(false);
+    // Laptop / web: no fingerprint reader, the email code is the lock.
+    if (Platform.OS === "web") { setLocked(false); return; }
+    try {
+      const has = (await LocalAuthentication.hasHardwareAsync()) && (await LocalAuthentication.isEnrolledAsync());
+      if (!has) { setLocked(false); return; }
+      const r = await LocalAuthentication.authenticateAsync({ promptMessage: "AL-Swati", cancelLabel: t("cancel") });
+      if (r.success) setLocked(false);
+    } catch { setLocked(false); }
   };
   useEffect(() => {
     unlock();
-    if (role === "supervisor" || role === "engineer") startTracking().catch(() => {});
+    if (Platform.OS !== "web" && (role === "supervisor" || role === "engineer")) startTracking().catch(() => {});
     const s = AppState.addEventListener("change", (st) => {
       if (st === "background") bgAt.current = Date.now();
       if (st === "active" && bgAt.current && Date.now() - bgAt.current > 3 * 60e3) { setLocked(true); unlock(); }
