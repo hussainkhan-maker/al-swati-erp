@@ -40,6 +40,7 @@ const D: Record<string, [string, string, string]> = {
   orType: ["or type here", "أو اكتب هنا", "یا یہاں لکھیں"],
   voiceUnclear: ["Voice was not clear. Please type it, or speak again closer to the phone.", "الصوت غير واضح. اكتب أو تكلم قرب الجوال.", "آواز صاف نہیں۔ لکھ دیں یا فون کے قریب دوبارہ بولیں۔"],
   understand: ["Understand", "افهم", "سمجھو"],
+  byHand: ["Or fill it in yourself:", "أو املأها بنفسك:", "یا خود بھریں:"],
   item: ["Item", "البند", "آئٹم"],
   addLine: ["+ Line", "+ بند", "+ آئٹم"],
   loanDeduct: ["Loan to deduct from this payment", "قرض يُخصم من هذه الدفعة", "اس رقم سے قرض کٹوتی"],
