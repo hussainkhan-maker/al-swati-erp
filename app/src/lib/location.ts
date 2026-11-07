@@ -1,6 +1,7 @@
 // Live location for supervisors and engineers: only between 06:00 and 18:00 Riyadh time.
 import * as Location from "expo-location";
 import * as TaskManager from "expo-task-manager";
+import { Platform } from "react-native";
 import { TRACK_FROM_HOUR, TRACK_TO_HOUR } from "../config";
 import { supabase } from "./supabase";
 
@@ -11,7 +12,8 @@ export function riyadhHour(d = new Date()) {
 }
 export const inWorkHours = () => { const h = riyadhHour(); return h >= TRACK_FROM_HOUR && h < TRACK_TO_HOUR; };
 
-TaskManager.defineTask(LOCATION_TASK, async ({ data, error }: any) => {
+// Background tracking exists only in the phone app, never on the laptop (web) version.
+if (Platform.OS !== "web") TaskManager.defineTask(LOCATION_TASK, async ({ data, error }: any) => {
   if (error || !data?.locations?.length || !inWorkHours()) return;
   const { data: s } = await supabase.auth.getSession();
   if (!s?.session) return;
@@ -20,6 +22,7 @@ TaskManager.defineTask(LOCATION_TASK, async ({ data, error }: any) => {
 });
 
 export async function startTracking(): Promise<"on" | "denied"> {
+  if (Platform.OS === "web") return "denied";
   const fg = await Location.requestForegroundPermissionsAsync();
   if (fg.status !== "granted") return "denied";
   const bg = await Location.requestBackgroundPermissionsAsync();
@@ -33,7 +36,7 @@ export async function startTracking(): Promise<"on" | "denied"> {
     showsBackgroundLocationIndicator: true,
     pausesUpdatesAutomatically: true,
     foregroundService: {
-      notificationTitle: "Al-Swati ERP",
+      notificationTitle: "AL-Swati",
       notificationBody: "Site location is shared 06:00–18:00",
       notificationColor: "#0E6B5C",
     },
@@ -41,5 +44,6 @@ export async function startTracking(): Promise<"on" | "denied"> {
   return "on";
 }
 export async function stopTracking() {
+  if (Platform.OS === "web") return;
   if (await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK)) await Location.stopLocationUpdatesAsync(LOCATION_TASK);
 }
