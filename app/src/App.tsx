@@ -5,13 +5,14 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { FlowProvider } from "./components/Flows";
 import { DataProvider, Profile } from "./lib/data";
 import { supabase } from "./lib/supabase";
-import Login from "./screens/Login";
+import Login, { SetPassword } from "./screens/Login";
 import Shell from "./screens/Shell";
 
 export default function App() {
   const [ready, setReady] = useState(false);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [problem, setProblem] = useState("");
+  const [mustSet, setMustSet] = useState(false);
 
   const load = async (uid?: string) => {
     if (!uid) { setProfile(null); setReady(true); return; }
@@ -22,8 +23,8 @@ export default function App() {
     setReady(true);
   };
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => load(data.session?.user.id));
-    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => load(s?.user.id));
+    supabase.auth.getSession().then(({ data }) => { setMustSet(!!data.session?.user.user_metadata?.temp_password); load(data.session?.user.id); });
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => { setMustSet(!!s?.user.user_metadata?.temp_password); load(s?.user.id); });
     return () => sub.subscription.unsubscribe();
   }, []);
 
@@ -31,6 +32,7 @@ export default function App() {
     <SafeAreaProvider>
       <StatusBar style="auto" />
       {!ready ? <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}><ActivityIndicator size="large" /></View>
+        : profile && mustSet ? <SetPassword onDone={() => setMustSet(false)} />
         : profile ? <DataProvider profile={profile}><FlowProvider><Shell /></FlowProvider></DataProvider>
         : <Login problem={problem} />}
     </SafeAreaProvider>
