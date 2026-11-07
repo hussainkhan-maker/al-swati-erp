@@ -50,15 +50,17 @@ export default function Agents() {
 function Prefs() {
   const { d, reload } = useData(); const c = useColors();
   const m = pref(d, "margin", { target: 20, minimum: 12, round_to: 5 }), q = pref(d, "quote_terms", { validity_days: 15, payment: "", notes: "" });
-  const [f, setF] = useState<any>({ ...m, ...q }), [msg, setMsg] = useState("");
-  useEffect(() => { setF({ ...m, ...q }); }, [d.preferences]);
+  const cos = (pref(d, "companies", { list: [] }).list || []).join("\n");
+  const [f, setF] = useState<any>({ ...m, ...q, cos }), [msg, setMsg] = useState("");
+  useEffect(() => { setF({ ...m, ...q, cos }); }, [d.preferences]);
   const n = (v: any) => Number(String(v).replace(/[^\d.]/g, ""));
   const bad = !(n(f.minimum) > 0) || n(f.minimum) > n(f.target) || !(n(f.round_to) > 0) || !(n(f.validity_days) > 0);
   const save = async () => {
     const now = new Date().toISOString();
     const { error } = await supabase.from("preferences").upsert([
       { key: "margin", value: { target: n(f.target), minimum: n(f.minimum), round_to: n(f.round_to) }, updated_at: now },
-      { key: "quote_terms", value: { validity_days: n(f.validity_days), payment: f.payment || "", notes: f.notes || "" }, updated_at: now }]);
+      { key: "quote_terms", value: { validity_days: n(f.validity_days), payment: f.payment || "", notes: f.notes || "" }, updated_at: now },
+      { key: "companies", value: { list: String(f.cos || "").split(/\n|,/).map((x: string) => x.trim()).filter(Boolean) }, updated_at: now }]);
     setMsg(error ? error.message : "Saved. The advisor uses these from now on."); if (!error) reload(["preferences"]);
   };
   return (
@@ -68,6 +70,7 @@ function Prefs() {
       <Row><Field label="Round rates to (SAR)" numeric value={String(f.round_to)} onChange={(v) => setF({ ...f, round_to: v })} /><Field label="Quotation valid (days)" numeric value={String(f.validity_days)} onChange={(v) => setF({ ...f, validity_days: v })} /></Row>
       <Field label="Payment terms on quotations" value={f.payment} onChange={(v) => setF({ ...f, payment: v })} />
       <Field label="Notes on quotations" value={f.notes} multiline onChange={(v) => setF({ ...f, notes: v })} />
+      <Field label="Our companies (bills and VAT are in these names), one per line" value={f.cos} multiline onChange={(v) => setF({ ...f, cos: v })} />
       {bad && <T color={c.bad}>Minimum must be above 0 and not more than the target.</T>}
       {msg ? <T color={c.accent}>{msg}</T> : null}
       <Btn kind="primary" title="Save preferences" disabled={bad} onPress={save} />
