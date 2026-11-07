@@ -73,6 +73,12 @@ function QuerySheet({ q, onClose }: { q: any; onClose: () => void }) {
             <Row><Pill kind={g.s === "bad" ? "bad" : g.s === "warn" ? "warn" : "good"} text={`Gate ${g.n}`} /><T bold style={{ flex: 1 }}>{g.name}</T></Row>
             {g.d.map((x, i) => <T key={i} size={14}>• {x}</T>)}
           </Card>))}
+        {(r.a?.category || (r.a?.documents || []).length > 0) && <Card><T bold>Organized pack{r.a?.category ? ` · ${r.a.category}` : ""}</T>
+          {(r.a?.documents || []).map((x: any, i: number) => <Row key={i}><Pill kind="acc" text={x.kind || "file"} /><View style={{ flex: 1 }}><T size={14} bold>{x.name}</T><T size={13} muted>{x.summary}</T></View></Row>)}</Card>}
+        {(r.a?.specs || []).length > 0 && <Card><T bold>Specification points</T>{r.a.specs.map((x: any, i: number) => <T key={i} size={14}>• {typeof x === "string" ? x : JSON.stringify(x)}</T>)}</Card>}
+        {(r.a?.drawingQuantities || []).length > 0 && <Card><T bold>Quantities from drawings (vs BOQ)</T>
+          <Table cols={["Area / element", "Qty", "Unit", "From"]} numeric={[1]} rows={r.a.drawingQuantities.map((x: any) => [x.what || x.desc || "", x.qty == null ? "?" : money(x.qty), x.unit || "", x.source || ""])} />
+          <T size={12} muted>Differences above 3% are added to the questions for the consultant.</T></Card>}
         {(r.a?.siteChecks || []).length > 0 && <Card><T bold>Site checks before work</T>{r.a.siteChecks.map((x: string, i: number) => <T key={i}>• {x}</T>)}</Card>}
         <Table cols={["Ref", "Description", "Qty", "Unit"]} numeric={[2]} rows={lines.map((l) => [l.ref || "", l.desc, l.qty == null ? "?" : money(l.qty), l.unit])} />
         {(r.a?.rfis || []).length > 0 && <Btn icon={<Icon name="share" />} title="Share questions with the consultant" onPress={() => Share.share({ message: `${q.ref} · ${q.subject}\n\nQuestions:\n` + r.a.rfis.map((x: string, i: number) => `${i + 1}. ${x}`).join("\n") })} />}
