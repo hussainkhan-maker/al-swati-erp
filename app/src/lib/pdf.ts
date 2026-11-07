@@ -1,6 +1,7 @@
 // Statements → checked PDF → the phone's own share sheet (WhatsApp 1, WhatsApp 2, email…).
 import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
+import { Platform } from "react-native";
 import { COMPANY } from "../config";
 import { Check } from "./checks";
 import { active, pname } from "./data";
@@ -118,6 +119,8 @@ export function pdfChecks(t: (k: string) => string, doc: Doc, html: string): Che
 }
 
 export async function makeAndShare(doc: Doc, html: string) {
+  // Laptop: the browser print window opens; choose "Save as PDF", then attach it to WhatsApp Web or email.
+  if (Platform.OS === "web") { await Print.printAsync({ html }); return ""; }
   const { uri } = await Print.printToFileAsync({ html, base64: false });
   if (await Sharing.isAvailableAsync()) await Sharing.shareAsync(uri, { mimeType: "application/pdf", UTI: "com.adobe.pdf", dialogTitle: doc.title });
   return uri;
