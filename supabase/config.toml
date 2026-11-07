@@ -1,0 +1,6 @@
+# Functions called by the Gmail script and the morning schedule check their own secret instead of a login.
+[functions.inbound-query]
+verify_jwt = false
+
+[functions.daily-report]
+verify_jwt = false
