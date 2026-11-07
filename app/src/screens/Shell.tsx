@@ -77,9 +77,10 @@ export default function Shell() {
     // Laptop / web: no fingerprint reader, the email code is the lock.
     if (Platform.OS === "web") { setLocked(false); return; }
     try {
-      const has = (await LocalAuthentication.hasHardwareAsync()) && (await LocalAuthentication.isEnrolledAsync());
-      if (!has) { setLocked(false); return; }
-      const r = await LocalAuthentication.authenticateAsync({ promptMessage: "AL-Swati", cancelLabel: t("cancel") });
+      // Opens with whatever the phone itself uses: Face ID, fingerprint, or the phone's PIN / pattern.
+      const level = await LocalAuthentication.getEnrolledLevelAsync();
+      if (level === LocalAuthentication.SecurityLevel.NONE) { setLocked(false); return; }
+      const r = await LocalAuthentication.authenticateAsync({ promptMessage: "AL-Swati", cancelLabel: t("cancel"), disableDeviceFallback: false });
       if (r.success) setLocked(false);
     } catch { setLocked(false); }
   };
