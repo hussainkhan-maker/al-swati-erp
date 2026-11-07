@@ -69,6 +69,21 @@ export function buildStatement(d: Record<string, any[]>, role: string, lang: Lan
     check: { col: 3, total: tot } };
 }
 
+/** Quotation as a document: lines, subtotal, VAT 15%, total, validity and terms. */
+export function quotationDoc(q: any, lang: Lang, terms: any = {}): Doc {
+  const H = (en: string, ar: string, ur: string) => (lang === "ar" ? ar : lang === "ur" ? ur : en);
+  const rows = (q.lines || []).map((l: any, i: number) => [String(i + 1), l.desc, Number(l.qty) || 0, l.unit || "", Number(l.rate) || 0, r2((Number(l.qty) || 0) * (Number(l.rate) || 0))]);
+  const sub = r2(rows.reduce((s: number, r: any[]) => s + r[5], 0)), vat = r2(sub * 0.15);
+  return {
+    title: H("Quotation", "عرض سعر", "کوٹیشن") + " · " + q.title + (q.client ? " · " + q.client : ""),
+    cols: ["#", H("Description", "الوصف", "تفصیل"), H("Qty", "الكمية", "مقدار"), H("Unit", "الوحدة", "یونٹ"), H("Rate (SAR)", "السعر", "ریٹ"), H("Amount (SAR)", "المبلغ", "رقم")],
+    rows, numCols: [2, 4, 5],
+    sum: [[H("Subtotal", "المجموع", "میزان"), money(sub)], [H("VAT 15%", "ضريبة 15%", "VAT 15%"), money(vat)], [H("Total", "الإجمالي", "کل"), money(r2(sub + vat))],
+      [H("Valid for", "صالح لمدة", "مدت"), `${terms.validity_days ?? 15} ${H("days", "يوم", "دن")}`], [H("Payment", "الدفع", "ادائیگی"), terms.payment ?? ""], [H("Notes", "ملاحظات", "نوٹ"), terms.notes ?? ""]],
+    check: { col: 5, total: sub },
+  };
+}
+
 export function docHTML(doc: Doc, lang: Lang, by: string) {
   const dir = lang === "en" ? "ltr" : "rtl";
   const logo = COMPANY.logoDataUri ? `<img src="${COMPANY.logoDataUri}" style="height:48px">` : `<div style="width:90px;height:44px;border:1px dashed #999;font-size:10px;color:#777;display:flex;align-items:center;justify-content:center">[LOGO]</div>`;
@@ -83,7 +98,7 @@ export function docHTML(doc: Doc, lang: Lang, by: string) {
   <table><thead><tr>${doc.cols.map((c, i) => `<th class="${doc.numCols.includes(i) ? "n" : ""}">${esc(c)}</th>`).join("")}</tr></thead>
   <tbody>${doc.rows.map((r) => `<tr>${r.map((v, i) => `<td class="${doc.numCols.includes(i) ? "n" : ""}" data-c="${i}">${doc.numCols.includes(i) ? money(v) : esc(v)}</td>`).join("")}</tr>`).join("") || `<tr><td colspan="${doc.cols.length}">—</td></tr>`}</tbody></table>
   <table style="margin-top:12px;width:60%">${doc.sum.map((s) => `<tr><td>${esc(s[0])}</td><td class="n"><b>${esc(s[1])}</b></td></tr>`).join("")}</table>
-  <div style="margin-top:16px;font-size:9px;color:#888">${esc(by)} · ${stamp(Date.now())} · Al-Swati Stone ERP</div></body></html>`;
+  <div style="margin-top:16px;font-size:9px;color:#888">${esc(by)} · ${stamp(Date.now())} · AL-Swati</div></body></html>`;
 }
 
 /** Checks the document before it is made, then re-reads the finished HTML and re-adds the checked column. */
