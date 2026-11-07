@@ -2,7 +2,7 @@
 import * as LocalAuthentication from "expo-local-authentication";
 import { Platform } from "react-native";
 import React, { useEffect, useRef, useState } from "react";
-import { AppState, Pressable, Text, View } from "react-native";
+import { AppState, BackHandler, Pressable, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useData } from "../lib/data";
 import { startTracking } from "../lib/location";
@@ -72,6 +72,16 @@ export default function Shell() {
   const [tab, setTab] = useState(tabs[0].key), [sub, setSub] = useState<string | null>(null);
   const [locked, setLocked] = useState(true);
   const bgAt = useRef(0);
+  // Phone back button: first close the open page, then go to the first tab; only then leave the app.
+  const nav = useRef({ tab, sub }); nav.current = { tab, sub };
+  useEffect(() => {
+    const h = BackHandler.addEventListener("hardwareBackPress", () => {
+      if (nav.current.sub) { setSub(null); return true; }
+      if (nav.current.tab !== tabs[0].key) { setTab(tabs[0].key); return true; }
+      return false;
+    });
+    return () => h.remove();
+  }, []);
 
   const unlock = async () => {
     // Laptop / web: no fingerprint reader, the email code is the lock.
