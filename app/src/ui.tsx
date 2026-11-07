@@ -103,9 +103,10 @@ export function Checks({ list, title }: { list: Check[]; title?: string }) {
   return (
     <View style={{ gap: 6 }}>
       {title ? <T size={13} bold muted>{title}</T> : null}
-      {list.map((x, i) => {
+      {/* The same message is shown once, with how many times it came up. */}
+      {Object.values(list.reduce((m: Record<string, Check & { n: number }>, x) => { const k = x.s + "|" + x.text; m[k] ? m[k].n++ : (m[k] = { ...x, n: 1 }); return m; }, {})).map((x, i) => {
         const [bg, fg, mark] = x.s === "bad" ? [c.badSoft, c.bad, "✕"] : x.s === "warn" ? [c.warnSoft, c.warn, "!"] : [c.goodSoft, c.good, "✓"];
-        return <View key={i} style={{ flexDirection: row, gap: 8, backgroundColor: bg, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 7 }}><Text style={{ color: fg, fontWeight: "800", width: 16 }}>{mark}</Text><T size={14} color={fg} style={{ flex: 1 }}>{x.text}</T></View>;
+        return <View key={i} style={{ flexDirection: row, gap: 8, backgroundColor: bg, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 7 }}><Text style={{ color: fg, fontWeight: "800", width: 16 }}>{mark}</Text><T size={14} color={fg} style={{ flex: 1 }}>{x.text}{x.n > 1 ? `  ×${x.n}` : ""}</T></View>;
       })}
     </View>
   );
