@@ -89,11 +89,26 @@ export function Money() {
 }
 
 export function Projects() {
-  const { d, insert, update } = useData(); const flows = useFlows();
+  const { d, insert, update, reload } = useData(); const flows = useFlows();
   const [p, setP] = useState<any>(null), [s, setS] = useState<any>(null), [err, setErr] = useState(""), [busy, setBusy] = useState(false);
   const staff = (d.profiles || []).filter((x: any) => ["supervisor", "engineer"].includes(x.role));
   const membersOf = (pid: string) => (d.project_members || []).filter((m: any) => m.project_id === pid).map((m: any) => m.user_id);
   const L = (pid: string) => (d.project_ledger || []).find((l: any) => l.project_id === pid) || {};
+  const lc = (x: any) => String(x || "").toLowerCase();
+  const subsOf = (pid: string) => (d.subcontractors || []).filter((x: any) => (x.projects || []).includes(pid));
+  // Each subcontractor's account on one project: meters done, earned at their rate, paid, balance.
+  const subRows = (pid: string) => subsOf(pid).map((x: any) => {
+    const pr = active(d.progress).filter((r: any) => r.project_id === pid && lc(r.sub_name) === lc(x.name));
+    const qty = sum(pr, "qty"), earned = pr.reduce((t: number, r: any) => t + (Number(r.qty) || 0) * (Number(r.rate) || 0), 0);
+    const paid = sum(active(d.txns).filter((t: any) => t.type === "subpay" && t.project_id === pid && lc(t.sub_name) === lc(x.name)), "amount");
+    return [x.name, money(qty), money(earned), money(paid), money(earned - paid)];
+  });
+  const saveLinks = async (pid: string, want: string[]) => {
+    for (const x of d.subcontractors || []) {
+      const has = (x.projects || []).includes(pid), on = want.includes(x.id);
+      if (has !== on) { const { error } = await supabase.from("subcontractors").update({ projects: on ? [...(x.projects || []), pid] : (x.projects || []).filter((q: string) => q !== pid) }).eq("id", x.id); if (error) throw error; }
+    }
+  };
 
   const saveProject = async () => {
     setBusy(true); setErr("");
@@ -106,27 +121,29 @@ export function Projects() {
       const add = want.filter((u) => !now.includes(u)), del = now.filter((u: string) => !want.includes(u));
       if (add.length) await supabase.from("project_members").insert(add.map((u) => ({ project_id: id, user_id: u })));
       for (const u of del) await supabase.from("project_members").delete().eq("project_id", id).eq("user_id", u);
-      setP(null);
+      if (id) await saveLinks(id, p.subs || []);
+      await reload(["subcontractors"]); setP(null);
     } catch (e: any) { setErr(e.message); } finally { setBusy(false); }
   };
   const saveSub = async () => {
     setBusy(true); setErr("");
-    try { const row = { name: s.name.trim(), rate: num(s.rate), unit: s.unit || "sqm" }; if (!row.name || !(row.rate >= 0)) throw new Error("Name and rate are required.");
+    try { const row = { name: s.name.trim(), rate: num(s.rate), unit: s.unit || "sqm", projects: s.projects || [] }; if (!row.name || !(row.rate >= 0)) throw new Error("Name and rate are required.");
       if (s.id) await update("subcontractors", s.id, row); else await insert("subcontractors", row); setS(null); }
     catch (e: any) { setErr(e.message); } finally { setBusy(false); }
   };
 
   return (
     <Screen>
-      <Row><View style={{ flex: 1 }}><H1>Projects</H1></View><Btn kind="primary" icon={<Icon name="plus" color="#fff" />} title="New" onPress={() => setP({ name: "", client: "", company: "", fee_pct: "", members: [] })} /></Row>
+      <Row><View style={{ flex: 1 }}><H1>Projects</H1></View><Btn kind="primary" icon={<Icon name="plus" color="#fff" />} title="New" onPress={() => setP({ name: "", client: "", company: "", fee_pct: "", members: [], subs: [] })} /></Row>
       {(d.projects || []).map((x: any) => (
-        <Card key={x.id} onPress={() => setP({ ...x, members: membersOf(x.id) })}>
+        <Card key={x.id} onPress={() => setP({ ...x, members: membersOf(x.id), subs: subsOf(x.id).map((q: any) => q.id) })}>
           <Row><View style={{ flex: 1 }}><T bold size={17}>{x.name}</T><T muted size={13}>{x.company || "—"} · fee {x.fee_pct}% · {membersOf(x.id).length} on site</T></View><T bold>{money(L(x.id).installed)} m²</T></Row>
+          {subsOf(x.id).length ? <Table cols={["Subcontractor", "Done", "Earned", "Paid", "Balance"]} numeric={[1, 2, 3, 4]} rows={subRows(x.id)} /> : <T muted size={13}>No subcontractors on this project yet. Tap the project to add them.</T>}
           <Row wrap><Btn title="Statement" onPress={() => flows("statement", { kind: "project", target: x.name })} />{x.quote_id ? <Pill kind="acc" text="from quotation" /> : null}</Row>
         </Card>))}
-      <Row><View style={{ flex: 1 }}><H2>Subcontractors</H2></View><Btn icon={<Icon name="plus" />} title="Add" onPress={() => setS({ name: "", rate: "", unit: "sqm" })} /></Row>
+      <Row><View style={{ flex: 1 }}><H2>All subcontractors (all projects)</H2></View><Btn icon={<Icon name="plus" />} title="Add" onPress={() => setS({ name: "", rate: "", unit: "sqm", projects: [] })} /></Row>
       <Table cols={["Name", "Rate", "Unit", "Done", "Earned", "Paid", "Balance"]} numeric={[1, 3, 4, 5, 6]}
-        rows={(d.sub_ledger || []).map((x: any) => [x.name, Number(x.rate) > 0 ? money(x.rate) : "not set", x.unit, money(x.qty), money(x.earned), money(x.paid), money(Number(x.earned) - Number(x.paid))])} />
+        rows={(d.sub_ledger || []).map((x: any) => [x.name + " · " + ((d.subcontractors || []).find((q: any) => q.id === x.id)?.projects || []).map((q: string) => pname(d, q)).join(", "), Number(x.rate) > 0 ? money(x.rate) : "not set", x.unit, money(x.qty), money(x.earned), money(x.paid), money(Number(x.earned) - Number(x.paid))])} />
       <Row wrap>{(d.subcontractors || []).map((x: any) => <Btn key={x.id} title={`Edit ${x.name}`} onPress={() => setS(x)} />)}</Row>
 
       <Sheet open={!!p} onClose={() => setP(null)} title={p?.id ? "Edit project" : "New project"}>
@@ -137,6 +154,8 @@ export function Projects() {
           <Field label="Service fee % (charged on the amount after VAT)" value={p.fee_pct} numeric onChange={(v) => setP({ ...p, fee_pct: v })} />
           <T bold>People on this site</T>
           <Row wrap>{staff.map((u: any) => { const on = (p.members || []).includes(u.id); return <Btn key={u.id} kind={on ? "primary" : "default"} title={`${u.name} · ${u.role}`} onPress={() => setP({ ...p, members: on ? p.members.filter((m: string) => m !== u.id) : [...(p.members || []), u.id] })} />; })}</Row>
+          <T bold>Subcontractors on this project</T>
+          <Row wrap>{(d.subcontractors || []).map((u: any) => { const on = (p.subs || []).includes(u.id); return <Btn key={u.id} kind={on ? "primary" : "default"} title={u.name} onPress={() => setP({ ...p, subs: on ? p.subs.filter((m: string) => m !== u.id) : [...(p.subs || []), u.id] })} />; })}</Row>
           <T size={13} muted>The fee is locked: only Super-Admin can change it, and every change is in the audit log.</T>
           {err ? <T color="#B42318">{err}</T> : null}
           <Btn big kind="primary" title="Save" busy={busy} onPress={saveProject} />
@@ -146,6 +165,8 @@ export function Projects() {
         {s && <>
           <Field label="Name" value={s.name} onChange={(v) => setS({ ...s, name: v })} />
           <Row><Field label="Rate (SAR)" value={s.rate} numeric onChange={(v) => setS({ ...s, rate: v })} /><Select label="Unit" value={s.unit} onChange={(v) => setS({ ...s, unit: v })} options={["sqm", "rft", "pcs"].map((u) => ({ value: u, label: u }))} /></Row>
+          <T bold>Projects</T>
+          <Row wrap>{(d.projects || []).map((q: any) => { const on = (s.projects || []).includes(q.id); return <Btn key={q.id} kind={on ? "primary" : "default"} title={q.name} onPress={() => setS({ ...s, projects: on ? s.projects.filter((m: string) => m !== q.id) : [...(s.projects || []), q.id] })} />; })}</Row>
           <T size={13} muted>Work already reported keeps its rate. Work reported before any rate was set takes this one.</T>
           {err ? <T color="#B42318">{err}</T> : null}
           <Btn big kind="primary" title="Save" busy={busy} onPress={saveSub} />
