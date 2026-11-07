@@ -12,17 +12,18 @@ const guessCats = (desc: string) => { const n = norm(desc); return CATS.filter((
 const waNumber = (s: string) => { let n = String(s || "").replace(/\D/g, ""); if (n.startsWith("00")) n = n.slice(2); if (n.startsWith("05")) n = "966" + n.slice(1); return n; };
 
 export default function Suppliers() {
-  const { d, role, insert, update, lang } = useData(); const c = useColors(); const flows = useFlows();
+  const { d, role, insert, update, lang, reload } = useData(); const c = useColors(); const flows = useFlows();
   const ar = role === "abu" && lang === "ar";
-  const [f, setF] = useState<any>(null), [err, setErr] = useState(""), [q, setQ] = useState(""), [find, setFind] = useState(false);
+  const [f, setF] = useState<any>(null), [err, setErr] = useState(""), [busy, setBusy] = useState(false), [q, setQ] = useState(""), [find, setFind] = useState(false);
   const reqs = d.supplier_requests || [];
   const list = (d.suppliers || []).filter((s: any) => !q || norm([s.name, s.city, ...(s.categories || [])].join(" ")).includes(norm(q)));
   const save = async () => {
-    setErr("");
-    try { const row = { name: f.name.trim(), city: f.city, cr_no: f.cr_no, cr_verified: !!f.cr_verified, phone: f.phone, whatsapp: f.whatsapp, email: f.email, categories: f.categories, lang: f.lang, notes: f.notes, website: f.website || null };
+    setErr(""); setBusy(true);
+    try { const row = { name: String(f.name || "").trim(), city: f.city, cr_no: f.cr_no, cr_verified: !!f.cr_verified, phone: f.phone, whatsapp: f.whatsapp, email: f.email, categories: f.categories, lang: f.lang, notes: f.notes, website: f.website || null };
       if (!row.name) throw new Error("Name is required");
-      if (f.id) await update("suppliers", f.id, row); else await insert("suppliers", row); setF(null);
-    } catch (e: any) { setErr(e.message); }
+      if (f.id) await update("suppliers", f.id, row); else { const r = await insert("suppliers", row); if (r?.queued) throw new Error("No internet: it will be saved when the phone is online."); }
+      await reload(["suppliers"]); setF(null);
+    } catch (e: any) { setErr(e?.message || String(e)); } finally { setBusy(false); }
   };
   return (
     <Screen>
@@ -72,7 +73,7 @@ export default function Suppliers() {
           <Select label={ar ? "لغة الرسائل" : "Message language"} value={f.lang} onChange={(v) => setF({ ...f, lang: v })} options={[{ value: "ar", label: "العربية" }, { value: "en", label: "English" }, { value: "ur", label: "اردو" }]} />
           <Field label={ar ? "ملاحظات" : "Notes"} value={f.notes} onChange={(v) => setF({ ...f, notes: v })} multiline />
           {err ? <T color={c.bad}>{err}</T> : null}
-          <Btn big kind="primary" title={ar ? "احفظ" : "Save"} onPress={save} />
+          <Btn big kind="primary" title={ar ? "احفظ" : "Save"} busy={busy} disabled={!String(f.name || "").trim()} onPress={save} />
         </>}
       </Sheet>
     </Screen>
