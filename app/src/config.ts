@@ -5,8 +5,8 @@ export const SUPABASE_ANON_KEY = "YOUR-ANON-PUBLIC-KEY";
 
 // Company details printed on every PDF. Replace these when the logo and details are ready.
 export const COMPANY = {
-  name: "[Company name]",
-  nameAr: "[اسم الشركة]",
+  name: "Al-Swati Contracting",
+  nameAr: "السواتي للمقاولات",
   details: "[CR no. · VAT no. · Address · Phone]",
   // A small PNG logo as a data URI, e.g. "data:image/png;base64,iVBOR..." — leave empty for a placeholder box.
   logoDataUri: "",
