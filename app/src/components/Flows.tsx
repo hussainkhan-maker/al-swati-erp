@@ -138,7 +138,8 @@ function SpeakSheet({ init, onClose, open }: { init?: any; onClose: () => void; 
           </Row>)) : <>
           <Field label={t("amount")} value={o.amount} numeric onChange={(v) => set("amount", v)} />
           {o.intent === "income" && <Field label={t("loanDeduct")} value={o.loan} numeric onChange={(v) => set("loan", v)} />}
-          {o.intent === "subpay" && <Select label={t("sub")} value={o.sub_name} options={subNames(d).map((n: string) => ({ value: n, label: n }))} onChange={(v) => set("sub_name", v)} />}
+          {o.intent === "subpay" && (() => { const onP = (d.subcontractors || []).filter((x: any) => (x.projects || []).includes(o.project_id)).map((x: any) => x.name), names = onP.length ? [...onP, ...subNames(d).filter((n: string) => !onP.includes(n))] : subNames(d);
+            return <Select label={t("sub")} value={o.sub_name} options={names.map((n: string) => ({ value: n, label: onP.includes(n) ? n + " ✓" : n }))} onChange={(v) => set("sub_name", v)} />; })()}
           {o.intent === "rate" && <Row wrap><Field label={t("material")} value={o.material} onChange={(v) => set("material", v)} /><Field label={t("unit")} value={o.unit} onChange={(v) => set("unit", v)} style={{ maxWidth: 100 }} /><Field label={t("supplier")} value={o.supplier} onChange={(v) => set("supplier", v)} /></Row>}
           {o.intent === "expense" && <>
             <Field label={t("desc")} value={o.description} onChange={(v) => set("description", v)} />
