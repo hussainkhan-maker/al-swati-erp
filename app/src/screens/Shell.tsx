@@ -4,6 +4,7 @@ import { Platform } from "react-native";
 import React, { useEffect, useRef, useState } from "react";
 import { AppState, BackHandler, Pressable, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { useFlows } from "../components/Flows";
 import { useData } from "../lib/data";
 import { startTracking } from "../lib/location";
 import { supabase } from "../lib/supabase";
@@ -62,6 +63,7 @@ const TABS: Record<string, TabDef[]> = {
     { key: "report", label: "رپورٹ", icon: "doc", C: Sup.Report },
   ],
 };
+const SUB_LABEL: Record<string, string> = { projects: "Projects & subcontractors", suppliers: "Suppliers", prices: "Prices", agents: "AI agents", people: "People", team: "Team on site", audit: "Audit log" };
 const SUBS: Record<string, React.ComponentType<any>> = { projects: Admin.Projects, suppliers: Suppliers, prices: Prices, agents: Agents, people: Admin.People, team: Admin.Team, audit: Admin.Audit };
 
 export default function Shell() {
@@ -72,6 +74,7 @@ export default function Shell() {
   const [tab, setTab] = useState(tabs[0].key), [sub, setSub] = useState<string | null>(null);
   const [locked, setLocked] = useState(true);
   const bgAt = useRef(0);
+  const flows = useFlows();
   // Phone back button: first close the open page, then go to the first tab; only then leave the app.
   const nav = useRef({ tab, sub }); nav.current = { tab, sub };
   useEffect(() => {
@@ -128,6 +131,11 @@ export default function Shell() {
         )}
         {sub && <SafeAreaView edges={["top"]}><Pressable onPress={() => setSub(null)} style={{ padding: 14, flexDirection: row }}><Text style={{ color: c.accent, fontSize: 17, fontWeight: "700" }}>‹ Back</Text></Pressable></SafeAreaView>}
         <Body go={(k: string) => (SUBS[k] ? setSub(k) : setTab(k))} />
+        {/* AI helper on every page: knows the page, suggests the next step and what to correct. */}
+        <Pressable accessibilityRole="button" accessibilityLabel="AI helper" onPress={() => flows("ask", { page: sub ? (SUB_LABEL[sub] || sub) : cur.label })}
+          style={{ position: "absolute", bottom: 16, [row === "row-reverse" ? "left" : "right"]: 16, width: 58, height: 58, borderRadius: 29, backgroundColor: c.accent, alignItems: "center", justifyContent: "center", elevation: 6, shadowColor: "#000", shadowOpacity: 0.25, shadowRadius: 6, shadowOffset: { width: 0, height: 3 } }}>
+          <Icon name="spark" size={28} color={c.accentInk} />
+        </Pressable>
       </View>
       <SafeAreaView edges={["bottom"]} style={{ backgroundColor: c.surface, borderTopWidth: 1, borderColor: c.line }}>
         <View style={{ flexDirection: row, justifyContent: "space-around", paddingVertical: 6 }}>
