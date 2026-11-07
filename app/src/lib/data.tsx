@@ -18,9 +18,9 @@ const Rpc = (key: string, fn: string): Q => ({ key, run: () => supabase.rpc(fn) 
 const READS: Record<Role, Q[]> = {
   admin: [Tbl("projects"), View("project_members"), Tbl("subcontractors"), Tbl("txns"), Tbl("progress", "created_at", 5000), Tbl("items"), Tbl("prices"), Tbl("quotes", "updated_at"), Tbl("documents"), Tbl("profiles"),
     View("project_ledger"), View("vat_by_company"), View("sub_ledger"), Tbl("audit_log", "at", 300), Tbl("locations", "at", 600),
-    Tbl("inquiries"), Tbl("suppliers"), Tbl("supplier_requests"), Tbl("agent_reports", "created_at", 5)],
+    Tbl("inquiries"), Tbl("suppliers"), Tbl("supplier_requests"), Tbl("agent_reports", "created_at", 5), View("preferences")],
   abu: [Tbl("projects"), Tbl("subcontractors"), Tbl("txns"), Tbl("progress", "created_at", 5000), Tbl("items"), Tbl("prices"), Tbl("quotes", "updated_at"), View("project_ledger"), View("vat_by_company"), View("sub_ledger"),
-    Tbl("suppliers"), Tbl("supplier_requests")],
+    Tbl("suppliers"), Tbl("supplier_requests"), View("preferences")],
   engineer: [Tbl("projects"), Tbl("subcontractors"), Tbl("progress", "created_at", 5000), Tbl("quotes", "updated_at"), Tbl("documents"), Tbl("profiles")],
   supervisor: [Tbl("projects"), Tbl("txns"), Tbl("documents"), Rpc("sub_names", "sub_names"), Rpc("progress", "sup_progress")],
 };
