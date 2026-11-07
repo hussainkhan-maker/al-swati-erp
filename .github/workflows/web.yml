@@ -1,0 +1,45 @@
+# Builds the laptop (browser) version of AL-Swati and puts it on GitHub Pages:
+# https://hussainkhan-maker.github.io/al-swati-erp/
+# GitHub Pages works for a private repository only on a paid GitHub plan (Pro). The code stays private; only the built site is served.
+name: Laptop version (web)
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: web
+  cancel-in-progress: true
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - name: App icon
+        run: pip install --quiet pillow && python3 scripts/make_icon.py
+      - name: Install packages
+        run: npm install --no-audit --no-fund
+      - name: Build the web version
+        run: npx expo export --platform web --output-dir dist && cp dist/index.html dist/404.html
+      - name: Keep the built site as a download
+        uses: actions/upload-artifact@v4
+        with: { name: AL-Swati-web, path: app/dist }
+      # Publishing needs GitHub Pages: free for a public repository, or GitHub Pro for a private one.
+      - uses: actions/configure-pages@v5
+        continue-on-error: true
+        id: pages
+        with: { enablement: true }
+      - uses: actions/upload-pages-artifact@v3
+        if: steps.pages.outcome == 'success'
+        with: { path: app/dist }
+      - uses: actions/deploy-pages@v4
+        if: steps.pages.outcome == 'success'
