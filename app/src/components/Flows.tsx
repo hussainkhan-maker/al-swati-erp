@@ -27,7 +27,7 @@ export function FlowProvider({ children }: { children: React.ReactNode }) {
       {sheet?.kind === "speak" && <SpeakSheet key={sheet.key} init={sheet.init} onClose={close} open={open} />}
       {sheet?.kind === "purchase" && <PurchaseSheet key={sheet.key} init={sheet.init} onClose={close} />}
       {sheet?.kind === "statement" && <StatementSheet key={sheet.key} init={sheet.init} onClose={close} />}
-      {sheet?.kind === "ask" && <AskSheet key={sheet.key} onClose={close} />}
+      {sheet?.kind === "ask" && <AskSheet key={sheet.key} init={sheet.init} onClose={close} />}
     </FlowCtx.Provider>
   );
 }
@@ -282,11 +282,17 @@ function StatementSheet({ init, onClose }: { init?: any; onClose: () => void }) 
 }
 
 // ───────────────────────── personal AI assistant (every account) ─────────────────────────
-function AskSheet({ onClose }: { onClose: () => void }) {
+// Opened from the AI button on every page: it knows which page you are on, and checks entries for mistakes.
+function AskSheet({ init, onClose }: { init?: any; onClose: () => void }) {
   const { t, d, role, lang } = useData(); const c = useColors();
   const [q, setQ] = useState(""), [a, setA] = useState(""), [busy, setBusy] = useState(false);
-  const ask = async () => {
-    if (!q.trim()) return; setBusy(true); setA("");
+  const page = init?.page || "";
+  const W = (en: string, ar: string, ur: string) => (lang === "ar" ? ar : lang === "ur" ? ur : en);
+  const quick = page ? [W("What do I do on this page, step by step?", "ماذا أفعل في هذه الصفحة خطوة بخطوة؟", "اس صفحے پر قدم بہ قدم کیا کروں؟"),
+    W("Check my latest entries for mistakes and tell me what to correct", "راجع آخر إدخالاتي وقل لي ما الذي يجب تصحيحه", "میری تازہ اینٹریاں چیک کرو، کیا غلط ہے اور کیسے ٹھیک کروں"),
+    W("What should I do next?", "ما الخطوة التالية؟", "اب اگلا کام کیا ہے؟")] : [];
+  const ask = async (asked?: string) => {
+    const qq = (asked ?? q).trim(); if (!qq) return; if (asked) setQ(asked); setBusy(true); setA("");
     // only what this phone already holds, which is only what this role may see
     const data: any = { projects: (d.projects || []).map((p: any) => ({ id: p.id, name: p.name, company: p.company, fee_pct: p.fee_pct })) };
     if (d.project_ledger) data.ledger = d.project_ledger;
@@ -298,13 +304,15 @@ function AskSheet({ onClose }: { onClose: () => void }) {
     if (d.documents) data.documents = d.documents.map((x: any) => ({ project: pname(d, x.project_id), no: x.doc_no, rev: x.rev, state: x.state, date: x.created_at?.slice(0, 10) }));
     if (d.inquiries) data.queries = d.inquiries.map((x: any) => ({ ref: x.ref, subject: x.subject, status: x.status, deadline: x.deadline }));
     if (d.supplier_requests) data.supplier_requests = d.supplier_requests.map((x: any) => ({ supplier: (d.suppliers || []).find((s: any) => s.id === x.supplier_id)?.name, status: x.status, sent: x.sent_at }));
-    try { const r = await ai("ask", { question: q, data }); setA(r.text); if (role !== "admin") Speech.speak(r.text, { language: speechLang(lang) }); }
-    catch (e: any) { setA(e.message); } finally { setBusy(false); }
+    const question = page ? `[The person is on the "${page}" page of the app. Explain how to use that page, point out entries that look wrong (missing project, wrong amount, VAT, duplicate, unknown subcontractor) and say exactly how to correct them.] ${qq}` : qq;
+    try { const r = await ai("ask", { question, data }); setA(r.text); if (role !== "admin") Speech.speak(r.text, { language: speechLang(lang) }); }
+    catch (e: any) { setA(/401|ANTHROPIC|api key/i.test(e.message) ? W("The AI is not switched on yet. Super-Admin adds the ANTHROPIC_API_KEY in Supabase → Edge Functions → Secrets.", "الذكاء الاصطناعي غير مفعّل بعد. يضيف المدير مفتاح ANTHROPIC_API_KEY في Supabase.", "AI ابھی چالو نہیں۔ Super-Admin کو Supabase → Edge Functions → Secrets میں ANTHROPIC_API_KEY ڈالنی ہے۔") : e.message); } finally { setBusy(false); }
   };
   return (
-    <Sheet open onClose={() => { Speech.stop(); onClose(); }} title={lang === "ar" ? "مساعدك" : lang === "ur" ? "آپ کا مددگار" : "Your assistant"}>
+    <Sheet open onClose={() => { Speech.stop(); onClose(); }} title={(lang === "ar" ? "مساعدك" : lang === "ur" ? "آپ کا مددگار" : "Your assistant") + (page ? " · " + page : "")}>
+      {quick.length ? <View style={{ gap: 8 }}>{quick.map((x) => <Btn key={x} title={x} onPress={() => ask(x)} disabled={busy} />)}</View> : null}
       <Voice value={q} onChange={setQ} placeholder={lang === "en" ? "How much has Uzair done on Malqa, and what do we owe him?" : ""} />
-      <Btn big kind="primary" icon={<Icon name="spark" color={c.accentInk} />} title={lang === "ar" ? "اسأل" : lang === "ur" ? "پوچھیں" : "Ask"} onPress={ask} busy={busy} disabled={!q.trim()} />
+      <Btn big kind="primary" icon={<Icon name="spark" color={c.accentInk} />} title={lang === "ar" ? "اسأل" : lang === "ur" ? "پوچھیں" : "Ask"} onPress={() => ask()} busy={busy} disabled={!q.trim()} />
       {a ? <Card style={{ backgroundColor: c.accentSoft, borderColor: c.accentSoft }}><T size={17}>{a}</T></Card> : null}
     </Sheet>
   );
