@@ -66,6 +66,17 @@ function SpeakSheet({ init, onClose, open }: { init?: any; onClose: () => void; 
     } catch (e: any) { setErr(e.message); } finally { setBusy(false); }
   };
 
+  // Fill the form by hand, without the AI (also works when the AI is off). Picks up a number and a known name from the typed text.
+  const kinds = role === "supervisor" ? ["progress", "expense"] : ["subpay", "income", "expense", "loan", "rate", "progress"];
+  const byHand = (intent: string) => {
+    const low = text.toLowerCase(), n = (text.match(/\d[\d,]*(\.\d+)?/) || [""])[0].replace(/,/g, "");
+    const sub = subNames(d).find((s: string) => s && low.includes(String(s).toLowerCase())) || "";
+    const proj = projects.find((p: any) => p.name && low.includes(String(p.name).toLowerCase()))?.id || (projects.length === 1 ? projects[0].id : "");
+    setErr(""); setMrn(null); setParsed({ heard: text.trim() });
+    setO({ intent, project_id: proj, amount: intent === "progress" ? "" : n, loan: 0, sub_name: sub, material: "", supplier: "", unit: "sqm", description: intent === "expense" ? text.trim() : "", photo: null,
+      rows: intent === "progress" ? [{ sub_name: sub, qty: n, unit: "sqm", work: "" }] : [] });
+  };
+
   const form = o ? { ...o, amount: num(o.amount), loan: num(o.loan || 0), rows: (o.rows || []).map((r: any) => ({ ...r, qty: num(r.qty) })) } : null;
   const checks: Check[] = form ? entryChecks(t, form, { projects, txns: d.txns || [], subs: subNames(d), ledger: d.project_ledger || [], raw: text }) : [];
   const blocked = checks.some((x) => x.s === "bad");
@@ -101,6 +112,8 @@ function SpeakSheet({ init, onClose, open }: { init?: any; onClose: () => void; 
       {!o && !mrn && <>
         <Voice value={text} onChange={setText} hints={hints} />
         <Btn big kind="primary" title={t("understand")} onPress={understand} busy={busy} disabled={!text.trim()} />
+        <T muted size={14}>{t("byHand")}</T>
+        <Row wrap>{kinds.map((k) => <Btn key={k} title={L(k)} onPress={() => byHand(k)} />)}</Row>
       </>}
       {err ? <Card style={{ backgroundColor: c.warnSoft, borderColor: c.warnSoft }}><T color={c.warn}>{err}</T></Card> : null}
 
