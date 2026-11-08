@@ -1,7 +1,7 @@
 // The shared flows every account uses: speak/type an entry → AI understands → code checks → you confirm.
 // Also: purchase invoice with receipt, statements as checked PDFs, and the personal AI assistant.
 import * as Speech from "expo-speech";
-import React, { createContext, useContext, useMemo, useState } from "react";
+import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { View } from "react-native";
 import { Check, entryChecks, purchaseChecks } from "../lib/checks";
 import { active, companiesOf, pname, useData } from "../lib/data";
@@ -68,14 +68,17 @@ function SpeakSheet({ init, onClose, open }: { init?: any; onClose: () => void; 
 
   // Fill the form by hand, without the AI (also works when the AI is off). Picks up a number and a known name from the typed text.
   const kinds = role === "supervisor" ? ["progress", "expense"] : ["subpay", "income", "expense", "loan", "rate", "progress"];
-  const byHand = (intent: string) => {
+  const byHand = (intent: string, pid?: string, subName?: string) => {
     const low = text.toLowerCase(), n = (text.match(/\d[\d,]*(\.\d+)?/) || [""])[0].replace(/,/g, "");
-    const sub = subNames(d).find((s: string) => s && low.includes(String(s).toLowerCase())) || "";
-    const proj = projects.find((p: any) => p.name && low.includes(String(p.name).toLowerCase()))?.id || (projects.length === 1 ? projects[0].id : "");
+    const sub = subName || subNames(d).find((s: string) => s && low.includes(String(s).toLowerCase())) || "";
+    const proj = pid || projects.find((p: any) => p.name && low.includes(String(p.name).toLowerCase()))?.id || (projects.length === 1 ? projects[0].id : "");
     setErr(""); setMrn(null); setParsed({ heard: text.trim() });
     setO({ intent, project_id: proj, amount: intent === "progress" ? "" : n, loan: 0, sub_name: sub, material: "", supplier: "", unit: "sqm", description: intent === "expense" ? text.trim() : "", photo: null,
       rows: intent === "progress" ? [{ sub_name: sub, qty: n, unit: "sqm", work: "" }] : [] });
   };
+
+  // Opened from a project's buttons: go straight to the right form with the project (and subcontractor) filled in.
+  useEffect(() => { if (init?.intent) byHand(init.intent, init.project_id, init.sub_name); }, []);
 
   const form = o ? { ...o, amount: num(o.amount), loan: num(o.loan || 0), rows: (o.rows || []).map((r: any) => ({ ...r, qty: num(r.qty) })) } : null;
   const checks: Check[] = form ? entryChecks(t, form, { projects, txns: d.txns || [], subs: subNames(d), ledger: d.project_ledger || [], raw: text }) : [];
