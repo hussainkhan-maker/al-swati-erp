@@ -2,6 +2,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import NetInfo from "@react-native-community/netinfo";
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { Platform } from "react-native";
 import { uid as genId } from "./fmt";
 import { Lang, isRTL, makeT } from "./i18n";
 import { uploadFile } from "./files";
@@ -112,6 +113,13 @@ export function DataProvider({ profile, children }: { profile: Profile; children
   }, []);
   useEffect(() => {
     refreshCounts(); flush();
+    // Laptop/web: trust the browser's own online flag (the reachability check can be blocked and wrongly say "offline").
+    if (Platform.OS === "web") {
+      const on = () => { setOnline(true); flush(); }, off = () => setOnline(false);
+      setOnline(typeof navigator === "undefined" || navigator.onLine !== false);
+      window.addEventListener("online", on); window.addEventListener("offline", off);
+      return () => { window.removeEventListener("online", on); window.removeEventListener("offline", off); };
+    }
     return NetInfo.addEventListener((s) => { const on = !!s.isConnected && s.isInternetReachable !== false; setOnline(on); if (on) flush(); });
   }, []);
 
