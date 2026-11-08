@@ -1,9 +1,8 @@
-# Builds the Android app (APK) on GitHub's own computers every time the code changes,
+# Builds the Android app (APK) on GitHub's own computers when started by hand (Actions → Android APK → Run workflow),
 # and publishes it under Releases → "Latest" so it can be downloaded and installed on any Android phone.
+# While testing on the laptop, code changes do not start a phone build.
 name: Android APK
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 permissions:
   contents: write
