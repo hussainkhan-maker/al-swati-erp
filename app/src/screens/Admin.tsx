@@ -152,6 +152,13 @@ export function Projects() {
         <Card key={x.id} onPress={() => setP({ ...x, members: membersOf(x.id), subs: subsOf(x.id).map((q: any) => q.id) })}>
           <Row><View style={{ flex: 1 }}><T bold size={17}>{x.name}</T><T muted size={13}>{x.company || "—"} · fee {x.fee_pct}% · {membersOf(x.id).length} on site</T></View><T bold>{money(L(x.id).installed)} m²</T></Row>
           {subsOf(x.id).length ? <Table cols={["Subcontractor", "Done", "Earned", "Paid", "Balance"]} numeric={[1, 2, 3, 4]} rows={subRows(x.id)} /> : <T muted size={13}>No subcontractors on this project yet. Tap the project to add them.</T>}
+          <Row wrap>
+            <Btn kind="primary" icon={<Icon name="plus" color="#fff" />} title="Payment received" onPress={() => flows("speak", { intent: "income", project_id: x.id })} />
+            <Btn icon={<Icon name="plus" />} title="Pay subcontractor" onPress={() => flows("speak", { intent: "subpay", project_id: x.id, sub_name: subsOf(x.id).length === 1 ? subsOf(x.id)[0].name : "" })} />
+            <Btn icon={<Icon name="plus" />} title="Expense" onPress={() => flows("speak", { intent: "expense", project_id: x.id })} />
+            <Btn icon={<Icon name="receipt" />} title="Purchase invoice" onPress={() => flows("purchase", { voice: { project_id: x.id } })} />
+          </Row>
+          {subsOf(x.id).length > 1 && <Row wrap>{subsOf(x.id).map((q: any) => <Btn key={q.id} title={"Pay " + q.name} onPress={() => flows("speak", { intent: "subpay", project_id: x.id, sub_name: q.name })} />)}</Row>}
           <Row wrap><Btn title="Statement" onPress={() => flows("statement", { kind: "project", target: x.name })} />{x.quote_id ? <Pill kind="acc" text="from quotation" /> : null}</Row>
         </Card>))}
       <Row><View style={{ flex: 1 }}><H2>All subcontractors (all projects)</H2></View><Btn icon={<Icon name="plus" />} title="Add" onPress={() => setS({ name: "", rate: "", unit: "sqm", projects: [] })} /></Row>
