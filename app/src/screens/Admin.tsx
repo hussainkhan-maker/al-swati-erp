@@ -110,6 +110,19 @@ export function Projects() {
     }
   };
 
+  // Add a brand-new subcontractor straight from the project screen; it is ticked for this project.
+  const addNewSub = async () => {
+    const name = String(p.newSub || "").trim(); if (!name) return;
+    setErr("");
+    try {
+      if ((d.subcontractors || []).some((x: any) => String(x.name).toLowerCase() === name.toLowerCase())) throw new Error(name + " is already in the list: tap the name to tick it.");
+      const { data, error } = await supabase.from("subcontractors").insert({ name, rate: num(p.newRate || 0), unit: "sqm", projects: p.id ? [p.id] : [] }).select("id").single();
+      if (error) throw error;
+      await reload(["subcontractors"]);
+      setP({ ...p, newSub: "", newRate: "", subs: [...(p.subs || []), data.id] });
+    } catch (e: any) { setErr(e.message); }
+  };
+
   const saveProject = async () => {
     setBusy(true); setErr("");
     try {
@@ -152,10 +165,18 @@ export function Projects() {
           <Field label="Client" value={p.client} onChange={(v) => setP({ ...p, client: v })} />
           <Field label="Company the project is under" value={p.company} onChange={(v) => setP({ ...p, company: v })} />
           <Field label="Service fee % (charged on the amount after VAT)" value={p.fee_pct} numeric onChange={(v) => setP({ ...p, fee_pct: v })} />
-          <T bold>People on this site</T>
+          <T bold>Site staff (supervisors and engineers)</T>
+          <T size={13} muted>Tick who works on this site. They will see only the projects they are ticked on, and can report progress there.</T>
+          {!staff.length && <T size={13} muted>No supervisor or engineer yet. Add them first in More → People (role: Supervisor or Engineer); then they show here.</T>}
           <Row wrap>{staff.map((u: any) => { const on = (p.members || []).includes(u.id); return <Btn key={u.id} kind={on ? "primary" : "default"} title={`${u.name} · ${u.role}`} onPress={() => setP({ ...p, members: on ? p.members.filter((m: string) => m !== u.id) : [...(p.members || []), u.id] })} />; })}</Row>
           <T bold>Subcontractors on this project</T>
-          <Row wrap>{(d.subcontractors || []).map((u: any) => { const on = (p.subs || []).includes(u.id); return <Btn key={u.id} kind={on ? "primary" : "default"} title={u.name} onPress={() => setP({ ...p, subs: on ? p.subs.filter((m: string) => m !== u.id) : [...(p.subs || []), u.id] })} />; })}</Row>
+          <T size={13} muted>Tap a name to tick or untick it. A new one: write the name (and rate per m²) below and tap Add.</T>
+          <Row wrap>{(d.subcontractors || []).map((u: any) => { const on = (p.subs || []).includes(u.id); return <Btn key={u.id} kind={on ? "primary" : "default"} title={(on ? "✓ " : "") + u.name} onPress={() => setP({ ...p, subs: on ? p.subs.filter((m: string) => m !== u.id) : [...(p.subs || []), u.id] })} />; })}</Row>
+          <Row wrap>
+            <View style={{ flexGrow: 2, flexBasis: 160 }}><Field label="New subcontractor name" value={p.newSub || ""} onChange={(v) => setP({ ...p, newSub: v })} /></View>
+            <View style={{ flexGrow: 1, flexBasis: 100 }}><Field label="Rate per m² (SAR)" value={p.newRate || ""} numeric onChange={(v) => setP({ ...p, newRate: v })} /></View>
+          </Row>
+          <Btn icon={<Icon name="plus" />} title="Add subcontractor" disabled={!String(p.newSub || "").trim()} onPress={addNewSub} />
           <T size={13} muted>The fee is locked: only Super-Admin can change it, and every change is in the audit log.</T>
           {err ? <T color="#B42318">{err}</T> : null}
           <Btn big kind="primary" title="Save" busy={busy} onPress={saveProject} />
