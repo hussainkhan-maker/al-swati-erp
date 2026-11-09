@@ -11,9 +11,33 @@ import { Lang } from "./i18n";
 export type Doc = { title: string; cols: string[]; rows: any[][]; sum: [string, string][]; numCols: number[]; check?: { col: number; total: number } };
 const esc = (v: any) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
 
-export function buildStatement(d: Record<string, any[]>, role: string, lang: Lang, kind: string, target: string): Doc | null {
+export function buildStatement(d: Record<string, any[]>, role: string, lang: Lang, kind: string, target: string, projectId = ""): Doc | null {
   const H = (en: string, ar: string, ur: string) => (lang === "ar" ? ar : lang === "ur" ? ur : en);
-  const txns = active(d.txns), prog = active(d.progress);
+  // Optional: only one project. Dates: the day it was paid / worked, else the day it was entered.
+  const inP = (x: any) => !projectId || x.project_id === projectId || (x.split || []).some((q: any) => q.project_id === projectId);
+  const dd = (x: any) => String(x.paid_on || x.work_date || "").slice(0, 10) || day(x.created_at);
+  const txns = active(d.txns).filter(inP), prog = active(d.progress).filter(inP);
+  const pTitle = projectId ? " · " + pname(d, projectId) : "";
+  if (kind === "received") {
+    // Every payment received from clients: when, how, gross, VAT, fee, loan deducted, in hand.
+    const list = txns.filter((x) => x.type === "income").sort((a, b) => (dd(a) < dd(b) ? -1 : 1));
+    const rows = list.map((x) => [dd(x), pname(d, x.project_id), [x.method, x.description].filter(Boolean).join(" · "), Number(x.gross) || 0, Number(x.vat) || 0, Number(x.fee) || 0, Number(x.loan) || 0, Number(x.net) || 0]);
+    const S = (i: number) => r2(rows.reduce((s2, rr) => s2 + (rr[i] as number), 0));
+    return { title: H("Payments received", "الدفعات المستلمة", "آئی ہوئی ادائیگیاں") + pTitle, cols: [H("Date", "التاريخ", "تاریخ"), H("Project", "المشروع", "پروجیکٹ"), H("How / note", "الطريقة", "طریقہ / نوٹ"), H("Received", "المستلم", "وصولی"), "VAT", H("Fee", "الرسوم", "فیس"), H("Loan cut", "خصم القرض", "قرض کٹوتی"), H("In hand", "الصافي", "ہاتھ میں")], rows, numCols: [3, 4, 5, 6, 7],
+      sum: [[H("Times paid", "عدد الدفعات", "کتنی دفعہ"), String(rows.length)], [H("Received", "المستلم", "کل وصولی"), money(S(3))], [H("In hand", "الصافي", "ہاتھ میں"), money(S(7))]], check: { col: 7, total: S(7) } };
+  }
+  if (kind === "expenses" || kind === "purchases") {
+    const small = kind === "expenses";
+    const list = txns.filter((x) => x.type === (small ? "expense" : "purchase")).sort((a, b) => (dd(a) < dd(b) ? -1 : 1));
+    const rows = small
+      ? list.map((x) => [dd(x), pname(d, x.project_id), x.description || "", x.method || "", Number(x.amount) || 0])
+      : list.map((x) => [dd(x), pname(d, x.project_id), x.supplier || "", x.invoice_no || "", x.vat_company || "", Number(x.vat_amount) || 0, Number(x.total) || 0]);
+    const tc = small ? 4 : 6, tot = r2(rows.reduce((s2, rr) => s2 + (rr[tc] as number), 0));
+    return small
+      ? { title: H("Small expenses", "المصروفات الصغيرة", "چھوٹے خرچے") + pTitle, cols: [H("Date", "التاريخ", "تاریخ"), H("Project", "المشروع", "پروجیکٹ"), H("For", "البيان", "کس لیے"), H("Paid by", "طريقة الدفع", "طریقہ"), H("Amount", "المبلغ", "رقم")], rows, numCols: [4], sum: [[H("Total", "الإجمالي", "کل"), money(tot)]], check: { col: 4, total: tot } }
+      : { title: H("Material purchases", "مشتريات المواد", "میٹیریل کی خریداری") + pTitle, cols: [H("Date", "التاريخ", "تاریخ"), H("Project", "المشروع", "پروجیکٹ"), H("Supplier", "المورد", "سپلائر"), H("Invoice", "الفاتورة", "انوائس"), H("VAT company", "شركة الضريبة", "VAT کمپنی"), H("VAT", "الضريبة", "VAT"), H("Total", "الإجمالي", "کل")], rows, numCols: [5, 6],
+          sum: [[H("VAT", "الضريبة", "VAT"), money(r2(rows.reduce((s2, rr) => s2 + (rr[5] as number), 0)))], [H("Total", "الإجمالي", "کل"), money(tot)]], check: { col: 6, total: tot } };
+  }
   if (kind === "sub") {
     const name = (d.sub_names || (d.subcontractors || []).map((s: any) => s.name)).find((s: string) => norm(s).includes(norm(target)) || norm(target).includes(norm(s))) || target;
     const pr = prog.filter((p) => norm(p.sub_name) === norm(name));
@@ -22,12 +46,16 @@ export function buildStatement(d: Record<string, any[]>, role: string, lang: Lan
       const tot = r2(rows.reduce((s, r) => s + (r[3] as number), 0));
       return { title: H("Subcontractor work", "عمل المقاول", "سب کنٹریکٹر کا کام") + " · " + name, cols: [H("Date", "التاريخ", "تاریخ"), H("Project", "المشروع", "پروجیکٹ"), H("Work", "العمل", "کام"), H("Qty", "الكمية", "مقدار")], rows, sum: [[H("Total work", "مجموع العمل", "کل کام"), money(tot)]], numCols: [3], check: { col: 3, total: tot } };
     }
-    const rows = pr.map((p) => { const rt = Number(p.rate) || 0; return [day(p.created_at), pname(d, p.project_id), p.work || "", Number(p.qty), rt, r2(Number(p.qty) * rt)]; });
     const pays = txns.filter((x) => x.type === "subpay" && norm(x.sub_name) === norm(name));
-    const work = r2(rows.reduce((s, r) => s + (r[5] as number), 0)), paid = r2(pays.reduce((s, x) => s + Number(x.amount), 0)), qty = r2(rows.reduce((s, r) => s + (r[3] as number), 0));
-    return { title: H("Subcontractor statement", "كشف حساب مقاول باطن", "سب کنٹریکٹر کا حساب") + " · " + name,
-      cols: [H("Date", "التاريخ", "تاریخ"), H("Project", "المشروع", "پروجیکٹ"), H("Work", "العمل", "کام"), H("Qty", "الكمية", "مقدار"), H("Rate", "السعر", "ریٹ"), H("Amount", "المبلغ", "رقم")], rows, numCols: [3, 4, 5],
-      sum: [[H("Total work", "مجموع العمل", "کل کام"), `${money(qty)} · ${money(work)}`], [H("Paid", "مدفوع", "ادا"), money(paid)], [H("Balance", "المتبقي", "باقی"), money(r2(work - paid))]], check: { col: 5, total: work } };
+    // Work lines (m² × rate) and payment lines (date, how paid, note) in date order.
+    const rows: any[][] = [
+      ...pr.map((p) => { const rt = Number(p.rate) || 0; return [dd(p), pname(d, p.project_id), H("Work", "عمل", "کام") + (p.work ? " · " + p.work : ""), Number(p.qty), rt, r2(Number(p.qty) * rt), 0]; }),
+      ...pays.map((x) => [dd(x), pname(d, x.project_id), H("Payment", "دفعة", "ادائیگی") + [x.method, x.description].filter(Boolean).map((v) => " · " + v).join(""), 0, 0, 0, Number(x.amount) || 0]),
+    ].sort((a, b) => (a[0] < b[0] ? -1 : 1));
+    const work = r2(rows.reduce((s, r) => s + (r[5] as number), 0)), paid = r2(rows.reduce((s, r) => s + (r[6] as number), 0)), qty = r2(rows.reduce((s, r) => s + (r[3] as number), 0));
+    return { title: H("Subcontractor statement", "كشف حساب مقاول باطن", "سب کنٹریکٹر کا حساب") + " · " + name + pTitle,
+      cols: [H("Date", "التاريخ", "تاریخ"), H("Project", "المشروع", "پروجیکٹ"), H("Work / payment", "العمل / الدفعة", "کام / ادائیگی"), "m²", H("Rate", "السعر", "ریٹ"), H("Earned", "المستحق", "کمائی"), H("Paid", "مدفوع", "ادا")], rows, numCols: [3, 4, 5, 6],
+      sum: [[H("Total m²", "مجموع المتر", "کل m²"), money(qty)], [H("Earned", "المستحق", "کمائی"), money(work)], [H("Paid", "مدفوع", "ادا"), money(paid)], [H("Balance", "المتبقي", "باقی"), money(r2(work - paid))]], check: { col: 5, total: work } };
   }
   if (kind === "vat") {
     const rows = txns.filter((x) => x.type === "purchase" && Number(x.vat_amount) > 0).map((x) => [day(x.created_at), x.vat_company, x.supplier || "", Number(x.total), Number(x.vat_amount)]);
