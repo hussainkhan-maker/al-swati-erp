@@ -11,6 +11,24 @@ const sum = (a: any[], k: string) => a.reduce((s, x) => s + (Number(x[k]) || 0),
 const TYPE: Record<string, string> = { income: "Income", loan: "Loan", purchase: "Purchase", expense: "Expense", subpay: "Sub payment" };
 
 const dkey = (x: any) => String(x.paid_on || x.work_date || x.created_at || "").slice(0, 10);
+/** Retention and client rate per project (kept in preferences "project_terms"). */
+export const termsOf = (d: any, pid: string) => (((d.preferences || []).find((p: any) => p.key === "project_terms")?.value || {})[pid] || {}) as { retention?: number; rate?: number };
+const isRelease = (x: any) => /^retention release/i.test(String(x.description || ""));
+/** What the client owes on one project. Payments arrive after VAT and after the client keeps the retention:
+ *  received ex VAT = (100 − retention)% of the work it pays for. The service fee is charged on that received amount (done by the database). */
+export function clientAccount(d: any, pid: string) {
+  const t = termsOf(d, pid), r = Math.min(Math.max(Number(t.retention) || 0, 0), 50) / 100, rate = Number(t.rate) || 0;
+  const inc = active(d.txns).filter((x: any) => x.type === "income" && x.project_id === pid);
+  const base = (x: any) => Number(x.gross || 0) - Number(x.vat ?? Number(x.gross || 0) - Number(x.gross || 0) / 1.15);
+  const normal = inc.filter((x: any) => !isRelease(x)).reduce((s2: number, x: any) => s2 + base(x), 0);
+  const released = inc.filter(isRelease).reduce((s2: number, x: any) => s2 + base(x), 0);
+  const m2 = (d.project_ledger || []).find((l: any) => l.project_id === pid)?.installed || 0;
+  const covered = r < 1 ? normal / (1 - r) : normal;          // work value those payments paid for (incl. retention)
+  const retHeld = Math.max(0, covered * r - released);          // retention the client is still keeping
+  const workValue = Number(m2) * rate;                          // m² done × client rate (before VAT)
+  const unpaidWork = rate ? Math.max(0, workValue - covered) : 0;
+  return { r: r * 100, rate, m2: Number(m2), received: normal + released, covered, retHeld, workValue, unpaidWork, owes: unpaidWork + retHeld };
+}
 const TYPE_ICON: Record<string, string> = { income: "cash", loan: "pct", purchase: "receipt", expense: "tag", subpay: "people", progress: "ruler" };
 
 export function Dashboard() {
@@ -54,7 +72,7 @@ export function Dashboard() {
   );
   const kpis = (
     <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12 }}>
-      {[["Cash in hand from clients", SAR(sum(L, "net")), true], ["Costs (ex VAT)", SAR(sum(L, "cost"))], ["Subcontract work", SAR(sum(L, "sub_work"))],
+      {[["Cash in hand from clients", SAR(sum(L, "net")), true], ["Client still owes (ex VAT)", SAR((d.projects || []).reduce((s2: number, p: any) => s2 + clientAccount(d, p.id).owes, 0))], ["Costs (ex VAT)", SAR(sum(L, "cost"))], ["Subcontract work", SAR(sum(L, "sub_work"))],
         ["Profit (estimate)", SAR(sum(L, "profit"))], ["Company loans open", SAR(sum(L, "loan_balance"))], ["Purchase VAT to recover", SAR(vat)]]
         .map(([l, v, h]: any, i) => <Rise key={l} i={i + 1} style={{ flexGrow: 1, flexBasis: wide ? 200 : 150 }}><Kpi hero={h} label={l} value={v} /></Rise>)}
     </View>
@@ -151,7 +169,7 @@ export function Money() {
 }
 
 export function Projects() {
-  const { d, insert, update, reload } = useData(); const flows = useFlows();
+  const { d, insert, update, reload } = useData(); const flows = useFlows(); const c = useColors();
   const [p, setP] = useState<any>(null), [s, setS] = useState<any>(null), [err, setErr] = useState(""), [busy, setBusy] = useState(false);
   const [det, setDet] = useState<any>(null); // one entry opened for full details
   const [hist, setHist] = useState<Record<string, string | null>>({}); // project id → "" (all) or a subcontractor name; missing = closed
@@ -205,6 +223,14 @@ export function Projects() {
       if (add.length) await supabase.from("project_members").insert(add.map((u) => ({ project_id: id, user_id: u })));
       for (const u of del) await supabase.from("project_members").delete().eq("project_id", id).eq("user_id", u);
       if (id) await saveLinks(id, p.subs || []);
+      if (id) {
+        const ret = num(p.ret || 0), rate = num(p.rate || 0);
+        if (!(ret >= 0 && ret <= 30)) throw new Error("Retention must be between 0 and 30%.");
+        const all = { ...((d.preferences || []).find((q: any) => q.key === "project_terms")?.value || {}), [id]: { retention: ret, rate } };
+        const { error } = await supabase.from("preferences").upsert({ key: "project_terms", value: all, updated_at: new Date().toISOString() });
+        if (error) throw error;
+        await reload(["preferences"]);
+      }
       await reload(["subcontractors"]); setP(null);
     } catch (e: any) { setErr(e.message); } finally { setBusy(false); }
   };
@@ -217,9 +243,9 @@ export function Projects() {
 
   return (
     <Screen>
-      <Row><View style={{ flex: 1 }}><H1>Projects</H1></View><Btn kind="primary" icon={<Icon name="plus" color="#fff" />} title="New" onPress={() => setP({ name: "", client: "", company: "", fee_pct: "", members: [], subs: [] })} /></Row>
+      <Row><View style={{ flex: 1 }}><H1>Projects</H1></View><Btn kind="primary" icon={<Icon name="plus" color="#fff" />} title="New" onPress={() => setP({ name: "", client: "", company: "", fee_pct: "", members: [], subs: [], ret: "", rate: "" })} /></Row>
       {(d.projects || []).map((x: any) => (
-        <Card key={x.id} onPress={() => setP({ ...x, members: membersOf(x.id), subs: subsOf(x.id).map((q: any) => q.id) })}>
+        <Card key={x.id} onPress={() => setP({ ...x, members: membersOf(x.id), subs: subsOf(x.id).map((q: any) => q.id), ret: termsOf(d, x.id).retention ?? "", rate: termsOf(d, x.id).rate ?? "" })}>
           <Row><View style={{ flex: 1 }}><T bold size={17}>{x.name}</T><T muted size={13}>{x.company || "—"} · fee {x.fee_pct}% · {membersOf(x.id).length} on site</T></View><View style={{ alignItems: "flex-end" }}><T bold size={20}>{money(L(x.id).installed)} m²</T><T muted size={12}>total done</T></View></Row>
           {subsOf(x.id).length ? <Table cols={["Subcontractor", "Done", "Earned", "Paid", "Balance"]} numeric={[1, 2, 3, 4]} rows={subRows(x.id)} /> : <T muted size={13}>No subcontractors on this project yet. Tap the project to add them.</T>}
           <Row wrap>
@@ -229,6 +255,17 @@ export function Projects() {
             <Btn icon={<Icon name="plus" />} title="Expense" onPress={() => flows("speak", { intent: "expense", project_id: x.id })} />
             <Btn icon={<Icon name="receipt" />} title="Purchase invoice" onPress={() => flows("purchase", { voice: { project_id: x.id } })} />
           </Row>
+          {(() => { const a = clientAccount(d, x.id); return (
+            <View style={{ backgroundColor: c.accentSoft, borderRadius: 14, padding: 12, gap: 4 }}>
+              <T bold>Client account (before VAT)</T>
+              {a.rate ? <>
+                <Row><T style={{ flex: 1 }}>Work done: {money(a.m2)} m² × {money(a.rate)}</T><T bold>{money(a.workValue)}</T></Row>
+                <Row><T style={{ flex: 1 }}>Paid by client (after VAT, after retention)</T><T bold>{money(a.received)}</T></Row>
+                <Row><T style={{ flex: 1 }}>Work not paid yet</T><T bold>{money(a.unpaidWork)}</T></Row>
+              </> : <T muted size={13}>Tap the project and add the client rate per m² to see the work value and what is still to come.</T>}
+              <Row><T style={{ flex: 1 }}>Retention the client still keeps ({money(a.r)}%)</T><T bold>{money(a.retHeld)}</T></Row>
+              <Row><T bold style={{ flex: 1 }}>Client still owes you</T><T bold size={18} color={c.accent}>{money(a.owes)} SAR</T></Row>
+            </View>); })()}
           {(() => { const inc = active(d.txns).filter((t: any) => t.type === "income" && t.project_id === x.id); const last = inc.map(dkey).sort().pop();
             return <T muted size={13}>Received from client: {money(sum(inc, "gross"))} SAR in {inc.length} payment{inc.length === 1 ? "" : "s"}{last ? ` · last on ${last}` : ""}</T>; })()}
           <Row wrap><Btn icon={<Icon name="log" />} title={hist[x.id] != null ? "Hide history" : "History (every entry, tap for details)"} onPress={() => setHist((h) => { const n = { ...h }; if (n[x.id] != null) delete n[x.id]; else n[x.id] = ""; return n; })} /></Row>
@@ -275,6 +312,11 @@ export function Projects() {
           <Field label="Client" value={p.client} onChange={(v) => setP({ ...p, client: v })} />
           <Field label="Company the project is under" value={p.company} onChange={(v) => setP({ ...p, company: v })} />
           <Field label="Service fee % (charged on the amount after VAT)" value={p.fee_pct} numeric onChange={(v) => setP({ ...p, fee_pct: v })} />
+          <Row wrap>
+            <Field label="Retention % kept by the client (usually 10–20)" value={p.ret} numeric onChange={(v) => setP({ ...p, ret: v })} />
+            <Field label="Client rate per m² (SAR, before VAT)" value={p.rate} numeric onChange={(v) => setP({ ...p, rate: v })} />
+          </Row>
+          <T size={13} muted>With the client rate, the app works out: m² done × rate = work value, minus what the client paid (plus the retention he keeps) = what he still owes.</T>
           <T bold>Site staff (supervisors and engineers)</T>
           <T size={13} muted>Tick who works on this site. They will see only the projects they are ticked on, and can report progress there.</T>
           {!staff.length && <T size={13} muted>No supervisor or engineer yet. Add them first in More → People (role: Supervisor or Engineer); then they show here.</T>}
