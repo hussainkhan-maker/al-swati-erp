@@ -114,7 +114,7 @@ function SpeakSheet({ init, onClose, open }: { init?: any; onClose: () => void; 
       let queued = false;
       const q = (r: any) => { if (r.queued) queued = true; };
       if (form.intent === "progress") for (const r of form.rows) q(await ins("progress", { project_id: form.project_id, sub_name: r.sub_name, qty: r.qty, unit: r.unit, work: r.work, work_date: when, heard: text, flags }));
-      else if (form.intent === "income") q(await ins("txns", { type: "income", project_id: form.project_id, gross: form.amount, loan: form.loan || 0, paid_on: when, method: how, description: memo, heard: text, flags }));
+      else if (form.intent === "income") q(await ins("txns", { type: "income", project_id: form.project_id, gross: form.amount, loan: form.loan || 0, paid_on: when, method: how, description: [form.relRet ? "Retention release" : null, memo].filter(Boolean).join(" · ") || null, heard: text, flags }));
       else if (form.intent === "loan") q(await ins("txns", { type: "loan", project_id: form.project_id, amount: form.amount, paid_on: when, method: how, description: memo, heard: text, flags }));
       else if (form.intent === "subpay") q(await ins("txns", { type: "subpay", project_id: form.project_id, amount: form.amount, sub_name: form.sub_name, paid_on: when, method: how, description: memo, heard: text, flags }));
       else if (form.intent === "expense") q(await ins("txns", { type: "expense", project_id: form.project_id, amount: form.amount, description: [form.description, memo].filter(Boolean).join(" · "), paid_on: when, method: how, heard: text, flags }));
@@ -170,6 +170,10 @@ function SpeakSheet({ init, onClose, open }: { init?: any; onClose: () => void; 
             <T key="sum" bold>Total today: {money((form?.rows || []).reduce((s2: number, r: any) => s2 + (r.qty || 0), 0))} m²</T>]) : <>
           <Field label={t("amount")} value={o.amount} numeric onChange={(v) => set("amount", v)} />
           {o.intent === "income" && <Field label={t("loanDeduct")} value={o.loan} numeric onChange={(v) => set("loan", v)} />}
+          {o.intent === "income" && (() => { const ret = Number((((d.preferences || []).find((q: any) => q.key === "project_terms")?.value || {})[o.project_id] || {}).retention) || 0; return <>
+            <Btn kind={o.relRet ? "primary" : "default"} title={(o.relRet ? "✓ " : "") + "This payment is the retention being released"} onPress={() => set("relRet", !o.relRet)} />
+            {ret > 0 && !o.relRet && num(o.amount) > 0 && <T muted size={13}>Retention {ret}%: the client keeps about {money(r2(num(o.amount) / 1.15 / (1 - ret / 100) * ret / 100))} SAR more on this payment (shown in the project's client account).</T>}
+          </>; })()}
           {o.intent === "subpay" && (() => { const onP = (d.subcontractors || []).filter((x: any) => (x.projects || []).includes(o.project_id)).map((x: any) => x.name), names = onP.length ? [...onP, ...subNames(d).filter((n: string) => !onP.includes(n))] : subNames(d);
             return <Select label={t("sub")} value={o.sub_name} options={names.map((n: string) => ({ value: n, label: onP.includes(n) ? n + " ✓" : n }))} onChange={(v) => set("sub_name", v)} />; })()}
           {o.intent === "rate" && <Row wrap><Field label={t("material")} value={o.material} onChange={(v) => set("material", v)} /><Field label={t("unit")} value={o.unit} onChange={(v) => set("unit", v)} style={{ maxWidth: 100 }} /><Field label={t("supplier")} value={o.supplier} onChange={(v) => set("supplier", v)} /></Row>}
