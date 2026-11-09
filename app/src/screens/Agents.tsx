@@ -5,6 +5,7 @@ import { active, useData } from "../lib/data";
 import { ageDays, stamp } from "../lib/fmt";
 import { supabase } from "../lib/supabase";
 import { Btn, Card, Checks, Field, H1, H2, Icon, Pill, Row, Screen, T, useColors } from "../ui";
+import AiTools from "./AiTools";
 import { pref } from "./Quotes";
 
 export default function Agents() {
@@ -37,6 +38,10 @@ export default function Agents() {
       <A icon="spark" name="Advisor" job="Suggests a rate per line from your costs, your margins and which quotations won or lost" s="good" status={`Learning from ${(d.quotes || []).filter((q: any) => ["Approved", "Lost"].includes(q.status)).length} closed quotations · target ${pref(d, "margin", { target: 20 }).target}%`} />
       <A icon="share" name="Quotation PDF agent" job="Builds the quotation PDF, re-reads the total, blocks lines below cost, then opens WhatsApp / email" s={blankQuotes.length ? "warn" : "good"} status={`${(d.quotes || []).filter((q: any) => q.status === "Sent to Client").length} sent to clients`} />
       <A icon="ruler" name="Site agent" job="Turns spoken meters into project, subcontractor and engineer records" s={noRate.length ? "bad" : "good"} status={`${pr.length} progress entries · ${noRate.length} subcontractors without a rate`} />
+      <A icon="doc" name="Contract auditor" job="Reads Arabic muqawala contracts and client quotations; flags penalties, retention, hidden transport/crane costs and suggests counter-terms" s="good" status="Use “Contract check” below" />
+      <A icon="truck" name="Quotation comparer" job="Puts supplier quotations side by side (price, VAT, stock, delivery, credit days, hidden costs) and names the best value" s="good" status="Use “Compare supplier quotations” below" />
+      <A icon="spark" name="Memory agent" job="Turns your feedback into rules that the advisor and supplier agents follow" s="good" status={`${(pref(d, "rules", { list: [] }).list || []).length} rules learned`} />
+      {role === "admin" && <AiTools />}
       {role === "admin" && <Prefs />}
       <Card>
         <Row><Icon name="spark" color={c.accent} /><H2>Main agent · morning report</H2></Row>
