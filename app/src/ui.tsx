@@ -1,14 +1,29 @@
-import React, { useEffect, useState } from "react";
-import { ActivityIndicator, FlatList, Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, TextStyle, useColorScheme, View, ViewStyle } from "react-native";
+import React, { useEffect, useRef, useState } from "react";
+import { ActivityIndicator, Animated, Easing, FlatList, Image, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, TextStyle, useColorScheme, useWindowDimensions, View, ViewStyle } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Svg, { Path } from "react-native-svg";
 import { Check } from "./lib/checks";
 import { useData } from "./lib/data";
 import { signedUrl } from "./lib/files";
 
-const LIGHT = { bg: "#F3F4F1", surface: "#FFFFFF", sunk: "#E9ECE8", line: "#D6DCD7", ink: "#18211E", muted: "#4F5C57", accent: "#0E6B5C", accentInk: "#FFFFFF", accentSoft: "#E2F0EC", good: "#1E7A46", goodSoft: "#E3F3E8", warn: "#9A5B00", warnSoft: "#FBF0DC", bad: "#B42318", badSoft: "#FBE7E5" };
+const LIGHT = { bg: "#EAF2EE", surface: "#FFFFFF", sunk: "#E9ECE8", line: "#D6DCD7", ink: "#18211E", muted: "#4F5C57", accent: "#0E6B5C", accentInk: "#FFFFFF", accentSoft: "#E2F0EC", good: "#1E7A46", goodSoft: "#E3F3E8", warn: "#9A5B00", warnSoft: "#FBF0DC", bad: "#B42318", badSoft: "#FBE7E5" };
 const DARK = { bg: "#111715", surface: "#19211E", sunk: "#202A27", line: "#2E3A36", ink: "#E8EEEB", muted: "#A3B1AC", accent: "#3FB59C", accentInk: "#06120F", accentSoft: "#163A33", good: "#5CC98A", goodSoft: "#163323", warn: "#E3A84A", warnSoft: "#3A2C12", bad: "#F2877C", badSoft: "#3D1B18" };
 export type Colors = typeof LIGHT;
+/** Deep green used for the hero banner, sidebar and splash (same in light and dark). */
+export const DEEP = { bg: "#0F3B31", bg2: "#155244", ink: "#F2FBF7", muted: "#A9CFC2", glow: "#3FB59C" };
+const web = Platform.OS === "web";
+/** Laptop-size window: sidebar layout and wider grids. */
+export const useWide = () => useWindowDimensions().width >= 960;
+const lift = (hovered?: boolean, pressed?: boolean): any => web
+  ? { transform: [{ translateY: hovered && !pressed ? -3 : 0 }], boxShadow: hovered ? "0 10px 24px rgba(15,59,49,0.14)" : "0 1px 2px rgba(15,59,49,0.06)", transitionDuration: "180ms", transitionProperty: "transform, box-shadow", cursor: "pointer" }
+  : {};
+
+/** Cards fade and slide in, one after another (delay = order × 60 ms). */
+export function Rise({ children, i = 0, style }: { children: React.ReactNode; i?: number; style?: any }) {
+  const v = useRef(new Animated.Value(0)).current;
+  useEffect(() => { Animated.timing(v, { toValue: 1, duration: 420, delay: Math.min(i, 12) * 60, easing: Easing.out(Easing.cubic), useNativeDriver: !web }).start(); }, []);
+  return <Animated.View style={[style, { opacity: v, transform: [{ translateY: v.interpolate({ inputRange: [0, 1], outputRange: [14, 0] }) }] }]}>{children}</Animated.View>;
+}
 export const useColors = () => (useColorScheme() === "dark" ? DARK : LIGHT);
 
 /** Direction helpers: Arabic and Urdu read right to left. */
@@ -35,8 +50,8 @@ export const H2 = ({ children }: { children: React.ReactNode }) => <T size={18} 
 
 export function Card({ children, style, onPress }: { children: React.ReactNode; style?: ViewStyle; onPress?: () => void }) {
   const c = useColors();
-  const s = [{ backgroundColor: c.surface, borderColor: c.line, borderWidth: 1, borderRadius: 14, padding: 14, gap: 10 }, style];
-  return onPress ? <Pressable onPress={onPress} style={({ pressed }) => [...s, pressed && { opacity: 0.7 }]}>{children}</Pressable> : <View style={s}>{children}</View>;
+  const s: any[] = [{ backgroundColor: c.surface, borderColor: c.line, borderWidth: 1, borderRadius: 18, padding: 16, gap: 10 }, web && { boxShadow: "0 1px 2px rgba(15,59,49,0.06)" }, style];
+  return onPress ? <Pressable onPress={onPress} style={({ pressed, hovered }: any) => [...s, lift(hovered, pressed), pressed && { opacity: 0.8 }]}>{children}</Pressable> : <View style={s}>{children}</View>;
 }
 
 export function Row({ children, style, wrap }: { children: React.ReactNode; style?: ViewStyle; wrap?: boolean }) {
@@ -127,10 +142,10 @@ export function Sheet({ open, onClose, title, children }: { open: boolean; onClo
 export function Kpi({ label, value, hero }: { label: string; value: string; hero?: boolean }) {
   const c = useColors();
   return (
-    <View style={{ flexGrow: 1, flexBasis: 150, backgroundColor: hero ? c.accent : c.surface, borderColor: hero ? c.accent : c.line, borderWidth: 1, borderRadius: 14, padding: 14, gap: 4 }}>
+    <Pressable style={({ hovered }: any) => [{ flexGrow: 1, flexBasis: 170, backgroundColor: hero ? c.accent : c.surface, borderColor: hero ? c.accent : c.line, borderWidth: 1, borderRadius: 18, padding: 16, gap: 6 }, lift(hovered)]}>
       <T size={12} color={hero ? c.accentInk : c.muted}>{label}</T>
-      <Text style={{ fontSize: 22, fontWeight: "700", color: hero ? c.accentInk : c.ink, fontVariant: ["tabular-nums"] }}>{value}</Text>
-    </View>
+      <Text style={{ fontSize: 24, fontWeight: "800", color: hero ? c.accentInk : c.ink, fontVariant: ["tabular-nums"] }}>{value}</Text>
+    </Pressable>
   );
 }
 
@@ -194,7 +209,7 @@ export function Icon({ name, size = 22, color }: { name: string; size?: number; 
 export function Tile({ icon, title, sub, onPress, accent }: { icon: string; title: string; sub?: string; onPress: () => void; accent?: boolean }) {
   const c = useColors(), { start } = useDir();
   return (
-    <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => ({ flexGrow: 1, flexBasis: "45%", minHeight: 108, borderRadius: 18, padding: 16, gap: 8, justifyContent: "center", alignItems: start, backgroundColor: accent ? c.accent : c.surface, borderWidth: 1, borderColor: accent ? c.accent : c.line, opacity: pressed ? 0.8 : 1 })}>
+    <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed, hovered }: any) => [{ flexGrow: 1, flexBasis: "45%", minHeight: 108, borderRadius: 20, padding: 16, gap: 8, justifyContent: "center", alignItems: start, backgroundColor: accent ? c.accent : c.surface, borderWidth: 1, borderColor: accent ? c.accent : c.line, opacity: pressed ? 0.85 : 1 }, lift(hovered, pressed)]}>
       <Icon name={icon} size={28} color={accent ? c.accentInk : c.accent} />
       <T size={18} bold color={accent ? c.accentInk : c.ink}>{title}</T>
       {sub ? <T size={13} color={accent ? c.accentInk : c.muted}>{sub}</T> : null}
@@ -204,3 +219,51 @@ export function Tile({ icon, title, sub, onPress, accent }: { icon: string; titl
 
 export const Empty = ({ text }: { text: string }) => <Card><T muted>{text}</T></Card>;
 export const s = StyleSheet.create({ grow: { flex: 1 } });
+
+/** Simple bar chart: one bar per label, value written above; the highest bar is solid accent. */
+export function Bars({ data, unit = "", height = 140 }: { data: { label: string; value: number }[]; unit?: string; height?: number }) {
+  const c = useColors(); const max = Math.max(1, ...data.map((x) => x.value));
+  const v = useRef(new Animated.Value(0)).current;
+  useEffect(() => { v.setValue(0); Animated.timing(v, { toValue: 1, duration: 700, easing: Easing.out(Easing.cubic), useNativeDriver: false }).start(); }, [JSON.stringify(data)]);
+  return (
+    <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 10, height: height + 40 }}>
+      {data.map((x, i) => {
+        const h = Math.max(6, (x.value / max) * height), top = x.value === max && x.value > 0;
+        return (
+          <View key={i} style={{ flex: 1, alignItems: "center", gap: 4 }}>
+            <Text style={{ fontSize: 11, color: c.muted, fontVariant: ["tabular-nums"] }}>{x.value ? Math.round(x.value) + unit : ""}</Text>
+            <Animated.View style={{ width: "70%", maxWidth: 34, height: v.interpolate({ inputRange: [0, 1], outputRange: [4, h] }), borderRadius: 12, backgroundColor: top ? c.accent : c.accentSoft, borderWidth: top ? 0 : 1, borderColor: c.line }} />
+            <Text style={{ fontSize: 12, color: c.muted }}>{x.label}</Text>
+          </View>
+        );
+      })}
+    </View>
+  );
+}
+
+/** Month calendar; days with entries get a dot, today is filled. */
+export function MonthCal({ marks = {} }: { marks?: Record<string, number> }) {
+  const c = useColors(); const now = new Date();
+  const y = now.getFullYear(), m = now.getMonth(), first = new Date(y, m, 1).getDay(), days = new Date(y, m + 1, 0).getDate();
+  const cells: (number | null)[] = [...Array(first).fill(null), ...Array.from({ length: days }, (_, i) => i + 1)];
+  const key = (dd: number) => `${y}-${String(m + 1).padStart(2, "0")}-${String(dd).padStart(2, "0")}`;
+  return (
+    <View style={{ gap: 8 }}>
+      <T bold size={16}>{now.toLocaleString("en", { month: "long", year: "numeric" })}</T>
+      <View style={{ flexDirection: "row", flexWrap: "wrap" }}>
+        {["S", "M", "T", "W", "T", "F", "S"].map((w, i) => <View key={"w" + i} style={{ width: "14.28%", alignItems: "center", paddingVertical: 4 }}><Text style={{ fontSize: 11, color: c.muted }}>{w}</Text></View>)}
+        {cells.map((dd, i) => {
+          const isToday = dd === now.getDate(), n = dd ? marks[key(dd)] || 0 : 0;
+          return (
+            <View key={i} style={{ width: "14.28%", alignItems: "center", paddingVertical: 3 }}>
+              {dd ? <View style={{ width: 30, height: 30, borderRadius: 15, alignItems: "center", justifyContent: "center", backgroundColor: isToday ? c.accent : "transparent" }}>
+                <Text style={{ fontSize: 13, color: isToday ? c.accentInk : c.ink, fontWeight: isToday ? "800" : "500" }}>{dd}</Text>
+                {n > 0 && !isToday && <View style={{ position: "absolute", bottom: 2, width: 5, height: 5, borderRadius: 3, backgroundColor: c.accent }} />}
+              </View> : null}
+            </View>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
