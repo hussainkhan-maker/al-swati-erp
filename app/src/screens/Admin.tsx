@@ -153,6 +153,7 @@ export function Money() {
 export function Projects() {
   const { d, insert, update, reload } = useData(); const flows = useFlows();
   const [p, setP] = useState<any>(null), [s, setS] = useState<any>(null), [err, setErr] = useState(""), [busy, setBusy] = useState(false);
+  const [det, setDet] = useState<any>(null); // one entry opened for full details
   const [hist, setHist] = useState<Record<string, string | null>>({}); // project id → "" (all) or a subcontractor name; missing = closed
   const staff = (d.profiles || []).filter((x: any) => ["supervisor", "engineer"].includes(x.role));
   // Everything that happened on one project, newest first: payments, invoices, expenses and work done (m²).
@@ -228,21 +229,46 @@ export function Projects() {
             <Btn icon={<Icon name="plus" />} title="Expense" onPress={() => flows("speak", { intent: "expense", project_id: x.id })} />
             <Btn icon={<Icon name="receipt" />} title="Purchase invoice" onPress={() => flows("purchase", { voice: { project_id: x.id } })} />
           </Row>
-          {subsOf(x.id).length > 1 && <Row wrap>{subsOf(x.id).map((q: any) => <Btn key={q.id} title={"Pay " + q.name} onPress={() => flows("speak", { intent: "subpay", project_id: x.id, sub_name: q.name })} />)}</Row>}
-          <Row wrap><Btn icon={<Icon name="log" />} title={hist[x.id] != null ? "Hide history" : "History (dates, payments, m²)"} onPress={() => setHist((h) => { const n = { ...h }; if (n[x.id] != null) delete n[x.id]; else n[x.id] = ""; return n; })} /></Row>
+          {(() => { const inc = active(d.txns).filter((t: any) => t.type === "income" && t.project_id === x.id); const last = inc.map(dkey).sort().pop();
+            return <T muted size={13}>Received from client: {money(sum(inc, "gross"))} SAR in {inc.length} payment{inc.length === 1 ? "" : "s"}{last ? ` · last on ${last}` : ""}</T>; })()}
+          <Row wrap><Btn icon={<Icon name="log" />} title={hist[x.id] != null ? "Hide history" : "History (every entry, tap for details)"} onPress={() => setHist((h) => { const n = { ...h }; if (n[x.id] != null) delete n[x.id]; else n[x.id] = ""; return n; })} /></Row>
           {hist[x.id] != null && (() => { const rows = historyOf(x.id, hist[x.id] || ""); return <View style={{ gap: 8 }}>
             {subsOf(x.id).length > 0 && <Row wrap>{[{ name: "" }, ...subsOf(x.id)].map((q: any) => <Btn key={q.name || "all"} kind={(hist[x.id] || "") === q.name ? "primary" : "default"} title={q.name || "All"} onPress={() => setHist((h) => ({ ...h, [x.id]: q.name }))} />)}</Row>}
             {hist[x.id] ? <T muted size={13}>{hist[x.id]}: {money(sum(rows.filter((r: any) => r.kind === "progress"), "qty"))} m² done · paid {money(sum(rows.filter((r: any) => r.kind === "subpay"), "amount"))} SAR</T> : null}
-            <Table cols={["Date", "What", "Who", "Paid by", "m²", "SAR"]} numeric={[4, 5]}
-              rows={rows.map((r: any) => [dkey(r), r.kind === "progress" ? "Work done" : TYPE[r.kind], r.sub_name || r.supplier || r.description || "—", r.method || "—", r.kind === "progress" ? money(r.qty) : "", r.kind === "progress" ? "" : money(r.gross ?? r.total ?? r.amount)])} />
+            <T muted size={12}>Everything on this project in date order. Tap a line to see all its details (note, VAT, invoice, photo).</T>
+            {rows.length ? rows.map((r: any) => (
+              <Card key={r.kind + r.id} onPress={() => setDet(r)} style={{ paddingVertical: 10 }}>
+                <Row>
+                  <View style={{ width: 92 }}><T size={13} muted>{dkey(r)}</T></View>
+                  <View style={{ flex: 1 }}><T bold size={14}>{r.kind === "progress" ? "Work done" : TYPE[r.kind]} · {r.sub_name || r.supplier || r.description || "—"}</T>
+                    <T muted size={12}>{[r.method, r.invoice_no && "Invoice " + r.invoice_no, Number(r.vat_amount) > 0 && `VAT ${money(r.vat_amount)} → ${r.vat_company || "?"}`].filter(Boolean).join(" · ") || " "}</T></View>
+                  <T bold>{r.kind === "progress" ? `${money(r.qty)} m²` : `${money(r.gross ?? r.total ?? r.amount)} SAR`}</T>
+                </Row>
+              </Card>)) : <T muted>Nothing yet.</T>}
           </View>; })()}
-          <Row wrap><Btn title="Statement" onPress={() => flows("statement", { kind: "project", target: x.name })} />{x.quote_id ? <Pill kind="acc" text="from quotation" /> : null}</Row>
+          <Row wrap><Btn icon={<Icon name="doc" />} title="Statements (project, subcontractor, expenses, purchases, received)" onPress={() => flows("statement", { kind: "project", target: x.name, project_id: x.id })} />{x.quote_id ? <Pill kind="acc" text="from quotation" /> : null}</Row>
         </Card>))}
       <Row><View style={{ flex: 1 }}><H2>All subcontractors (all projects)</H2></View><Btn icon={<Icon name="plus" />} title="Add" onPress={() => setS({ name: "", rate: "", unit: "sqm", projects: [] })} /></Row>
       <Table cols={["Name", "Rate", "Unit", "Done", "Earned", "Paid", "Balance"]} numeric={[1, 3, 4, 5, 6]}
         rows={(d.sub_ledger || []).map((x: any) => [x.name + " · " + ((d.subcontractors || []).find((q: any) => q.id === x.id)?.projects || []).map((q: string) => pname(d, q)).join(", "), Number(x.rate) > 0 ? money(x.rate) : "not set", x.unit, money(x.qty), money(x.earned), money(x.paid), money(Number(x.earned) - Number(x.paid))])} />
       <Row wrap>{(d.subcontractors || []).map((x: any) => <Btn key={x.id} title={`Edit ${x.name}`} onPress={() => setS(x)} />)}</Row>
 
+      <Sheet open={!!det} onClose={() => setDet(null)} title="Entry details">
+        {det && <>
+          <Table cols={["", ""]} rows={([
+            ["Date", dkey(det)], ["Entered on", stamp(det.created_at)], ["What", det.kind === "progress" ? "Work done" : TYPE[det.kind]], ["Project", pname(d, det.project_id)],
+            det.sub_name && ["Subcontractor", det.sub_name], det.supplier && ["Supplier", det.supplier], det.invoice_no && ["Invoice number", det.invoice_no],
+            det.kind === "progress" && ["m²", money(det.qty) + " " + (det.unit || "")], det.kind === "progress" && det.rate && ["Rate", money(det.rate)],
+            det.kind !== "progress" && ["Amount (SAR)", money(det.gross ?? det.total ?? det.amount)],
+            Number(det.vat_amount) > 0 && ["VAT", money(det.vat_amount)], det.vat_company && ["VAT in the name of", det.vat_company],
+            det.type === "income" && ["VAT · fee · loan cut", `${money(det.vat)} · ${money(det.fee)} · ${money(det.loan)}`], det.type === "income" && ["In hand", money(det.net)],
+            det.method && ["Paid by", det.method], (det.description || det.work) && ["Note", det.description || det.work],
+            (det.lines || []).length > 0 && ["Items", det.lines.map((l: any) => `${l.name} ${l.qty ?? ""} ${l.unit ?? ""} × ${l.price ?? ""}`).join("\n")],
+            (det.flags || []).length > 0 && ["Warnings accepted", det.flags.join("; ")], det.heard && ["Typed / spoken", det.heard],
+          ].filter(Boolean) as string[][])} />
+          {det.receipt_path ? <><T bold>Invoice photo</T><Photo path={det.receipt_path} size={260} /></> : null}
+        </>}
+      </Sheet>
       <Sheet open={!!p} onClose={() => setP(null)} title={p?.id ? "Edit project" : "New project"}>
         {p && <>
           <Field label="Project name" value={p.name} onChange={(v) => setP({ ...p, name: v })} />
