@@ -5,46 +5,108 @@ import { useFlows } from "../components/Flows";
 import { active, pname, useData } from "../lib/data";
 import { day, money, num, SAR, stamp } from "../lib/fmt";
 import { supabase } from "../lib/supabase";
-import { Btn, Card, Checks, Empty, Field, H1, H2, Icon, Kpi, Photo, Pill, Row, Screen, Select, Sheet, T, Table, Tile, useColors } from "../ui";
+import { Bars, Btn, Card, Checks, DEEP, Empty, Field, H1, H2, Icon, Kpi, MonthCal, Photo, Pill, Rise, Row, Screen, Select, Sheet, T, Table, Tile, useColors, useWide } from "../ui";
 
 const sum = (a: any[], k: string) => a.reduce((s, x) => s + (Number(x[k]) || 0), 0);
 const TYPE: Record<string, string> = { income: "Income", loan: "Loan", purchase: "Purchase", expense: "Expense", subpay: "Sub payment" };
 
+const dkey = (x: any) => String(x.paid_on || x.work_date || x.created_at || "").slice(0, 10);
+const TYPE_ICON: Record<string, string> = { income: "cash", loan: "pct", purchase: "receipt", expense: "tag", subpay: "people", progress: "ruler" };
+
 export function Dashboard() {
-  const { d, profile } = useData(); const flows = useFlows(); const c = useColors();
+  const { d, profile } = useData(); const flows = useFlows(); const c = useColors(); const wide = useWide();
   const L = d.project_ledger || [], rep = (d.agent_reports || [])[0];
   const vat = sum(d.vat_by_company || [], "vat");
   const newQ = (d.inquiries || []).filter((q: any) => q.status === "New").length;
+  const [chart, setChart] = useState<"m2" | "in" | "out">("m2");
+  const tx = active(d.txns), pr = active(d.progress);
+  // Last 7 days, oldest first.
+  const days = Array.from({ length: 7 }, (_, i) => { const t = new Date(Date.now() - (6 - i) * 864e5); return t.toISOString().slice(0, 10); });
+  const series = days.map((k) => ({
+    label: new Date(k + "T12:00:00").toLocaleString("en", { weekday: "short" }),
+    value: chart === "m2" ? sum(pr.filter((x: any) => dkey(x) === k), "qty")
+      : chart === "in" ? sum(tx.filter((x: any) => x.type === "income" && dkey(x) === k), "gross")
+      : tx.filter((x: any) => ["subpay", "expense", "purchase"].includes(x.type) && dkey(x) === k).reduce((t: number, x: any) => t + (Number(x.amount ?? x.total) || 0), 0),
+  }));
+  const marks: Record<string, number> = {};
+  [...tx, ...pr].forEach((x: any) => { const k = dkey(x); marks[k] = (marks[k] || 0) + 1; });
+  const recent = [...tx.map((x: any) => ({ ...x, kind: x.type })), ...pr.map((x: any) => ({ ...x, kind: "progress" }))]
+    .sort((a: any, b: any) => String(b.created_at).localeCompare(String(a.created_at))).slice(0, 8);
+  const totalM2 = sum(pr, "qty");
+  const hour = new Date().getHours(), greet = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
+
+  const hero = (
+    <Rise i={0}>
+      <View style={{ backgroundColor: DEEP.bg, borderRadius: 24, padding: wide ? 28 : 20, gap: 14, overflow: "hidden" }}>
+        <View style={{ position: "absolute", right: -60, top: -60, width: 220, height: 220, borderRadius: 110, backgroundColor: DEEP.bg2 }} />
+        <View style={{ position: "absolute", right: 60, bottom: -90, width: 180, height: 180, borderRadius: 90, backgroundColor: DEEP.bg2, opacity: 0.6 }} />
+        <T size={13} color={DEEP.muted}>{new Date().toLocaleDateString("en", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}</T>
+        <T size={wide ? 30 : 24} bold color={DEEP.ink}>{greet}, {profile.name}</T>
+        <T size={15} color={DEEP.muted}>Stone · Marble · Granite · Porcelain · Flooring — {L.length} projects, {money(totalM2)} m² done in total.</T>
+        <Row wrap>
+          <Btn kind="primary" icon={<Icon name="mic" color={c.accentInk} />} title="New entry" onPress={() => flows("speak")} />
+          <Btn icon={<Icon name="receipt" />} title="Purchase invoice" onPress={() => flows("purchase")} />
+          <Btn icon={<Icon name="doc" />} title="Statement PDF" onPress={() => flows("statement")} />
+          <Btn icon={<Icon name="spark" />} title="Ask your AI" onPress={() => flows("ask")} />
+        </Row>
+      </View>
+    </Rise>
+  );
+  const kpis = (
+    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12 }}>
+      {[["Cash in hand from clients", SAR(sum(L, "net")), true], ["Costs (ex VAT)", SAR(sum(L, "cost"))], ["Subcontract work", SAR(sum(L, "sub_work"))],
+        ["Profit (estimate)", SAR(sum(L, "profit"))], ["Company loans open", SAR(sum(L, "loan_balance"))], ["Purchase VAT to recover", SAR(vat)]]
+        .map(([l, v, h]: any, i) => <Rise key={l} i={i + 1} style={{ flexGrow: 1, flexBasis: wide ? 200 : 150 }}><Kpi hero={h} label={l} value={v} /></Rise>)}
+    </View>
+  );
+  const chartCard = (
+    <Rise i={7}><Card>
+      <Row><View style={{ flex: 1 }}><H2>This week</H2></View>
+        {([["m2", "m² done"], ["in", "Money in"], ["out", "Paid out"]] as const).map(([k, l]) => <Btn key={k} kind={chart === k ? "primary" : "default"} title={l} onPress={() => setChart(k)} />)}
+      </Row>
+      <Bars data={series} unit={chart === "m2" ? "" : ""} />
+    </Card></Rise>
+  );
+  const recentCard = (
+    <Rise i={8}><Card>
+      <H2>Recent activity</H2>
+      {recent.length ? recent.map((x: any) => (
+        <Row key={x.kind + x.id}>
+          <View style={{ width: 38, height: 38, borderRadius: 12, backgroundColor: c.accentSoft, alignItems: "center", justifyContent: "center" }}><Icon name={TYPE_ICON[x.kind] || "doc"} size={20} color={c.accent} /></View>
+          <View style={{ flex: 1 }}>
+            <T bold>{x.kind === "progress" ? `${x.sub_name} · ${money(x.qty)} ${x.unit || "m²"}` : `${TYPE[x.kind]}${x.sub_name ? " · " + x.sub_name : x.supplier ? " · " + x.supplier : ""}`}</T>
+            <T muted size={13}>{pname(d, x.project_id)} · {dkey(x)}{x.method ? " · " + x.method : ""}</T>
+          </View>
+          {x.kind !== "progress" && <T bold>{money(x.gross ?? x.total ?? x.amount)}</T>}
+        </Row>)) : <T muted>Nothing yet. Your entries will show here.</T>}
+    </Card></Rise>
+  );
+  const side = <>
+    <Rise i={3}><Card><MonthCal marks={marks} /><T size={12} muted>A dot = a payment or work entry that day.</T></Card></Rise>
+    <Rise i={5}><Card>
+      <Row><Icon name="spark" color={c.accent} /><H2>Main agent · today</H2></Row>
+      {rep ? <>
+        <T size={15}>{rep.summary}</T>
+        <Checks list={(rep.items || []).slice(0, 6).map((i: any) => ({ s: i.level === "bad" ? "bad" : "warn", text: i.text }))} />
+        <T size={12} muted>{stamp(rep.created_at)}</T>
+      </> : <T muted>The first report arrives at 07:00 once the AI key and the daily schedule are switched on.</T>}
+      {newQ > 0 && <Pill kind="warn" text={`${newQ} new client queries`} />}
+    </Card></Rise>
+  </>;
+  const table = <>
+    <H2>Projects</H2>
+    <Table cols={["Project", "Company", "Fee %", "m² done", "In hand", "Costs", "Sub work", "Loan open", "Profit est."]} numeric={[2, 3, 4, 5, 6, 7, 8]}
+      rows={L.map((l: any) => [l.name, l.company || "—", String(l.fee_pct), money(l.installed), money(l.net), money(l.cost), money(l.sub_work), money(l.loan_balance), money(l.profit)])} />
+    <T size={12} muted>Profit estimate = cash in hand + loans already deducted − costs (ex VAT) − subcontract work done (meters × rate). Calculated by the database.</T>
+  </>;
   return (
     <Screen>
-      <H1>Hello {profile.name}</H1>
-      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12 }}>
-        <Tile accent icon="mic" title="Speak an entry" sub="Payments, loans, rates, progress" onPress={() => flows("speak")} />
-        <Tile icon="receipt" title="Purchase invoice" sub="Photo, project, VAT company" onPress={() => flows("purchase")} />
-        <Tile icon="doc" title="Statement PDF" sub="Project, subcontractor, supplier, VAT" onPress={() => flows("statement")} />
-        <Tile icon="spark" title="Ask your AI" sub="About any project or person" onPress={() => flows("ask")} />
-      </View>
-      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12 }}>
-        <Kpi hero label="Cash in hand from clients" value={SAR(sum(L, "net"))} />
-        <Kpi label="Costs (ex VAT)" value={SAR(sum(L, "cost"))} />
-        <Kpi label="Subcontract work" value={SAR(sum(L, "sub_work"))} />
-        <Kpi label="Profit (estimate)" value={SAR(sum(L, "profit"))} />
-        <Kpi label="Company loans open" value={SAR(sum(L, "loan_balance"))} />
-        <Kpi label="Purchase VAT to recover" value={SAR(vat)} />
-      </View>
-      <Card>
-        <Row><Icon name="spark" color={c.accent} /><H2>Main agent · this morning</H2></Row>
-        {rep ? <>
-          <T size={16}>{rep.summary}</T>
-          <Checks list={(rep.items || []).slice(0, 8).map((i: any) => ({ s: i.level === "bad" ? "bad" : "warn", text: i.text }))} />
-          <T size={12} muted>{stamp(rep.created_at)}</T>
-        </> : <T muted>The first report arrives tomorrow at 07:00 once the schedule is switched on.</T>}
-        {newQ > 0 && <Pill kind="warn" text={`${newQ} new client queries`} />}
-      </Card>
-      <H2>Projects</H2>
-      <Table cols={["Project", "Company", "Fee %", "In hand", "Costs", "Sub work", "Loan open", "Profit est."]} numeric={[2, 3, 4, 5, 6, 7]}
-        rows={L.map((l: any) => [l.name, l.company || "—", String(l.fee_pct), money(l.net), money(l.cost), money(l.sub_work), money(l.loan_balance), money(l.profit)])} />
-      <T size={12} muted>Profit estimate = cash in hand + loans already deducted − costs (ex VAT) − subcontract work done (meters × rate). Calculated by the database.</T>
+      {wide ? (
+        <View style={{ flexDirection: "row", gap: 18, alignItems: "flex-start" }}>
+          <View style={{ flex: 2.2, gap: 16 }}>{hero}{kpis}<View style={{ flexDirection: "row", gap: 16, alignItems: "flex-start" }}><View style={{ flex: 1.3 }}>{chartCard}</View><View style={{ flex: 1 }}>{recentCard}</View></View>{table}</View>
+          <View style={{ flex: 1, gap: 16, minWidth: 300 }}>{side}</View>
+        </View>
+      ) : <>{hero}{kpis}{chartCard}{side}{recentCard}{table}</>}
     </Screen>
   );
 }
@@ -91,7 +153,14 @@ export function Money() {
 export function Projects() {
   const { d, insert, update, reload } = useData(); const flows = useFlows();
   const [p, setP] = useState<any>(null), [s, setS] = useState<any>(null), [err, setErr] = useState(""), [busy, setBusy] = useState(false);
+  const [hist, setHist] = useState<Record<string, string | null>>({}); // project id → "" (all) or a subcontractor name; missing = closed
   const staff = (d.profiles || []).filter((x: any) => ["supervisor", "engineer"].includes(x.role));
+  // Everything that happened on one project, newest first: payments, invoices, expenses and work done (m²).
+  const historyOf = (pid: string, sub: string) => [
+    ...active(d.txns).filter((t: any) => t.project_id === pid || (t.split || []).some((q: any) => q.project_id === pid)).map((t: any) => ({ ...t, kind: t.type })),
+    ...active(d.progress).filter((r: any) => r.project_id === pid).map((r: any) => ({ ...r, kind: "progress" })),
+  ].filter((x: any) => !sub || String(x.sub_name || "").toLowerCase() === sub.toLowerCase())
+   .sort((a: any, b: any) => (dkey(b) + b.created_at).localeCompare(dkey(a) + a.created_at));
   const membersOf = (pid: string) => (d.project_members || []).filter((m: any) => m.project_id === pid).map((m: any) => m.user_id);
   const L = (pid: string) => (d.project_ledger || []).find((l: any) => l.project_id === pid) || {};
   const lc = (x: any) => String(x || "").toLowerCase();
@@ -150,15 +219,23 @@ export function Projects() {
       <Row><View style={{ flex: 1 }}><H1>Projects</H1></View><Btn kind="primary" icon={<Icon name="plus" color="#fff" />} title="New" onPress={() => setP({ name: "", client: "", company: "", fee_pct: "", members: [], subs: [] })} /></Row>
       {(d.projects || []).map((x: any) => (
         <Card key={x.id} onPress={() => setP({ ...x, members: membersOf(x.id), subs: subsOf(x.id).map((q: any) => q.id) })}>
-          <Row><View style={{ flex: 1 }}><T bold size={17}>{x.name}</T><T muted size={13}>{x.company || "—"} · fee {x.fee_pct}% · {membersOf(x.id).length} on site</T></View><T bold>{money(L(x.id).installed)} m²</T></Row>
+          <Row><View style={{ flex: 1 }}><T bold size={17}>{x.name}</T><T muted size={13}>{x.company || "—"} · fee {x.fee_pct}% · {membersOf(x.id).length} on site</T></View><View style={{ alignItems: "flex-end" }}><T bold size={20}>{money(L(x.id).installed)} m²</T><T muted size={12}>total done</T></View></Row>
           {subsOf(x.id).length ? <Table cols={["Subcontractor", "Done", "Earned", "Paid", "Balance"]} numeric={[1, 2, 3, 4]} rows={subRows(x.id)} /> : <T muted size={13}>No subcontractors on this project yet. Tap the project to add them.</T>}
           <Row wrap>
             <Btn kind="primary" icon={<Icon name="plus" color="#fff" />} title="Payment received" onPress={() => flows("speak", { intent: "income", project_id: x.id })} />
             <Btn icon={<Icon name="plus" />} title="Pay subcontractor" onPress={() => flows("speak", { intent: "subpay", project_id: x.id, sub_name: subsOf(x.id).length === 1 ? subsOf(x.id)[0].name : "" })} />
+            <Btn icon={<Icon name="ruler" />} title="Work done (m²)" onPress={() => flows("speak", { intent: "progress", project_id: x.id, sub_name: subsOf(x.id).length === 1 ? subsOf(x.id)[0].name : "" })} />
             <Btn icon={<Icon name="plus" />} title="Expense" onPress={() => flows("speak", { intent: "expense", project_id: x.id })} />
             <Btn icon={<Icon name="receipt" />} title="Purchase invoice" onPress={() => flows("purchase", { voice: { project_id: x.id } })} />
           </Row>
           {subsOf(x.id).length > 1 && <Row wrap>{subsOf(x.id).map((q: any) => <Btn key={q.id} title={"Pay " + q.name} onPress={() => flows("speak", { intent: "subpay", project_id: x.id, sub_name: q.name })} />)}</Row>}
+          <Row wrap><Btn icon={<Icon name="log" />} title={hist[x.id] != null ? "Hide history" : "History (dates, payments, m²)"} onPress={() => setHist((h) => { const n = { ...h }; if (n[x.id] != null) delete n[x.id]; else n[x.id] = ""; return n; })} /></Row>
+          {hist[x.id] != null && (() => { const rows = historyOf(x.id, hist[x.id] || ""); return <View style={{ gap: 8 }}>
+            {subsOf(x.id).length > 0 && <Row wrap>{[{ name: "" }, ...subsOf(x.id)].map((q: any) => <Btn key={q.name || "all"} kind={(hist[x.id] || "") === q.name ? "primary" : "default"} title={q.name || "All"} onPress={() => setHist((h) => ({ ...h, [x.id]: q.name }))} />)}</Row>}
+            {hist[x.id] ? <T muted size={13}>{hist[x.id]}: {money(sum(rows.filter((r: any) => r.kind === "progress"), "qty"))} m² done · paid {money(sum(rows.filter((r: any) => r.kind === "subpay"), "amount"))} SAR</T> : null}
+            <Table cols={["Date", "What", "Who", "Paid by", "m²", "SAR"]} numeric={[4, 5]}
+              rows={rows.map((r: any) => [dkey(r), r.kind === "progress" ? "Work done" : TYPE[r.kind], r.sub_name || r.supplier || r.description || "—", r.method || "—", r.kind === "progress" ? money(r.qty) : "", r.kind === "progress" ? "" : money(r.gross ?? r.total ?? r.amount)])} />
+          </View>; })()}
           <Row wrap><Btn title="Statement" onPress={() => flows("statement", { kind: "project", target: x.name })} />{x.quote_id ? <Pill kind="acc" text="from quotation" /> : null}</Row>
         </Card>))}
       <Row><View style={{ flex: 1 }}><H2>All subcontractors (all projects)</H2></View><Btn icon={<Icon name="plus" />} title="Add" onPress={() => setS({ name: "", rate: "", unit: "sqm", projects: [] })} /></Row>
