@@ -75,14 +75,17 @@ function SpeakSheet({ init, onClose, open }: { init?: any; onClose: () => void; 
     const sub = subName || subNames(d).find((s: string) => s && low.includes(String(s).toLowerCase())) || "";
     const proj = pid || projects.find((p: any) => p.name && low.includes(String(p.name).toLowerCase()))?.id || (projects.length === 1 ? projects[0].id : "");
     setErr(""); setMrn(null); setParsed({ heard: text.trim() });
-    setO({ intent, date: today(), method: "Cash", project_id: proj, amount: intent === "progress" ? "" : n, loan: 0, sub_name: sub, material: "", supplier: "", unit: "sqm", description: intent === "expense" ? text.trim() : "", photo: null,
-      rows: intent === "progress" ? [{ sub_name: sub, qty: n, unit: "sqm", work: "" }] : [] });
+    // Work done: one line for every subcontractor on that project, so each one's m² is typed in one go.
+    const onP = proj ? (d.subcontractors || []).filter((x: any) => (x.projects || []).includes(proj)).map((x: any) => x.name) : [];
+    const rows = intent !== "progress" ? [] : onP.length > 1 && !subName ? onP.map((nm: string) => ({ sub_name: nm, qty: "", unit: "sqm", work: "" })) : [{ sub_name: sub || onP[0] || "", qty: n, unit: "sqm", work: "" }];
+    setO({ intent, date: today(), method: "Cash", note: "", kindChosen: false, project_id: proj, amount: intent === "progress" ? "" : n, loan: 0, sub_name: sub, material: "", supplier: "", unit: "sqm", description: intent === "expense" ? text.trim() : "", photo: null, rows });
   };
 
   // Opened from a project's buttons: go straight to the right form with the project (and subcontractor) filled in.
   useEffect(() => { if (init?.intent) byHand(init.intent, init.project_id, init.sub_name); }, []);
 
-  const form = o ? { ...o, amount: num(o.amount), loan: num(o.loan || 0), rows: (o.rows || []).map((r: any) => ({ ...r, qty: num(r.qty) })) } : null;
+  // Lines left empty (a subcontractor who did not work that day) are skipped.
+  const form = o ? { ...o, amount: num(o.amount), loan: num(o.loan || 0), rows: (o.rows || []).filter((r: any) => String(r.qty ?? "").trim() !== "").map((r: any) => ({ ...r, qty: num(r.qty) })) } : null;
   const checks: Check[] = form ? entryChecks(t, form, { projects, txns: d.txns || [], subs: subNames(d), ledger: d.project_ledger || [], raw: text }) : [];
   const blocked = checks.some((x) => x.s === "bad");
   const P = form ? projects.find((p: any) => p.id === form.project_id) : null;
@@ -91,7 +94,7 @@ function SpeakSheet({ init, onClose, open }: { init?: any; onClose: () => void; 
   const setRow = (i: number, k: string, v: any) => setO((x: any) => ({ ...x, rows: x.rows.map((r: any, j: number) => (j === i ? { ...r, [k]: v } : r)) }));
 
   // Date and how it was paid. If the database does not have these columns yet, they are kept in the note instead.
-  const when = (form?.date || today()), how = form?.method || "Cash";
+  const when = (form?.date || today()), how = form?.method || "Cash", memo = String(form?.note || "").trim() || null;
   const ins = async (table: string, row: any, file?: any) => {
     try { return await insert(table, row, file); }
     catch (e: any) {
@@ -111,10 +114,10 @@ function SpeakSheet({ init, onClose, open }: { init?: any; onClose: () => void; 
       let queued = false;
       const q = (r: any) => { if (r.queued) queued = true; };
       if (form.intent === "progress") for (const r of form.rows) q(await ins("progress", { project_id: form.project_id, sub_name: r.sub_name, qty: r.qty, unit: r.unit, work: r.work, work_date: when, heard: text, flags }));
-      else if (form.intent === "income") q(await ins("txns", { type: "income", project_id: form.project_id, gross: form.amount, loan: form.loan || 0, paid_on: when, method: how, heard: text, flags }));
-      else if (form.intent === "loan") q(await ins("txns", { type: "loan", project_id: form.project_id, amount: form.amount, paid_on: when, method: how, heard: text, flags }));
-      else if (form.intent === "subpay") q(await ins("txns", { type: "subpay", project_id: form.project_id, amount: form.amount, sub_name: form.sub_name, paid_on: when, method: how, heard: text, flags }));
-      else if (form.intent === "expense") q(await ins("txns", { type: "expense", project_id: form.project_id, amount: form.amount, description: form.description, paid_on: when, method: how, heard: text, flags }, { bucket: "receipts", uri: form.photo, field: "receipt_path", path: `${profile.id}/${uid()}.jpg` }));
+      else if (form.intent === "income") q(await ins("txns", { type: "income", project_id: form.project_id, gross: form.amount, loan: form.loan || 0, paid_on: when, method: how, description: memo, heard: text, flags }));
+      else if (form.intent === "loan") q(await ins("txns", { type: "loan", project_id: form.project_id, amount: form.amount, paid_on: when, method: how, description: memo, heard: text, flags }));
+      else if (form.intent === "subpay") q(await ins("txns", { type: "subpay", project_id: form.project_id, amount: form.amount, sub_name: form.sub_name, paid_on: when, method: how, description: memo, heard: text, flags }));
+      else if (form.intent === "expense") q(await ins("txns", { type: "expense", project_id: form.project_id, amount: form.amount, description: [form.description, memo].filter(Boolean).join(" · "), paid_on: when, method: how, heard: text, flags }));
       else if (form.intent === "rate") {
         let itemId = matchItems(form.material, d.items || []).find((m) => m.score >= 0.75)?.item.id;
         if (!itemId) { const { data, error } = await supabase.from("items").insert({ name: form.material, unit: form.unit }).select().single(); if (error) throw error; itemId = data.id; }
@@ -141,7 +144,12 @@ function SpeakSheet({ init, onClose, open }: { init?: any; onClose: () => void; 
         <Btn title={t("no")} onPress={() => setMrn(null)} />
       </>; })()}
 
-      {o && <Card>
+      {o && o.intent === "expense" && !o.kindChosen && <Card>
+        <T bold size={17}>What kind of expense?</T>
+        <Btn big kind="primary" icon={<Icon name="cash" color={c.accentInk} />} title="Small expense (no photo) — transport, food, tools…" onPress={() => set("kindChosen", true)} />
+        <Btn big icon={<Icon name="receipt" />} title="Material bought (invoice photo, AI reads VAT)" onPress={() => { const pid = o.project_id; onClose(); setTimeout(() => open("purchase", { voice: { project_id: pid } }), 350); }} />
+      </Card>}
+      {o && !(o.intent === "expense" && !o.kindChosen) && <Card>
         <T size={13} muted>{t("heard")}</T>
         <T size={18}>{parsed?.heard}</T>
         <Row wrap><Pill kind="acc" text={L(o.intent)} />{parsed?.heard && <Btn kind="ghost" title={t("readBack")} onPress={() => Speech.speak(parsed.heard, { language: speechLang(lang) })} />}</Row>
@@ -151,22 +159,21 @@ function SpeakSheet({ init, onClose, open }: { init?: any; onClose: () => void; 
           <Field label={o.intent === "progress" ? "Date of work (YYYY-MM-DD)" : "Date paid (YYYY-MM-DD)"} value={o.date ?? today()} onChange={(v) => set("date", v)} style={{ maxWidth: 220 }} />
           {o.intent !== "progress" && <Select label="Paid by" value={o.method || "Cash"} options={METHODS.map((m) => ({ value: m, label: m }))} onChange={(v) => set("method", v)} />}
         </Row>}
+        {o.intent !== "rate" && o.intent !== "progress" && <Field label="Note (for your memory, optional)" value={o.note || ""} onChange={(v) => set("note", v)} placeholder="e.g. 2nd payment for ground floor, cheque no. 1452" />}
         {o.intent === "progress" ? o.rows.map((r: any, i: number) => (
           <Row key={i} wrap>
             <Field label={t("sub")} value={r.sub_name} onChange={(v) => setRow(i, "sub_name", v)} />
             <Field label={t("qty")} value={r.qty} numeric onChange={(v) => setRow(i, "qty", v)} style={{ maxWidth: 110 }} />
             <Field label={t("unit")} value={r.unit} onChange={(v) => setRow(i, "unit", v)} style={{ maxWidth: 90 }} />
             <Field label={t("work")} value={r.work} onChange={(v) => setRow(i, "work", v)} />
-          </Row>)) : <>
+          </Row>)).concat([<Btn key="add" kind="ghost" icon={<Icon name="plus" />} title="Add another subcontractor line" onPress={() => set("rows", [...o.rows, { sub_name: "", qty: "", unit: "sqm", work: "" }])} />,
+            <T key="sum" bold>Total today: {money((form?.rows || []).reduce((s2: number, r: any) => s2 + (r.qty || 0), 0))} m²</T>]) : <>
           <Field label={t("amount")} value={o.amount} numeric onChange={(v) => set("amount", v)} />
           {o.intent === "income" && <Field label={t("loanDeduct")} value={o.loan} numeric onChange={(v) => set("loan", v)} />}
           {o.intent === "subpay" && (() => { const onP = (d.subcontractors || []).filter((x: any) => (x.projects || []).includes(o.project_id)).map((x: any) => x.name), names = onP.length ? [...onP, ...subNames(d).filter((n: string) => !onP.includes(n))] : subNames(d);
             return <Select label={t("sub")} value={o.sub_name} options={names.map((n: string) => ({ value: n, label: onP.includes(n) ? n + " ✓" : n }))} onChange={(v) => set("sub_name", v)} />; })()}
           {o.intent === "rate" && <Row wrap><Field label={t("material")} value={o.material} onChange={(v) => set("material", v)} /><Field label={t("unit")} value={o.unit} onChange={(v) => set("unit", v)} style={{ maxWidth: 100 }} /><Field label={t("supplier")} value={o.supplier} onChange={(v) => set("supplier", v)} /></Row>}
-          {o.intent === "expense" && <>
-            <Field label={t("desc")} value={o.description} onChange={(v) => set("description", v)} />
-            <Row wrap><Btn icon={<Icon name="camera" />} title={t("takePhoto")} onPress={async () => { const u = await pickPhoto(true); if (u) set("photo", u); }} /><Btn title={t("choosePhoto")} onPress={async () => { const u = await pickPhoto(false); if (u) set("photo", u); }} />{o.photo && <Pill kind="good" text="✓" />}</Row>
-          </>}
+          {o.intent === "expense" && <Field label="What was it for (transport, food, small tools…)" value={o.description} onChange={(v) => set("description", v)} />}
         </>}
         {sp && <Table cols={["", "SAR"]} numeric={[1]} rows={[[t("received") + " · " + (P.company || ""), money(sp.gross)], ["VAT 15%", "−" + money(sp.vat)], [`${t("fee")} ${P.fee_pct}% · ${money(sp.base)}`, "−" + money(sp.fee)], [t("loanDeduct"), "−" + money(sp.loan)], [t("inHand"), money(sp.net)]]} />}
         <Checks title={t("checks")} list={checks} />
@@ -188,7 +195,7 @@ function PurchaseSheet({ init, onClose }: { init?: any; onClose: () => void }) {
     supplier: v.supplier || "", subtotal: "", vat: v.vat_amount ?? "", total: v.amount ?? "", company: v.vat_company || "",
     lines: (v.lines || []).map((l: any) => ({ name: l.name, qty: l.qty ?? "", unit: l.unit || "", price: l.price ?? "" })),
     split: (v.split?.length ? v.split : [{ project_id: v.project_id || "", pct: 100 }]).concat([{ project_id: "", pct: "" }, { project_id: "", pct: "" }]).slice(0, 3),
-    splitOn: (v.split?.length || 0) > 1, otherCo: "",
+    splitOn: (v.split?.length || 0) > 1, otherCo: "", inv: v.invoice_no || "",
   });
   const set = (k: string, val: any) => setF((x: any) => ({ ...x, [k]: val }));
 
@@ -201,7 +208,8 @@ function PurchaseSheet({ init, onClose }: { init?: any; onClose: () => void }) {
       const p = `${profile.id}/${uid()}.jpg`; await uploadFile("receipts", p, u); setPath(p);
       const r = await ai("receipt", { path: p });
       setNote(`${r.confidence || ""} ${r.notes || ""}`.trim());
-      setF((x: any) => ({ ...x, supplier: r.supplier || x.supplier, subtotal: r.subtotal ?? x.subtotal, vat: r.vat ?? x.vat, total: r.total ?? x.total,
+      setF((x: any) => ({ ...x, supplier: r.supplier || x.supplier, subtotal: r.subtotal ?? x.subtotal, vat: r.vat ?? x.vat, total: r.total ?? x.total, inv: r.invoice_no || x.inv,
+        company: r.buyer && companiesOf(d).find((n) => String(r.buyer).toLowerCase().includes(n.toLowerCase())) || x.company,
         lines: (r.lines || []).map((l: any) => ({ name: l.name, qty: l.qty ?? "", unit: l.unit || "", price: l.price ?? "" })) }));
     } catch (e: any) { setNote(e.message); } finally { setReading(false); }
   };
@@ -224,7 +232,11 @@ function PurchaseSheet({ init, onClose }: { init?: any; onClose: () => void }) {
       const row = isExpense
         ? { type: "expense", project_id: x.split[0].project_id, split: x.split, amount: x.total, description: x.supplier, heard: init?.text || null, flags: checks.filter((k) => k.s === "warn").map((k) => k.text) }
         : { type: "purchase", supplier: x.supplier, lines: x.lines, subtotal: Number.isFinite(x.subtotal) ? x.subtotal : r2(x.total - x.vat), vat_amount: x.vat, vat_company: x.vat > 0 ? x.company : null, total: x.total, split: x.split, project_id: x.split[0].project_id, heard: init?.text || null, flags: checks.filter((k) => k.s === "warn").map((k) => k.text) };
-      const r = path ? await insert("txns", { ...row, receipt_path: path }) : await insert("txns", row, { bucket: "receipts", uri: photo!, field: "receipt_path", path: `${profile.id}/${uid()}.jpg` });
+      const inv = String(f.inv || "").trim();
+      const full: any = inv ? { ...row, invoice_no: inv } : row;
+      const put = (rw: any) => path ? insert("txns", { ...rw, receipt_path: path }) : insert("txns", rw, { bucket: "receipts", uri: photo!, field: "receipt_path", path: `${profile.id}/${uid()}.jpg` });
+      // Until the database has the invoice-number column, the number is kept in the note.
+      const r = await put(full).catch((e: any) => { if (!/invoice_no/.test(String(e.message))) throw e; return put({ ...row, description: [row.description, "Invoice " + inv].filter(Boolean).join(" · ") }); });
       if (r.queued) setErr(t("queued")); else onClose();
     } catch (e: any) { setErr(e.message); } finally { setBusy(false); }
   };
@@ -242,7 +254,14 @@ function PurchaseSheet({ init, onClose }: { init?: any; onClose: () => void }) {
         {photo ? <Row>{path ? <Photo path={path} size={56} /> : <Pill kind="good" text="✓" />}<T muted style={{ flex: 1 }}>{reading ? t("reading") : note}</T></Row> : null}
       </Card>
       <Card>
-        <Field label={t("supplier")} value={f.supplier} onChange={(val) => set("supplier", val)} />
+        <Row wrap>
+          <Field label={t("supplier")} value={f.supplier} onChange={(val) => set("supplier", val)} />
+          <Field label="Invoice number" value={f.inv} onChange={(val) => set("inv", val)} style={{ maxWidth: 200 }} />
+        </Row>
+        {(x.vat > 0 || f.inv) && <Row wrap>
+          {f.inv ? <Pill kind="acc" text={"Invoice " + f.inv} /> : null}
+          {x.vat > 0 ? <Pill kind="good" text={`VAT ${money(x.vat)} SAR → ${x.company || "choose company"}`} /> : null}
+        </Row>}
         {f.lines.map((l: any, i: number) => (
           <Row key={i} wrap>
             <Field label={t("item")} value={l.name} onChange={(val) => set("lines", f.lines.map((y: any, j: number) => (j === i ? { ...y, name: val } : y)))} />
@@ -278,20 +297,23 @@ function PurchaseSheet({ init, onClose }: { init?: any; onClose: () => void }) {
 // ───────────────────────── statements → checked PDF → share ─────────────────────────
 function StatementSheet({ init, onClose }: { init?: any; onClose: () => void }) {
   const { t, d, role, lang, profile } = useData(); const c = useColors();
-  const kinds = role === "supervisor" ? ["project", "sub"] : role === "engineer" ? ["project"] : ["project", "sub", "supplier", "material", "vat"];
-  const KL: Record<string, string> = { project: t("project"), sub: t("sub"), supplier: t("supplier"), material: t("material"), vat: t("vat") };
+  const kinds = role === "supervisor" ? ["project", "sub"] : role === "engineer" ? ["project"] : ["project", "received", "sub", "expenses", "purchases", "supplier", "material", "vat"];
+  const KL: Record<string, string> = { project: "Whole project", received: "Payments I received (dates)", sub: "Subcontractor (money + m²)", expenses: "Small expenses only", purchases: "Material purchases (VAT, invoice)", supplier: t("supplier"), material: t("material"), vat: t("vat") };
   const [kind, setKind] = useState(kinds.includes(init?.kind) ? init.kind : "project");
   const [target, setTarget] = useState(init?.target || "");
+  const [pid, setPid] = useState(init?.project_id || "");
   const [busy, setBusy] = useState(false);
-  const doc = useMemo(() => (kind === "vat" || target ? buildStatement(d, role, lang, kind, target) : null), [kind, target, d]);
+  const noName = ["vat", "expenses", "purchases", "received"].includes(kind);
+  const doc = useMemo(() => (noName || target ? buildStatement(d, role, lang, kind, target, kind === "project" ? "" : pid) : null), [kind, target, pid, d]);
   const html = doc ? docHTML(doc, lang, profile.name) : "";
   const checks = doc ? pdfChecks(t, doc, html) : [];
   const chips = kind === "project" ? (d.projects || []).map((p: any) => p.name) : kind === "sub" ? subNames(d) : kind === "supplier" ? [...new Set(active(d.txns).filter((x: any) => x.supplier).map((x: any) => x.supplier))] : kind === "material" ? (d.items || []).map((i: any) => i.name) : [];
   return (
     <Sheet open onClose={onClose} title={t("statement")}>
       <Select label={t("kind")} value={kind} options={kinds.map((k) => ({ value: k, label: KL[k] }))} onChange={(v) => { setKind(v); setTarget(""); }} />
-      {kind !== "vat" && <Field label={t("name")} value={target} onChange={setTarget} />}
-      {kind !== "vat" && <Row wrap>{(chips as string[]).slice(0, 12).map((n) => <Btn key={n} title={n} kind={n === target ? "primary" : "default"} onPress={() => setTarget(n)} />)}</Row>}
+      {["sub", "expenses", "purchases", "received"].includes(kind) && <Select label="Project" value={pid} options={[{ value: "", label: "All projects" }, ...(d.projects || []).map((p: any) => ({ value: p.id, label: p.name }))]} onChange={setPid} />}
+      {!noName && <Field label={t("name")} value={target} onChange={setTarget} />}
+      {!noName && <Row wrap>{(chips as string[]).slice(0, 12).map((n) => <Btn key={n} title={n} kind={n === target ? "primary" : "default"} onPress={() => setTarget(n)} />)}</Row>}
       {doc ? <>
         <Checks title={t("checks")} list={checks} />
         <Table cols={doc.cols} rows={doc.rows.map((r) => r.map((v, i) => (doc.numCols.includes(i) ? money(v) : v)))} numeric={doc.numCols} />
