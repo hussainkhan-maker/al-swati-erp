@@ -34,6 +34,8 @@ export function FlowProvider({ children }: { children: React.ReactNode }) {
 
 const projOpts = (projects: any[]) => [{ value: "", label: "—" }, ...projects.filter((p) => p.status !== "closed").map((p) => ({ value: p.id, label: p.name }))];
 const subNames = (d: any) => d.sub_names || (d.subcontractors || []).map((s: any) => s.name);
+const METHODS = ["Cash", "Bank transfer", "Cheque", "STC Pay / card", "Other"];
+const today = () => new Date().toISOString().slice(0, 10);
 const LABEL: Record<string, [string, string, string]> = { income: ["Payment received", "دفعة مستلمة", "وصولی"], loan: ["Loan from company", "قرض من الشركة", "کمپنی سے قرض"], expense: ["Expense", "مصروف", "خرچہ"], subpay: ["Payment to subcontractor", "دفعة لمقاول", "سب کنٹریکٹر کو ادائیگی"], rate: ["Supplier rate", "سعر مورد", "سپلائر ریٹ"], progress: ["Work progress", "تقدم العمل", "کام کی پیشرفت"] };
 
 // ───────────────────────── speak / type an entry ─────────────────────────
@@ -73,7 +75,7 @@ function SpeakSheet({ init, onClose, open }: { init?: any; onClose: () => void; 
     const sub = subName || subNames(d).find((s: string) => s && low.includes(String(s).toLowerCase())) || "";
     const proj = pid || projects.find((p: any) => p.name && low.includes(String(p.name).toLowerCase()))?.id || (projects.length === 1 ? projects[0].id : "");
     setErr(""); setMrn(null); setParsed({ heard: text.trim() });
-    setO({ intent, project_id: proj, amount: intent === "progress" ? "" : n, loan: 0, sub_name: sub, material: "", supplier: "", unit: "sqm", description: intent === "expense" ? text.trim() : "", photo: null,
+    setO({ intent, date: today(), method: "Cash", project_id: proj, amount: intent === "progress" ? "" : n, loan: 0, sub_name: sub, material: "", supplier: "", unit: "sqm", description: intent === "expense" ? text.trim() : "", photo: null,
       rows: intent === "progress" ? [{ sub_name: sub, qty: n, unit: "sqm", work: "" }] : [] });
   };
 
@@ -88,6 +90,19 @@ function SpeakSheet({ init, onClose, open }: { init?: any; onClose: () => void; 
   const set = (k: string, v: any) => setO((x: any) => ({ ...x, [k]: v }));
   const setRow = (i: number, k: string, v: any) => setO((x: any) => ({ ...x, rows: x.rows.map((r: any, j: number) => (j === i ? { ...r, [k]: v } : r)) }));
 
+  // Date and how it was paid. If the database does not have these columns yet, they are kept in the note instead.
+  const when = (form?.date || today()), how = form?.method || "Cash";
+  const ins = async (table: string, row: any, file?: any) => {
+    try { return await insert(table, row, file); }
+    catch (e: any) {
+      if (!/paid_on|method|work_date/.test(String(e.message))) throw e;
+      const { paid_on, method, work_date, ...rest } = row;
+      const note = [method, paid_on || work_date].filter(Boolean).join(" · ");
+      if (table === "progress") rest.work = [rest.work, note].filter(Boolean).join(" · "); else rest.description = [rest.description, note].filter(Boolean).join(" · ");
+      return await insert(table, rest, file);
+    }
+  };
+
   const save = async () => {
     if (!form || blocked) return;
     setBusy(true); setErr("");
@@ -95,11 +110,11 @@ function SpeakSheet({ init, onClose, open }: { init?: any; onClose: () => void; 
     try {
       let queued = false;
       const q = (r: any) => { if (r.queued) queued = true; };
-      if (form.intent === "progress") for (const r of form.rows) q(await insert("progress", { project_id: form.project_id, sub_name: r.sub_name, qty: r.qty, unit: r.unit, work: r.work, heard: text, flags }));
-      else if (form.intent === "income") q(await insert("txns", { type: "income", project_id: form.project_id, gross: form.amount, loan: form.loan || 0, heard: text, flags }));
-      else if (form.intent === "loan") q(await insert("txns", { type: "loan", project_id: form.project_id, amount: form.amount, heard: text, flags }));
-      else if (form.intent === "subpay") q(await insert("txns", { type: "subpay", project_id: form.project_id, amount: form.amount, sub_name: form.sub_name, heard: text, flags }));
-      else if (form.intent === "expense") q(await insert("txns", { type: "expense", project_id: form.project_id, amount: form.amount, description: form.description, heard: text, flags }, { bucket: "receipts", uri: form.photo, field: "receipt_path", path: `${profile.id}/${uid()}.jpg` }));
+      if (form.intent === "progress") for (const r of form.rows) q(await ins("progress", { project_id: form.project_id, sub_name: r.sub_name, qty: r.qty, unit: r.unit, work: r.work, work_date: when, heard: text, flags }));
+      else if (form.intent === "income") q(await ins("txns", { type: "income", project_id: form.project_id, gross: form.amount, loan: form.loan || 0, paid_on: when, method: how, heard: text, flags }));
+      else if (form.intent === "loan") q(await ins("txns", { type: "loan", project_id: form.project_id, amount: form.amount, paid_on: when, method: how, heard: text, flags }));
+      else if (form.intent === "subpay") q(await ins("txns", { type: "subpay", project_id: form.project_id, amount: form.amount, sub_name: form.sub_name, paid_on: when, method: how, heard: text, flags }));
+      else if (form.intent === "expense") q(await ins("txns", { type: "expense", project_id: form.project_id, amount: form.amount, description: form.description, paid_on: when, method: how, heard: text, flags }, { bucket: "receipts", uri: form.photo, field: "receipt_path", path: `${profile.id}/${uid()}.jpg` }));
       else if (form.intent === "rate") {
         let itemId = matchItems(form.material, d.items || []).find((m) => m.score >= 0.75)?.item.id;
         if (!itemId) { const { data, error } = await supabase.from("items").insert({ name: form.material, unit: form.unit }).select().single(); if (error) throw error; itemId = data.id; }
@@ -132,6 +147,10 @@ function SpeakSheet({ init, onClose, open }: { init?: any; onClose: () => void; 
         <Row wrap><Pill kind="acc" text={L(o.intent)} />{parsed?.heard && <Btn kind="ghost" title={t("readBack")} onPress={() => Speech.speak(parsed.heard, { language: speechLang(lang) })} />}</Row>
         {(parsed?.questions || []).filter(Boolean).map((qq: string, i: number) => <Card key={i} style={{ backgroundColor: c.warnSoft, borderColor: c.warnSoft }}><T color={c.warn}>{t("question")}: {qq}</T></Card>)}
         <Select label={t("project")} value={o.project_id} options={projOpts(projects)} onChange={(v) => set("project_id", v)} />
+        {o.intent !== "rate" && <Row wrap>
+          <Field label={o.intent === "progress" ? "Date of work (YYYY-MM-DD)" : "Date paid (YYYY-MM-DD)"} value={o.date ?? today()} onChange={(v) => set("date", v)} style={{ maxWidth: 220 }} />
+          {o.intent !== "progress" && <Select label="Paid by" value={o.method || "Cash"} options={METHODS.map((m) => ({ value: m, label: m }))} onChange={(v) => set("method", v)} />}
+        </Row>}
         {o.intent === "progress" ? o.rows.map((r: any, i: number) => (
           <Row key={i} wrap>
             <Field label={t("sub")} value={r.sub_name} onChange={(v) => setRow(i, "sub_name", v)} />
