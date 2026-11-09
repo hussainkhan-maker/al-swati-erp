@@ -2,13 +2,13 @@
 import * as LocalAuthentication from "expo-local-authentication";
 import { Platform } from "react-native";
 import React, { useEffect, useRef, useState } from "react";
-import { AppState, BackHandler, Pressable, Text, View } from "react-native";
+import { Animated, AppState, BackHandler, Easing, Pressable, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useFlows } from "../components/Flows";
 import { useData } from "../lib/data";
 import { startTracking } from "../lib/location";
 import { supabase } from "../lib/supabase";
-import { Btn, Card, H2, Icon, Screen, T, Tile, useColors, useDir } from "../ui";
+import { Btn, Card, DEEP, H2, Icon, Screen, T, Tile, useColors, useDir, useWide } from "../ui";
 import * as Abu from "./Abu";
 import * as Admin from "./Admin";
 import Agents from "./Agents";
@@ -64,6 +64,7 @@ const TABS: Record<string, TabDef[]> = {
   ],
 };
 const SUB_LABEL: Record<string, string> = { projects: "Projects & subcontractors", suppliers: "Suppliers", prices: "Prices", agents: "AI agents", people: "People", team: "Team on site", audit: "Audit log" };
+const SUB_ICON: Record<string, string> = { projects: "folder", suppliers: "truck", prices: "tag", agents: "spark", people: "people", team: "pin", audit: "log" };
 const SUBS: Record<string, React.ComponentType<any>> = { projects: Admin.Projects, suppliers: Suppliers, prices: Prices, agents: Agents, people: Admin.People, team: Admin.Team, audit: Admin.Audit };
 
 export default function Shell() {
@@ -75,6 +76,14 @@ export default function Shell() {
   const [locked, setLocked] = useState(true);
   const bgAt = useRef(0);
   const flows = useFlows();
+  const wide = useWide() && Platform.OS === "web";
+  // Laptop: a short opening animation (logo fades and grows on deep green).
+  const [intro, setIntro] = useState(Platform.OS === "web");
+  const introV = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (!intro) return;
+    Animated.sequence([Animated.timing(introV, { toValue: 1, duration: 650, easing: Easing.out(Easing.cubic), useNativeDriver: false }), Animated.delay(450)]).start(() => setIntro(false));
+  }, []);
   // Phone back button: first close the open page, then go to the first tab; only then leave the app.
   const nav = useRef({ tab, sub }); nav.current = { tab, sub };
   useEffect(() => {
@@ -115,10 +124,44 @@ export default function Shell() {
     </SafeAreaView>
   );
 
+  if (intro) return (
+    <View style={{ flex: 1, backgroundColor: DEEP.bg, alignItems: "center", justifyContent: "center" }}>
+      <Animated.View style={{ opacity: introV, transform: [{ scale: introV.interpolate({ inputRange: [0, 1], outputRange: [0.85, 1] }) }], alignItems: "center", gap: 8 }}>
+        <View style={{ width: 64, height: 64, borderRadius: 20, backgroundColor: DEEP.bg2, alignItems: "center", justifyContent: "center" }}><Icon name="spark" size={34} color={DEEP.glow} /></View>
+        <Text style={{ color: DEEP.ink, fontSize: 30, fontWeight: "800" }}>AL-Swati</Text>
+        <Text style={{ color: DEEP.muted, fontSize: 14 }}>Stone · Marble · Granite · Porcelain · Flooring</Text>
+      </Animated.View>
+    </View>
+  );
+
   const cur = tabs.find((x) => x.key === tab) || tabs[0];
   const Body = sub ? SUBS[sub] : cur.C;
+  // Laptop sidebar: every main page in one list (admin's "More" pages are listed directly).
+  const navItems = [...tabs.filter((x) => !(role === "admin" && x.key === "more")).map((x) => ({ key: x.key, label: x.label, icon: x.icon, isSub: false })),
+    ...(role === "admin" ? Object.keys(SUBS).map((k) => ({ key: k, label: SUB_LABEL[k], icon: SUB_ICON[k], isSub: true })) : [])];
+  const sidebar = wide && (
+    <View style={{ width: 236, margin: 12, marginRight: 0, borderRadius: 24, backgroundColor: DEEP.bg, padding: 16, gap: 4 }}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 10, paddingHorizontal: 6, marginBottom: 8 }}>
+        <View style={{ width: 36, height: 36, borderRadius: 12, backgroundColor: DEEP.bg2, alignItems: "center", justifyContent: "center" }}><Icon name="spark" size={20} color={DEEP.glow} /></View>
+        <View><Text style={{ color: DEEP.ink, fontSize: 18, fontWeight: "800" }}>AL-Swati</Text><Text style={{ color: DEEP.muted, fontSize: 11 }}>Contracting</Text></View>
+      </View>
+      {navItems.map((x) => {
+        const on = x.isSub ? sub === x.key : !sub && cur.key === x.key;
+        return (
+          <Pressable key={x.key} onPress={() => { if (x.isSub) setSub(x.key); else { setSub(null); setTab(x.key); } }}
+            style={({ hovered }: any) => ({ flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 11, paddingHorizontal: 12, borderRadius: 14, backgroundColor: on ? DEEP.glow : hovered ? DEEP.bg2 : "transparent", cursor: "pointer" } as any)}>
+            <Icon name={x.icon} size={20} color={on ? DEEP.bg : DEEP.muted} />
+            <Text style={{ color: on ? DEEP.bg : DEEP.ink, fontSize: 15, fontWeight: on ? "800" : "500" }}>{x.label}</Text>
+          </Pressable>
+        );
+      })}
+      <View style={{ flex: 1 }} />
+      <Pressable onPress={() => supabase.auth.signOut()} style={{ paddingVertical: 10, paddingHorizontal: 12 }}><Text style={{ color: DEEP.muted, fontSize: 14 }}>Sign out</Text></Pressable>
+    </View>
+  );
   return (
-    <View style={{ flex: 1, backgroundColor: c.bg }}>
+    <View style={{ flex: 1, backgroundColor: c.bg, flexDirection: wide ? "row" : "column" }}>
+      {sidebar}
       <View style={{ flex: 1 }}>
         {(!online || pending > 0 || failed.length > 0) && (
           <SafeAreaView edges={["top"]} style={{ backgroundColor: c.warnSoft }}>
@@ -131,7 +174,7 @@ export default function Shell() {
             </View>
           </SafeAreaView>
         )}
-        {sub && <SafeAreaView edges={["top"]}><Pressable onPress={() => setSub(null)} style={{ padding: 14, flexDirection: row }}><Text style={{ color: c.accent, fontSize: 17, fontWeight: "700" }}>‹ Back</Text></Pressable></SafeAreaView>}
+        {sub && !wide && <SafeAreaView edges={["top"]}><Pressable onPress={() => setSub(null)} style={{ padding: 14, flexDirection: row }}><Text style={{ color: c.accent, fontSize: 17, fontWeight: "700" }}>‹ Back</Text></Pressable></SafeAreaView>}
         <Body go={(k: string) => (SUBS[k] ? setSub(k) : setTab(k))} />
         {/* AI helper on every page: knows the page, suggests the next step and what to correct. */}
         <Pressable accessibilityRole="button" accessibilityLabel="AI helper" onPress={() => flows("ask", { page: sub ? (SUB_LABEL[sub] || sub) : cur.label })}
@@ -139,7 +182,7 @@ export default function Shell() {
           <Icon name="spark" size={28} color={c.accentInk} />
         </Pressable>
       </View>
-      <SafeAreaView edges={["bottom"]} style={{ backgroundColor: c.surface, borderTopWidth: 1, borderColor: c.line }}>
+      {!wide && <SafeAreaView edges={["bottom"]} style={{ backgroundColor: c.surface, borderTopWidth: 1, borderColor: c.line }}>
         <View style={{ flexDirection: row, justifyContent: "space-around", paddingVertical: 6 }}>
           {tabs.map((x) => {
             const on = x.key === cur.key && !sub;
@@ -152,7 +195,7 @@ export default function Shell() {
             );
           })}
         </View>
-      </SafeAreaView>
+      </SafeAreaView>}
     </View>
   );
 }
