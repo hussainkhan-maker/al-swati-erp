@@ -133,8 +133,11 @@ export function DataProvider({ profile, children }: { profile: Profile; children
     }
   }, []);
   const update = useCallback(async (table: string, id: string, patch: any) => {
-    const { error } = await supabase.from(table).update(patch).eq("id", id);
+    // .select() returns the changed row: if nothing came back, the change was not allowed or the row is gone.
+    const { data, error } = await supabase.from(table).update(patch).eq("id", id).select("id");
     if (error) throw new Error(error.message);
+    if (!data?.length) throw new Error("Not saved: you may not change this, or it was removed. Refresh and try again.");
+    await reload(DERIVED[table] ?? [table]);
   }, []);
   const setLang = async (l: Lang) => { setLangS(l); await supabase.from("profiles").update({ lang: l }).eq("id", profile.id); };
   const dropFailed = async (id: string) => { await writeBox(FAILED, (await readBox(FAILED)).filter((j) => j.id !== id)); refreshCounts(); };
