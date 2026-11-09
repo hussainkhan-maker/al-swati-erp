@@ -32,7 +32,8 @@ export function entryChecks(t: T, o: any, ctx: { projects: any[]; txns: any[]; s
     c.push({ s: r2(sp.base + sp.vat) === sp.gross && sp.net >= 0 ? "good" : "bad", text: `${t("ck_math")}: ${money(sp.base)} + ${money(sp.vat)} = ${money(sp.gross)}` });
     if (o.loan > 0) { const L = ctx.ledger.find((l) => l.project_id === P.id); c.push({ s: o.loan <= (Number(L?.loan_balance) || 0) + 0.01 ? "good" : "warn", text: `${t("ck_loanBal")}: ${money(L?.loan_balance || 0)}` }); }
   }
-  if (o.intent === "expense") c.push({ s: o.photo ? "good" : "bad", text: t("ck_photo") });
+  // Small expenses need no photo; bought material goes through the purchase invoice (photo required there).
+  if (o.intent === "expense") c.push({ s: String(o.description || "").trim() ? "good" : "warn", text: "What the expense was for" });
   if (o.intent === "subpay") c.push({ s: ctx.subs.some((s) => s.toLowerCase() === String(o.sub_name || "").toLowerCase()) ? "good" : "bad", text: `${t("ck_sub")}: ${o.sub_name || "?"}` });
   return c;
 }
