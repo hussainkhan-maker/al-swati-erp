@@ -1,6 +1,6 @@
 // Super-Admin screens: dashboard, money, projects & subcontractors, people, team on site, audit log.
 import React, { useMemo, useState } from "react";
-import { Linking, View } from "react-native";
+import { Linking, Pressable, View } from "react-native";
 import { useFlows } from "../components/Flows";
 import { active, pname, useData } from "../lib/data";
 import { day, money, num, SAR, stamp } from "../lib/fmt";
@@ -37,6 +37,7 @@ export function Dashboard() {
   const vat = sum(d.vat_by_company || [], "vat");
   const newQ = (d.inquiries || []).filter((q: any) => q.status === "New").length;
   const [chart, setChart] = useState<"m2" | "in" | "out">("m2");
+  const [kd, setKd] = useState<string | null>(null); // which money box is opened for details
   const tx = active(d.txns), pr = active(d.progress);
   // Last 7 days, oldest first.
   const days = Array.from({ length: 7 }, (_, i) => { const t = new Date(Date.now() - (6 - i) * 864e5); return t.toISOString().slice(0, 10); });
@@ -60,7 +61,7 @@ export function Dashboard() {
         <View style={{ position: "absolute", right: 60, bottom: -90, width: 180, height: 180, borderRadius: 90, backgroundColor: DEEP.bg2, opacity: 0.6 }} />
         <T size={13} color={DEEP.muted}>{new Date().toLocaleDateString("en", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}</T>
         <T size={wide ? 30 : 24} bold color={DEEP.ink}>{greet}, {profile.name}</T>
-        <T size={15} color={DEEP.muted}>Stone · Marble · Granite · Porcelain · Flooring — {L.length} projects, {money(totalM2)} m² done in total.</T>
+        <T size={15} color={DEEP.muted}>Stone · Marble · Granite · Porcelain — {L.length} projects, {money(totalM2)} m² done in total.</T>
         <Row wrap>
           <Btn kind="primary" icon={<Icon name="mic" color={c.accentInk} />} title="New entry" onPress={() => flows("speak")} />
           <Btn icon={<Icon name="receipt" />} title="Purchase invoice" onPress={() => flows("purchase")} />
@@ -72,9 +73,9 @@ export function Dashboard() {
   );
   const kpis = (
     <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12 }}>
-      {[["Cash in hand from clients", SAR(sum(L, "net")), true], ["Client still owes (ex VAT)", SAR((d.projects || []).reduce((s2: number, p: any) => s2 + clientAccount(d, p.id).owes, 0))], ["Costs (ex VAT)", SAR(sum(L, "cost"))], ["Subcontract work", SAR(sum(L, "sub_work"))],
-        ["Profit (estimate)", SAR(sum(L, "profit"))], ["Company loans open", SAR(sum(L, "loan_balance"))], ["Purchase VAT to recover", SAR(vat)]]
-        .map(([l, v, h]: any, i) => <Rise key={l} i={i + 1} style={{ flexGrow: 1, flexBasis: wide ? 200 : 150 }}><Kpi hero={h} label={l} value={v} /></Rise>)}
+      {[["net", "Cash in hand from clients", SAR(sum(L, "net")), true], ["owes", "Client still owes (ex VAT)", SAR((d.projects || []).reduce((s2: number, p: any) => s2 + clientAccount(d, p.id).owes, 0))], ["cost", "Costs (ex VAT)", SAR(sum(L, "cost"))], ["sub_work", "Subcontract work", SAR(sum(L, "sub_work"))],
+        ["profit", "Profit (estimate)", SAR(sum(L, "profit"))], ["loan_balance", "Company loans open", SAR(sum(L, "loan_balance"))], ["vat", "Purchase VAT to recover", SAR(vat)]]
+        .map(([k, l, v, h]: any, i) => <Rise key={l} i={i + 1} style={{ flexGrow: 1, flexBasis: wide ? 200 : 150 }}><Kpi hero={h} label={l} value={v} onPress={() => setKd(k)} /></Rise>)}
     </View>
   );
   const chartCard = (
@@ -117,8 +118,23 @@ export function Dashboard() {
       rows={L.map((l: any) => [l.name, l.company || "—", String(l.fee_pct), money(l.installed), money(l.net), money(l.cost), money(l.sub_work), money(l.loan_balance), money(l.profit)])} />
     <T size={12} muted>Profit estimate = cash in hand + loans already deducted − costs (ex VAT) − subcontract work done (meters × rate). Calculated by the database.</T>
   </>;
+  // Details behind each money box (opens on click).
+  const KD: Record<string, [string, () => React.ReactNode]> = {
+    net: ["Cash in hand, by project", () => <Table cols={["Project", "Received (gross)", "VAT", "Fee", "Loan cut", "In hand"]} numeric={[1, 2, 3, 4, 5]} rows={L.map((l: any) => [l.name, money(l.gross), money(l.vat), money(l.fee), money(l.loan_deducted), money(l.net)])} />],
+    owes: ["What each client still owes (before VAT)", () => <Table cols={["Project", "m² done", "Work value", "Received", "Retention kept", "Still owes"]} numeric={[1, 2, 3, 4, 5]} rows={(d.projects || []).map((p: any) => { const a = clientAccount(d, p.id); return [p.name, money(a.m2), a.rate ? money(a.workValue) : "rate not set", money(a.received), money(a.retHeld), money(a.owes)]; })} />],
+    cost: ["Costs by project (ex VAT)", () => <Table cols={["Project", "Costs"]} numeric={[1]} rows={L.map((l: any) => [l.name, money(l.cost)])} />],
+    sub_work: ["Subcontractors: work, paid, balance", () => <Table cols={["Subcontractor", "m²", "Earned", "Paid", "Balance"]} numeric={[1, 2, 3, 4]} rows={(d.sub_ledger || []).map((x: any) => [x.name, money(x.qty), money(x.earned), money(x.paid), money(Number(x.earned) - Number(x.paid))])} />],
+    profit: ["Profit estimate by project", () => <Table cols={["Project", "In hand", "Costs", "Sub work", "Profit est."]} numeric={[1, 2, 3, 4]} rows={L.map((l: any) => [l.name, money(l.net), money(l.cost), money(l.sub_work), money(l.profit)])} />],
+    loan_balance: ["Company loans still open", () => <Table cols={["Project", "Loan open"]} numeric={[1]} rows={L.map((l: any) => [l.name, money(l.loan_balance)])} />],
+    vat: ["Purchase VAT to recover", () => <>
+      <Table cols={["Company (VAT in this name)", "VAT to recover"]} numeric={[1]} rows={[...(d.vat_by_company || []).map((x: any) => [x.company || "—", money(x.vat)]), ["Total", money(vat)]]} />
+      <T bold>Invoices</T>
+      <Table cols={["Date", "Supplier", "Invoice", "Company", "VAT", "Total"]} numeric={[4, 5]} rows={tx.filter((x: any) => x.type === "purchase" && Number(x.vat_amount) > 0).map((x: any) => [dkey(x), x.supplier || "", x.invoice_no || "", x.vat_company || "", money(x.vat_amount), money(x.total)])} />
+    </>],
+  };
   return (
     <Screen>
+      <Sheet open={!!kd} onClose={() => setKd(null)} title={kd ? KD[kd][0] : ""}>{kd ? KD[kd][1]() : null}</Sheet>
       {wide ? (
         <View style={{ flexDirection: "row", gap: 18, alignItems: "flex-start" }}>
           <View style={{ flex: 2.2, gap: 16 }}>{hero}{kpis}<View style={{ flexDirection: "row", gap: 16, alignItems: "flex-start" }}><View style={{ flex: 1.3 }}>{chartCard}</View><View style={{ flex: 1 }}>{recentCard}</View></View>{table}</View>
@@ -229,66 +245,114 @@ export function Projects() {
         const all = { ...((d.preferences || []).find((q: any) => q.key === "project_terms")?.value || {}), [id]: { retention: ret, rate } };
         const { error } = await supabase.from("preferences").upsert({ key: "project_terms", value: all, updated_at: new Date().toISOString() });
         if (error) throw error;
+        await saveContact("project", id, { pm_name: p.pm_name || "", pm_phone: p.pm_phone || "", pm_email: p.pm_email || "", cm_name: p.cm_name || "", cm_phone: p.cm_phone || "", cm_email: p.cm_email || "" });
         await reload(["preferences"]);
       }
-      await reload(["subcontractors"]); setP(null);
+      await reload(["subcontractors"]); setSel(id); setP(null);
     } catch (e: any) { setErr(e.message); } finally { setBusy(false); }
   };
   const saveSub = async () => {
     setBusy(true); setErr("");
     try { const row = { name: s.name.trim(), rate: num(s.rate), unit: s.unit || "sqm", projects: s.projects || [] }; if (!row.name || !(row.rate >= 0)) throw new Error("Name and rate are required.");
-      if (s.id) await update("subcontractors", s.id, row); else await insert("subcontractors", row); setS(null); }
+      let id = s.id;
+      if (id) await update("subcontractors", id, row); else id = (await insert("subcontractors", row)).data?.id;
+      if (id && (s.phone || s.iqama || contacts.sub?.[id])) { await saveContact("sub", id, { phone: s.phone || "", iqama: s.iqama || "" }); await reload(["preferences"]); }
+      setS(null); }
     catch (e: any) { setErr(e.message); } finally { setBusy(false); }
   };
 
+  // Contacts kept with the project / subcontractor (PM, CM, phone, iqama) in preferences "contacts".
+  const contacts = ((d.preferences || []).find((q: any) => q.key === "contacts")?.value || {}) as any;
+  const saveContact = async (kind: "project" | "sub", id: string, v: any) => {
+    const all = { ...contacts, [kind]: { ...(contacts[kind] || {}), [id]: v } };
+    const { error } = await supabase.from("preferences").upsert({ key: "contacts", value: all, updated_at: new Date().toISOString() });
+    if (error) throw error;
+  };
+  const openProject = (x: any) => setP({ ...x, members: membersOf(x.id), subs: subsOf(x.id).map((q: any) => q.id), ret: termsOf(d, x.id).retention ?? "", rate: termsOf(d, x.id).rate ?? "", ...(contacts.project?.[x.id] || {}) });
+  const wide = useWide();
+  const projects = d.projects || [];
+  const [sel, setSel] = useState<string | null>(null);
+  const cur = projects.find((x: any) => x.id === sel) || (wide ? projects[0] : null);
+  const [hf, setHf] = useState(""); // history filter: "" = everything, or a subcontractor name
+
+  const list = (
+    <View style={{ gap: 10 }}>
+      <Row><View style={{ flex: 1 }}><H1>Projects</H1></View><Btn kind="primary" icon={<Icon name="plus" color="#fff" />} title="New" onPress={() => setP({ name: "", client: "", company: "", fee_pct: "", members: [], subs: [], ret: "", rate: "" })} /></Row>
+      {projects.map((x: any, i: number) => { const a = clientAccount(d, x.id), on = cur?.id === x.id && wide; return (
+        <Rise key={x.id} i={i}><Card onPress={() => { setSel(x.id); setHf(""); }} style={on ? { borderColor: c.accent, borderWidth: 2 } : undefined}>
+          <Row>
+            <View style={{ width: 42, height: 42, borderRadius: 14, backgroundColor: on ? c.accent : c.accentSoft, alignItems: "center", justifyContent: "center" }}><Icon name="folder" color={on ? c.accentInk : c.accent} /></View>
+            <View style={{ flex: 1 }}><T bold size={17}>{x.name}</T><T muted size={13}>{[x.client, x.company].filter(Boolean).join(" · ") || "—"}</T></View>
+            <View style={{ alignItems: "flex-end" }}><T bold>{money(a.m2)} m²</T><T muted size={12}>owes {money(a.owes)}</T></View>
+          </Row>
+        </Card></Rise>); })}
+      {!projects.length && <Empty text="No projects yet. Tap New." />}
+    </View>
+  );
+
+  const detail = cur && (() => {
+    const x = cur, a = clientAccount(d, x.id), subs = subsOf(x.id), pc = contacts.project?.[x.id] || {};
+    const rows = historyOf(x.id, hf);
+    return (
+      <View style={{ gap: 14 }}>
+        {!wide && <Btn kind="ghost" title="‹ All projects" onPress={() => setSel(null)} />}
+        <Rise i={0}><View style={{ backgroundColor: DEEP.bg, borderRadius: 22, padding: 20, gap: 8, overflow: "hidden" }}>
+          <View style={{ position: "absolute", right: -50, top: -50, width: 180, height: 180, borderRadius: 90, backgroundColor: DEEP.bg2 }} />
+          <Row><View style={{ flex: 1 }}><T size={24} bold color={DEEP.ink}>{x.name}</T>
+            <T size={13} color={DEEP.muted}>{[x.client, x.company, `fee ${x.fee_pct}%`, a.r ? `retention ${money(a.r)}%` : null, a.rate ? `client rate ${money(a.rate)}/m²` : null].filter(Boolean).join(" · ")}</T>
+            {(pc.pm_name || pc.cm_name) ? <T size={13} color={DEEP.muted}>{[pc.pm_name && `PM ${pc.pm_name} ${pc.pm_phone || ""}`, pc.cm_name && `CM ${pc.cm_name} ${pc.cm_phone || ""}`].filter(Boolean).join(" · ")}</T> : null}</View>
+            <Btn title="Edit" icon={<Icon name="doc" />} onPress={() => openProject(x)} />
+          </Row>
+          <Row wrap>
+            <Btn kind="primary" icon={<Icon name="cash" color={c.accentInk} />} title="Payment received" onPress={() => flows("speak", { intent: "income", project_id: x.id })} />
+            <Btn icon={<Icon name="people" />} title="Pay subcontractor" onPress={() => flows("speak", { intent: "subpay", project_id: x.id, sub_name: subs.length === 1 ? subs[0].name : "" })} />
+            <Btn icon={<Icon name="ruler" />} title="Work done (m²)" onPress={() => flows("speak", { intent: "progress", project_id: x.id })} />
+            <Btn icon={<Icon name="receipt" />} title="Expense / purchase" onPress={() => flows("speak", { intent: "expense", project_id: x.id })} />
+            <Btn icon={<Icon name="doc" />} title="Statement" onPress={() => flows("statement", { kind: "project", target: x.name, project_id: x.id })} />
+          </Row>
+        </View></Rise>
+
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12 }}>
+          {[["Total m² done", money(a.m2) + " m²", true], ["Client still owes", SAR(a.owes)], ["Received from client", SAR(a.received)], ["Retention kept by client", SAR(a.retHeld)]]
+            .map(([l, v, h]: any, i) => <Rise key={l} i={i + 1} style={{ flexGrow: 1, flexBasis: 160 }}><Kpi hero={h} label={l} value={v} /></Rise>)}
+        </View>
+        {!a.rate && <T muted size={13}>Add the client rate per m² (Edit) to see the work value and what is still to come.</T>}
+
+        <Rise i={5}><Card>
+          <Row><View style={{ flex: 1 }}><H2>Subcontractors on this project</H2></View><Btn icon={<Icon name="plus" />} title="Add" onPress={() => setS({ name: "", rate: "", unit: "sqm", projects: [x.id] })} /></Row>
+          {subs.length ? subs.map((q: any) => { const r = subRows(x.id).find((rr: any) => rr[0] === q.name) || []; const sc = contacts.sub?.[q.id] || {}; return (
+            <Pressable key={q.id} onPress={() => setS({ ...q, ...sc })} style={({ hovered }: any) => ({ flexDirection: "row", alignItems: "center", gap: 12, padding: 10, borderRadius: 14, backgroundColor: hovered ? c.accentSoft : "transparent" })}>
+              <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: c.accentSoft, alignItems: "center", justifyContent: "center" }}><T bold color={c.accent}>{String(q.name).slice(0, 1).toUpperCase()}</T></View>
+              <View style={{ flex: 1 }}><T bold>{q.name}</T><T muted size={12}>{[`${money(q.rate)} / ${q.unit}`, sc.phone, sc.iqama && "Iqama " + sc.iqama].filter(Boolean).join(" · ")}</T></View>
+              <View style={{ alignItems: "flex-end" }}><T bold>{r[1] || 0} m²</T><T muted size={12}>earned {r[2] || 0} · paid {r[3] || 0}</T><T size={12} color={c.accent}>balance {r[4] || 0}</T></View>
+            </Pressable>); }) : <T muted>None yet. Tap Add.</T>}
+        </Card></Rise>
+
+        <Rise i={6}><Card>
+          <H2>History</H2>
+          <T muted size={12}>Everything on this project, newest first. Tap a line for all details (note, VAT, invoice, photo).</T>
+          {subs.length > 0 && <Row wrap>{[{ name: "" }, ...subs].map((q: any) => <Btn key={q.name || "all"} kind={hf === q.name ? "primary" : "default"} title={q.name || "All"} onPress={() => setHf(q.name)} />)}</Row>}
+          {hf ? <T muted size={13}>{hf}: {money(sum(rows.filter((r: any) => r.kind === "progress"), "qty"))} m² done · paid {money(sum(rows.filter((r: any) => r.kind === "subpay"), "amount"))} SAR</T> : null}
+          {rows.length ? rows.map((r: any) => (
+            <Pressable key={r.kind + r.id} onPress={() => setDet(r)} style={({ hovered }: any) => ({ flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 9, paddingHorizontal: 8, borderRadius: 12, borderBottomWidth: 1, borderColor: c.line, backgroundColor: hovered ? c.accentSoft : "transparent" })}>
+              <View style={{ width: 34, height: 34, borderRadius: 10, backgroundColor: c.accentSoft, alignItems: "center", justifyContent: "center" }}><Icon name={TYPE_ICON[r.kind] || "doc"} size={18} color={c.accent} /></View>
+              <View style={{ flex: 1 }}><T bold size={14}>{r.kind === "progress" ? "Work done" : TYPE[r.kind]} · {r.sub_name || r.supplier || r.description || "—"}</T>
+                <T muted size={12}>{[dkey(r), r.method, r.invoice_no && "Invoice " + r.invoice_no, Number(r.vat_amount) > 0 && `VAT ${money(r.vat_amount)} → ${r.vat_company || "?"}`].filter(Boolean).join(" · ")}</T></View>
+              <T bold>{r.kind === "progress" ? `${money(r.qty)} m²` : `${money(r.gross ?? r.total ?? r.amount)}`}</T>
+            </Pressable>)) : <T muted>Nothing yet.</T>}
+        </Card></Rise>
+      </View>
+    );
+  })();
+
   return (
     <Screen>
-      <Row><View style={{ flex: 1 }}><H1>Projects</H1></View><Btn kind="primary" icon={<Icon name="plus" color="#fff" />} title="New" onPress={() => setP({ name: "", client: "", company: "", fee_pct: "", members: [], subs: [], ret: "", rate: "" })} /></Row>
-      {(d.projects || []).map((x: any) => (
-        <Card key={x.id} onPress={() => setP({ ...x, members: membersOf(x.id), subs: subsOf(x.id).map((q: any) => q.id), ret: termsOf(d, x.id).retention ?? "", rate: termsOf(d, x.id).rate ?? "" })}>
-          <Row><View style={{ flex: 1 }}><T bold size={17}>{x.name}</T><T muted size={13}>{x.company || "—"} · fee {x.fee_pct}% · {membersOf(x.id).length} on site</T></View><View style={{ alignItems: "flex-end" }}><T bold size={20}>{money(L(x.id).installed)} m²</T><T muted size={12}>total done</T></View></Row>
-          {subsOf(x.id).length ? <Table cols={["Subcontractor", "Done", "Earned", "Paid", "Balance"]} numeric={[1, 2, 3, 4]} rows={subRows(x.id)} /> : <T muted size={13}>No subcontractors on this project yet. Tap the project to add them.</T>}
-          <Row wrap>
-            <Btn kind="primary" icon={<Icon name="plus" color="#fff" />} title="Payment received" onPress={() => flows("speak", { intent: "income", project_id: x.id })} />
-            <Btn icon={<Icon name="plus" />} title="Pay subcontractor" onPress={() => flows("speak", { intent: "subpay", project_id: x.id, sub_name: subsOf(x.id).length === 1 ? subsOf(x.id)[0].name : "" })} />
-            <Btn icon={<Icon name="ruler" />} title="Work done (m²)" onPress={() => flows("speak", { intent: "progress", project_id: x.id, sub_name: subsOf(x.id).length === 1 ? subsOf(x.id)[0].name : "" })} />
-            <Btn icon={<Icon name="plus" />} title="Expense" onPress={() => flows("speak", { intent: "expense", project_id: x.id })} />
-            <Btn icon={<Icon name="receipt" />} title="Purchase invoice" onPress={() => flows("purchase", { voice: { project_id: x.id } })} />
-          </Row>
-          {(() => { const a = clientAccount(d, x.id); return (
-            <View style={{ backgroundColor: c.accentSoft, borderRadius: 14, padding: 12, gap: 4 }}>
-              <T bold>Client account (before VAT)</T>
-              {a.rate ? <>
-                <Row><T style={{ flex: 1 }}>Work done: {money(a.m2)} m² × {money(a.rate)}</T><T bold>{money(a.workValue)}</T></Row>
-                <Row><T style={{ flex: 1 }}>Paid by client (after VAT, after retention)</T><T bold>{money(a.received)}</T></Row>
-                <Row><T style={{ flex: 1 }}>Work not paid yet</T><T bold>{money(a.unpaidWork)}</T></Row>
-              </> : <T muted size={13}>Tap the project and add the client rate per m² to see the work value and what is still to come.</T>}
-              <Row><T style={{ flex: 1 }}>Retention the client still keeps ({money(a.r)}%)</T><T bold>{money(a.retHeld)}</T></Row>
-              <Row><T bold style={{ flex: 1 }}>Client still owes you</T><T bold size={18} color={c.accent}>{money(a.owes)} SAR</T></Row>
-            </View>); })()}
-          {(() => { const inc = active(d.txns).filter((t: any) => t.type === "income" && t.project_id === x.id); const last = inc.map(dkey).sort().pop();
-            return <T muted size={13}>Received from client: {money(sum(inc, "gross"))} SAR in {inc.length} payment{inc.length === 1 ? "" : "s"}{last ? ` · last on ${last}` : ""}</T>; })()}
-          <Row wrap><Btn icon={<Icon name="log" />} title={hist[x.id] != null ? "Hide history" : "History (every entry, tap for details)"} onPress={() => setHist((h) => { const n = { ...h }; if (n[x.id] != null) delete n[x.id]; else n[x.id] = ""; return n; })} /></Row>
-          {hist[x.id] != null && (() => { const rows = historyOf(x.id, hist[x.id] || ""); return <View style={{ gap: 8 }}>
-            {subsOf(x.id).length > 0 && <Row wrap>{[{ name: "" }, ...subsOf(x.id)].map((q: any) => <Btn key={q.name || "all"} kind={(hist[x.id] || "") === q.name ? "primary" : "default"} title={q.name || "All"} onPress={() => setHist((h) => ({ ...h, [x.id]: q.name }))} />)}</Row>}
-            {hist[x.id] ? <T muted size={13}>{hist[x.id]}: {money(sum(rows.filter((r: any) => r.kind === "progress"), "qty"))} m² done · paid {money(sum(rows.filter((r: any) => r.kind === "subpay"), "amount"))} SAR</T> : null}
-            <T muted size={12}>Everything on this project in date order. Tap a line to see all its details (note, VAT, invoice, photo).</T>
-            {rows.length ? rows.map((r: any) => (
-              <Card key={r.kind + r.id} onPress={() => setDet(r)} style={{ paddingVertical: 10 }}>
-                <Row>
-                  <View style={{ width: 92 }}><T size={13} muted>{dkey(r)}</T></View>
-                  <View style={{ flex: 1 }}><T bold size={14}>{r.kind === "progress" ? "Work done" : TYPE[r.kind]} · {r.sub_name || r.supplier || r.description || "—"}</T>
-                    <T muted size={12}>{[r.method, r.invoice_no && "Invoice " + r.invoice_no, Number(r.vat_amount) > 0 && `VAT ${money(r.vat_amount)} → ${r.vat_company || "?"}`].filter(Boolean).join(" · ") || " "}</T></View>
-                  <T bold>{r.kind === "progress" ? `${money(r.qty)} m²` : `${money(r.gross ?? r.total ?? r.amount)} SAR`}</T>
-                </Row>
-              </Card>)) : <T muted>Nothing yet.</T>}
-          </View>; })()}
-          <Row wrap><Btn icon={<Icon name="doc" />} title="Statements (project, subcontractor, expenses, purchases, received)" onPress={() => flows("statement", { kind: "project", target: x.name, project_id: x.id })} />{x.quote_id ? <Pill kind="acc" text="from quotation" /> : null}</Row>
-        </Card>))}
-      <Row><View style={{ flex: 1 }}><H2>All subcontractors (all projects)</H2></View><Btn icon={<Icon name="plus" />} title="Add" onPress={() => setS({ name: "", rate: "", unit: "sqm", projects: [] })} /></Row>
-      <Table cols={["Name", "Rate", "Unit", "Done", "Earned", "Paid", "Balance"]} numeric={[1, 3, 4, 5, 6]}
-        rows={(d.sub_ledger || []).map((x: any) => [x.name + " · " + ((d.subcontractors || []).find((q: any) => q.id === x.id)?.projects || []).map((q: string) => pname(d, q)).join(", "), Number(x.rate) > 0 ? money(x.rate) : "not set", x.unit, money(x.qty), money(x.earned), money(x.paid), money(Number(x.earned) - Number(x.paid))])} />
-      <Row wrap>{(d.subcontractors || []).map((x: any) => <Btn key={x.id} title={`Edit ${x.name}`} onPress={() => setS(x)} />)}</Row>
+      {wide ? (
+        <View style={{ flexDirection: "row", gap: 18, alignItems: "flex-start" }}>
+          <View style={{ width: 340 }}>{list}</View>
+          <View style={{ flex: 1 }}>{detail || <Empty text="Choose a project on the left." />}</View>
+        </View>
+      ) : (cur ? detail : list)}
 
       <Sheet open={!!det} onClose={() => setDet(null)} title="Entry details">
         {det && <>
@@ -308,15 +372,26 @@ export function Projects() {
       </Sheet>
       <Sheet open={!!p} onClose={() => setP(null)} title={p?.id ? "Edit project" : "New project"}>
         {p && <>
-          <Field label="Project name" value={p.name} onChange={(v) => setP({ ...p, name: v })} />
+          <Field required label="Project name" value={p.name} onChange={(v) => setP({ ...p, name: v })} />
           <Field label="Client" value={p.client} onChange={(v) => setP({ ...p, client: v })} />
           <Field label="Company the project is under" value={p.company} onChange={(v) => setP({ ...p, company: v })} />
-          <Field label="Service fee % (charged on the amount after VAT)" value={p.fee_pct} numeric onChange={(v) => setP({ ...p, fee_pct: v })} />
+          <Field required label="Service fee % (charged on the amount after VAT)" value={p.fee_pct} numeric onChange={(v) => setP({ ...p, fee_pct: v })} />
           <Row wrap>
             <Field label="Retention % kept by the client (usually 10–20)" value={p.ret} numeric onChange={(v) => setP({ ...p, ret: v })} />
             <Field label="Client rate per m² (SAR, before VAT)" value={p.rate} numeric onChange={(v) => setP({ ...p, rate: v })} />
           </Row>
           <T size={13} muted>With the client rate, the app works out: m² done × rate = work value, minus what the client paid (plus the retention he keeps) = what he still owes.</T>
+          <T bold>Client's people (optional, for later)</T>
+          <Row wrap>
+            <Field label="Project manager (PM)" value={p.pm_name} onChange={(v) => setP({ ...p, pm_name: v })} />
+            <Field label="PM phone" value={p.pm_phone} numeric onChange={(v) => setP({ ...p, pm_phone: v })} />
+            <Field label="PM email" value={p.pm_email} onChange={(v) => setP({ ...p, pm_email: v })} />
+          </Row>
+          <Row wrap>
+            <Field label="Construction manager (CM)" value={p.cm_name} onChange={(v) => setP({ ...p, cm_name: v })} />
+            <Field label="CM phone" value={p.cm_phone} numeric onChange={(v) => setP({ ...p, cm_phone: v })} />
+            <Field label="CM email" value={p.cm_email} onChange={(v) => setP({ ...p, cm_email: v })} />
+          </Row>
           <T bold>Site staff (supervisors and engineers)</T>
           <T size={13} muted>Tick who works on this site. They will see only the projects they are ticked on, and can report progress there.</T>
           {!staff.length && <T size={13} muted>No supervisor or engineer yet. Add them first in More → People (role: Supervisor or Engineer); then they show here.</T>}
@@ -336,8 +411,9 @@ export function Projects() {
       </Sheet>
       <Sheet open={!!s} onClose={() => setS(null)} title={s?.id ? "Edit subcontractor" : "New subcontractor"}>
         {s && <>
-          <Field label="Name" value={s.name} onChange={(v) => setS({ ...s, name: v })} />
-          <Row><Field label="Rate (SAR)" value={s.rate} numeric onChange={(v) => setS({ ...s, rate: v })} /><Select label="Unit" value={s.unit} onChange={(v) => setS({ ...s, unit: v })} options={["sqm", "rft", "pcs"].map((u) => ({ value: u, label: u }))} /></Row>
+          <Field required label="Name" value={s.name} onChange={(v) => setS({ ...s, name: v })} />
+          <Row wrap><Field label="Phone (optional)" value={s.phone} numeric onChange={(v) => setS({ ...s, phone: v })} /><Field label="Iqama number (optional)" value={s.iqama} numeric onChange={(v) => setS({ ...s, iqama: v })} /></Row>
+          <Row><Field required label="Rate (SAR)" value={s.rate} numeric onChange={(v) => setS({ ...s, rate: v })} /><Select label="Unit" value={s.unit} onChange={(v) => setS({ ...s, unit: v })} options={["sqm", "rft", "pcs"].map((u) => ({ value: u, label: u }))} /></Row>
           <T bold>Projects</T>
           <Row wrap>{(d.projects || []).map((q: any) => { const on = (s.projects || []).includes(q.id); return <Btn key={q.id} kind={on ? "primary" : "default"} title={q.name} onPress={() => setS({ ...s, projects: on ? s.projects.filter((m: string) => m !== q.id) : [...(s.projects || []), q.id] })} />; })}</Row>
           <T size={13} muted>Work already reported keeps its rate. Work reported before any rate was set takes this one.</T>
