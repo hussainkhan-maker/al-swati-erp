@@ -89,7 +89,7 @@ export function rfqGates(text: string, a: any, b: any, hasPrice: (desc: string) 
 
 // ───────── quotation safety: all maths and limits are done here in code, never by the AI ─────────
 export const QUOTE_DEFAULTS = { waste: 12, minMargin: 15 };
-const STONE = /stone|marble|granite|travertine|limestone|riyadh|حجر|رخام|جرانيت|ترافرتين/i;
+const NATURAL_STONE = /stone|marble|granite|travertine|limestone|riyadh|حجر|رخام|جرانيت|ترافرتين/i;
 /** One quotation line: client is billed the NET quantity; material is bought with waste on top. */
 export function lineCalc(l: any) {
   const net = Number(l.qty) || 0, waste = l.waste === "" || l.waste == null ? QUOTE_DEFAULTS.waste : Number(l.waste);
@@ -112,10 +112,10 @@ export function quoteGuards(q: any, minMargin = QUOTE_DEFAULTS.minMargin): Check
     if (!(x.rate > 0)) out.push({ s: "bad", text: `${n}: selling rate missing` });
     if (!(x.cost > 0) && !(x.install > 0)) out.push({ s: "bad", text: `${n}: enter the material cost and/or installation cost` });
     if (!(x.waste >= 0 && x.waste <= 30)) out.push({ s: "bad", text: `${n}: waste ${x.waste}% is not between 0 and 30` });
-    else if (STONE.test(l.desc || "") && x.waste < 10) out.push({ s: "warn", text: `${n}: stone waste only ${x.waste}% (normally 10–15%)` });
+    else if (NATURAL_STONE.test(l.desc || "") && x.waste < 10) out.push({ s: "warn", text: `${n}: stone waste only ${x.waste}% (normally 10–15%)` });
     if (x.margin != null && x.margin < minMargin) out.push({ s: "bad", text: `${n}: margin ${x.margin}% is below your minimum ${minMargin}%` });
     const th = String(l.desc || "").match(/(\d+(?:\.\d+)?)\s*(mm|cm)\b/i);
-    if (th && STONE.test(l.desc || "")) { const mm = Number(th[1]) * (th[2].toLowerCase() === "cm" ? 10 : 1); if (mm < 15 || mm > 50) out.push({ s: "bad", text: `${n}: thickness ${mm} mm looks wrong for stone` }); }
+    if (th && NATURAL_STONE.test(l.desc || "")) { const mm = Number(th[1]) * (th[2].toLowerCase() === "cm" ? 10 : 1); if (mm < 15 || mm > 50) out.push({ s: "bad", text: `${n}: thickness ${mm} mm looks wrong for stone` }); }
     const sz = String(l.desc || "").match(/(\d{2,3})\s*[x×*]\s*(\d{2,3})/);
     if (sz && [Number(sz[1]), Number(sz[2])].some((v) => v > 320 || v % 5 !== 0)) out.push({ s: "warn", text: `${n}: size ${sz[1]}×${sz[2]} is not a usual slab/tile size` });
   });
