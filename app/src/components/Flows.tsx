@@ -44,6 +44,7 @@ function SpeakSheet({ init, onClose, open }: { init?: any; onClose: () => void; 
   const [text, setText] = useState(init?.text || "");
   const [busy, setBusy] = useState(false), [err, setErr] = useState("");
   const [o, setO] = useState<any>(null), [parsed, setParsed] = useState<any>(null), [mrn, setMrn] = useState<Doc | null>(null);
+  const [tried, setTried] = useState(false); // problems are listed only after Save is pressed
   const L = (k: string) => (LABEL[k] || [k, k, k])[lang === "ar" ? 1 : lang === "ur" ? 2 : 0];
   const projects = d.projects || [];
   const hints = [...projects.map((p: any) => p.name), ...subNames(d)];
@@ -107,7 +108,7 @@ function SpeakSheet({ init, onClose, open }: { init?: any; onClose: () => void; 
   };
 
   const save = async () => {
-    if (!form || blocked) return;
+    if (!form || blocked) return; // the red lines above say what is missing
     setBusy(true); setErr("");
     const flags = checks.filter((x) => x.s === "warn").map((x) => x.text);
     try {
@@ -129,7 +130,7 @@ function SpeakSheet({ init, onClose, open }: { init?: any; onClose: () => void; 
   };
 
   return (
-    <Sheet open onClose={onClose} title={t("speak")}>
+    <Sheet open onClose={onClose} title={o ? L(o.intent) : t("speak")}>
       {!o && !mrn && <>
         <Voice value={text} onChange={setText} hints={hints} />
         <Btn big kind="primary" title={t("understand")} onPress={understand} busy={busy} disabled={!text.trim()} />
@@ -144,17 +145,12 @@ function SpeakSheet({ init, onClose, open }: { init?: any; onClose: () => void; 
         <Btn title={t("no")} onPress={() => setMrn(null)} />
       </>; })()}
 
-      {o && o.intent === "expense" && !o.kindChosen && <Card>
-        <T bold size={17}>What kind of expense?</T>
-        <Btn big kind="primary" icon={<Icon name="cash" color={c.accentInk} />} title="Small expense (no photo) — transport, food, tools…" onPress={() => set("kindChosen", true)} />
-        <Btn big icon={<Icon name="receipt" />} title="Material bought (invoice photo, AI reads VAT)" onPress={() => { const pid = o.project_id; onClose(); setTimeout(() => open("purchase", { voice: { project_id: pid } }), 350); }} />
-      </Card>}
-      {o && !(o.intent === "expense" && !o.kindChosen) && <Card>
-        <T size={13} muted>{t("heard")}</T>
-        <T size={18}>{parsed?.heard}</T>
-        <Row wrap><Pill kind="acc" text={L(o.intent)} />{parsed?.heard && <Btn kind="ghost" title={t("readBack")} onPress={() => Speech.speak(parsed.heard, { language: speechLang(lang) })} />}</Row>
+      {o && <Card>
+        {parsed?.heard ? <Row wrap><T size={16} style={{ flex: 1 }}>“{parsed.heard}”</T><Btn kind="ghost" title={t("readBack")} onPress={() => Speech.speak(parsed.heard, { language: speechLang(lang) })} /></Row> : null}
+        {o.intent === "expense" && <Select label="Type of expense *" value="small" options={[{ value: "small", label: "Small expense (no photo): transport, food, tools…" }, { value: "material", label: "Material purchase (invoice photo; AI reads items, VAT, invoice no.)" }]}
+          onChange={(v) => { if (v === "material") { const pid = o.project_id; onClose(); setTimeout(() => open("purchase", { voice: { project_id: pid } }), 350); } }} />}
         {(parsed?.questions || []).filter(Boolean).map((qq: string, i: number) => <Card key={i} style={{ backgroundColor: c.warnSoft, borderColor: c.warnSoft }}><T color={c.warn}>{t("question")}: {qq}</T></Card>)}
-        <Select label={t("project")} value={o.project_id} options={projOpts(projects)} onChange={(v) => set("project_id", v)} />
+        <Select label={t("project") + " *"} value={o.project_id} options={projOpts(projects)} onChange={(v) => set("project_id", v)} />
         {o.intent !== "rate" && <Row wrap>
           <Field label={o.intent === "progress" ? "Date of work (YYYY-MM-DD)" : "Date paid (YYYY-MM-DD)"} value={o.date ?? today()} onChange={(v) => set("date", v)} style={{ maxWidth: 220 }} />
           {o.intent !== "progress" && <Select label="Paid by" value={o.method || "Cash"} options={METHODS.map((m) => ({ value: m, label: m }))} onChange={(v) => set("method", v)} />}
@@ -168,7 +164,7 @@ function SpeakSheet({ init, onClose, open }: { init?: any; onClose: () => void; 
             <Field label={t("work")} value={r.work} onChange={(v) => setRow(i, "work", v)} />
           </Row>)).concat([<Btn key="add" kind="ghost" icon={<Icon name="plus" />} title="Add another subcontractor line" onPress={() => set("rows", [...o.rows, { sub_name: "", qty: "", unit: "sqm", work: "" }])} />,
             <T key="sum" bold>Total today: {money((form?.rows || []).reduce((s2: number, r: any) => s2 + (r.qty || 0), 0))} m²</T>]) : <>
-          <Field label={t("amount")} value={o.amount} numeric onChange={(v) => set("amount", v)} />
+          <Field required label={t("amount")} value={o.amount} numeric onChange={(v) => set("amount", v)} />
           {o.intent === "income" && <Field label={t("loanDeduct")} value={o.loan} numeric onChange={(v) => set("loan", v)} />}
           {o.intent === "income" && (() => { const ret = Number((((d.preferences || []).find((q: any) => q.key === "project_terms")?.value || {})[o.project_id] || {}).retention) || 0; return <>
             <Btn kind={o.relRet ? "primary" : "default"} title={(o.relRet ? "✓ " : "") + "This payment is the retention being released"} onPress={() => set("relRet", !o.relRet)} />
@@ -180,9 +176,11 @@ function SpeakSheet({ init, onClose, open }: { init?: any; onClose: () => void; 
           {o.intent === "expense" && <Field label="What was it for (transport, food, small tools…)" value={o.description} onChange={(v) => set("description", v)} />}
         </>}
         {sp && <Table cols={["", "SAR"]} numeric={[1]} rows={[[t("received") + " · " + (P.company || ""), money(sp.gross)], ["VAT 15%", "−" + money(sp.vat)], [`${t("fee")} ${P.fee_pct}% · ${money(sp.base)}`, "−" + money(sp.fee)], [t("loanDeduct"), "−" + money(sp.loan)], [t("inHand"), money(sp.net)]]} />}
-        <Checks title={t("checks")} list={checks} />
-        <Btn big kind="primary" icon={<Icon name="check" color={c.accentInk} />} title={t("yes")} onPress={save} busy={busy} disabled={blocked} />
-        <Btn title={t("no")} onPress={() => { setO(null); Speech.stop(); }} />
+        {tried || checks.some((x) => x.s === "warn") ? <Checks list={tried ? checks : checks.filter((x) => x.s === "warn")} /> : null}
+        <Row wrap>
+          <Btn big kind="primary" icon={<Icon name="check" color={c.accentInk} />} title={t("save")} onPress={() => { setTried(true); save(); }} busy={busy} />
+          <Btn big kind="ghost" title={t("no")} onPress={() => { setO(null); setTried(false); Speech.stop(); }} />
+        </Row>
       </Card>}
     </Sheet>
   );
@@ -194,6 +192,7 @@ function PurchaseSheet({ init, onClose }: { init?: any; onClose: () => void }) {
   const v = init?.voice || {};
   const projects = role === "supervisor" ? (d.projects || []) : (d.projects || []);
   const [photo, setPhoto] = useState<string | null>(null), [path, setPath] = useState<string | null>(null);
+  const [tried, setTried] = useState(false);
   const [reading, setReading] = useState(false), [note, setNote] = useState(""), [busy, setBusy] = useState(false), [err, setErr] = useState("");
   const [f, setF] = useState<any>({
     supplier: v.supplier || "", subtotal: "", vat: v.vat_amount ?? "", total: v.amount ?? "", company: v.vat_company || "",
@@ -291,9 +290,9 @@ function PurchaseSheet({ init, onClose }: { init?: any; onClose: () => void }) {
         {x.vat > 0 && <Select label={t("company")} value={f.company} options={companies} onChange={(val) => set("company", val)} />}
         {x.vat > 0 && f.company === "__other" && <Field label={t("companyName")} value={f.otherCo} onChange={(val) => set("otherCo", val)} />}
       </Card>
-      <Checks title={t("checks")} list={checks} />
+      {tried || checks.some((k) => k.s === "warn") ? <Checks list={tried ? checks : checks.filter((k) => k.s === "warn")} /> : null}
       {err ? <T color={c.warn}>{err}</T> : null}
-      <Btn big kind="primary" icon={<Icon name="check" color={c.accentInk} />} title={t("yes")} onPress={save} busy={busy} disabled={blocked || reading} />
+      <Btn big kind="primary" icon={<Icon name="check" color={c.accentInk} />} title={t("save")} onPress={() => { setTried(true); save(); }} busy={busy} disabled={reading} />
     </Sheet>
   );
 }
