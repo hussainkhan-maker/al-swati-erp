@@ -6,7 +6,8 @@ import { ageDays, day, matchItems, money, num, r2, SAR, stamp } from "../lib/fmt
 import { PRICE_STALE_DAYS } from "../config";
 import { ai, supabase } from "../lib/supabase";
 import { docHTML, makeAndShare, pdfChecks, quotationDoc } from "../lib/pdf";
-import { Btn, Card, Checks, Empty, Field, H1, Icon, Pill, Row, Screen, Select, Sheet, T, useColors } from "../ui";
+import { Btn, Card, Checks, Empty, Field, H1, Icon, Pill, Row, Screen, Select, Sheet, T, Table, useColors } from "../ui";
+import { lineCalc, QUOTE_DEFAULTS, quoteGuards, quoteTotals } from "../lib/checks";
 import { RequestPrices } from "./Suppliers";
 
 const AR: Record<string, string> = { Draft: "مسودة", "Abu Review": "مراجعة أبو", "Sent to Client": "أُرسل للعميل", Approved: "معتمد", Lost: "خسرنا" };
@@ -29,6 +30,9 @@ export default function Quotes() {
   const [rates, setRates] = useState<Record<string, string>>({});
   const [nq, setNq] = useState<any>(null), [lost, setLost] = useState<any>(null), [ask, setAsk] = useState<any>(null);
   const [msg, setMsg] = useState<Record<string, string>>({});
+  const [eb, setEb] = useState<Record<string, any[]>>({}); // lines being edited, per quotation
+  const [tried, setTried] = useState<Record<string, boolean>>({}), [lk, setLk] = useState<any>(null), [unl, setUnl] = useState<any>(null);
+  const minMargin = Number(margin.minimum_safe ?? Math.max(QUOTE_DEFAULTS.minMargin, Number(margin.minimum) || 0));
   const list = (d.quotes || []).filter((q: any) => !isAbu || q.owner === "abu");
 
   const hist = (q: any, text: string) => [...(q.history || []), `${stamp(Date.now())} ${text}`];
@@ -50,6 +54,22 @@ export default function Quotes() {
     await update("quotes", q.id, { lines, history: [...(q.history || []), ...changes.map((x) => `${stamp(Date.now())} ${x} (Super-Admin)`)] });
     for (const l of lines) { const h = priceHint(d, l.desc); if (l.rate > 0 && h && h.score >= 0.75) await insert("prices", { item_id: h.item.id, price: l.rate, kind: "sell", source: "quote", quote_id: q.id }); }
     setRates({}); setMsg({ ...msg, [q.id]: warn.length ? "Saved. Check: " + warn.join(" · ") : "Saved and synced to Abu." });
+  };
+  const saveLines = async (q: any) => {
+    const lines = (eb[q.id] || []).map((l: any) => ({ ...l, qty: num(l.qty) || 0, waste: l.waste === "" || l.waste == null ? null : num(l.waste), cost: l.cost === "" ? null : num(l.cost), install: l.install === "" ? null : num(l.install), rate: l.rate === "" || l.rate == null ? null : num(l.rate) }));
+    await update("quotes", q.id, { lines, history: hist(q, "lines edited (Super-Admin)") });
+    for (const l of lines) { const h = priceHint(d, l.desc); if (l.rate > 0 && h && h.score >= 0.75) await insert("prices", { item_id: h.item.id, price: l.rate, kind: "sell", source: "quote", quote_id: q.id }); }
+    const { [q.id]: _, ...rest } = eb; setEb(rest); setMsg({ ...msg, [q.id]: "Saved." });
+  };
+  // Second AI: an independent senior estimator checks the lines against what was read from the BOQ / drawings.
+  const audit = async (q: any) => {
+    setAdvBusy("audit" + q.id);
+    try {
+      const lines = (q.lines || []).map((l: any, i: number) => ({ i, desc: l.desc, qty: l.qty, unit: l.unit, waste: lineCalc(l).waste }));
+      const inq = (d.inquiries || []).find((x: any) => x.id === q.rfq?.inquiry_id); // what the AI read from the client's BOQ / drawings
+      const r = await ai("audit_takeoff", { lines, source: inq?.reading?.a || {} });
+      await update("quotes", q.id, { rfq: { ...(q.rfq || {}), audit: { ...r, at: new Date().toISOString(), ack: [] } }, history: hist(q, "second AI check done") });
+    } catch (e: any) { setMsg({ ...msg, [q.id]: e.message }); } finally { setAdvBusy(""); }
   };
   const advise = async (q: any) => {
     setAdvBusy(q.id);
@@ -76,46 +96,75 @@ export default function Quotes() {
       <Row><View style={{ flex: 1 }}><H1>{arUI ? "عروض الأسعار" : "Quotations"}</H1></View>{isAdmin && <Btn kind="primary" icon={<Icon name="plus" color="#fff" />} title="New" onPress={() => setNq({ title: "", client: "", owner: "admin", lines: [{ desc: "", qty: "", unit: "sqm" }] })} />}</Row>
       {arUI && <T muted>أي تعديل من المدير يظهر هنا فوراً.</T>}
       {list.length ? list.map((q: any) => {
-        const editable = isAdmin && ["Draft", "Abu Review"].includes(q.status);
-        const blank = (q.lines || []).filter((l: any) => !(Number(l.rate) > 0)).length;
+        const locked = !!q.rfq?.lock;
+        const editable = isAdmin && ["Draft", "Abu Review"].includes(q.status) && !locked;
+        const lines = eb[q.id] || q.lines || [];
+        const tot = quoteTotals(lines), guards = quoteGuards({ ...q, lines }, minMargin);
+        const setL = (i: number, k: string, v: any) => setEb({ ...eb, [q.id]: lines.map((l: any, j: number) => (j === i ? { ...l, [k]: v } : l)) });
+        const au = q.rfq?.audit;
         return (
           <Card key={q.id}>
             <Row><View style={{ flex: 1 }}><T bold size={17}>{q.title}</T><T muted size={13}>{q.client || ""} · {q.owner === "abu" ? (arUI ? "لأبو" : "For Abu") : "Own"} · {day(q.updated_at)}</T></View>
+              {locked && <Pill kind="good" text="🔒 Approved & locked" />}
               <Pill kind={q.status === "Approved" ? "good" : q.status === "Lost" ? "bad" : "acc"} text={arUI ? AR[q.status] : q.status} /></Row>
-            {(q.lines || []).map((l: any, i: number) => {
-              const h = isAdmin ? priceHint(d, l.desc) : null;
+            {isAdmin && !locked && q.status === "Draft" && <T size={13} muted>Step 1: quantities and costs · Step 2: second AI check · Step 3: Approve & Lock · then PDF to client.</T>}
+            {lines.map((l: any, i: number) => {
+              const h = isAdmin ? priceHint(d, l.desc) : null, x = lineCalc(l), a = (au?.lines || []).find((z: any) => z.i === i);
               return (
-                <View key={i} style={{ gap: 4, borderTopWidth: 1, borderColor: c.line, paddingTop: 8 }}>
-                  <T>{l.desc}</T>
-                  <Row>
-                    <T muted style={{ flex: 1 }}>{money(l.qty)} {l.unit}</T>
-                    {editable ? <Field value={rates[q.id + ":" + i] ?? (l.rate ?? "")} numeric placeholder={arUI ? "السعر" : "Rate"} onChange={(v) => setRates({ ...rates, [q.id + ":" + i]: v })} style={{ maxWidth: 120 }} />
-                      : <T bold>{Number(l.rate) > 0 ? money(l.rate) : "—"}</T>}
-                    <T bold style={{ minWidth: 90 }}>{money((Number(l.qty) || 0) * (Number(l.rate) || 0))}</T>
-                  </Row>
-                  {h && <Row wrap>
-                    <T size={12} muted>{h.item.name}</T>
-                    {h.cost && <Pill kind={ageDays(h.cost.created_at) > PRICE_STALE_DAYS ? "warn" : "good"} text={`cost ${money(h.cost.price)} · ${ageDays(h.cost.created_at)}d`} />}
-                    {h.sell && <Pill kind="acc" text={`last quoted ${money(h.sell.price)}`} />}
-                    {!h.cost && h.est && <Pill kind="warn" text={`AI estimate ${money(h.est.price)} · verify`} />}
+                <View key={i} style={{ gap: 6, borderTopWidth: 1, borderColor: c.line, paddingTop: 10 }}>
+                  <T bold>{i + 1}. {l.desc}</T>
+                  {editable ? <Row wrap>
+                    <Field label="Qty (net, billed)" value={l.qty} numeric onChange={(v) => setL(i, "qty", v)} style={{ maxWidth: 130 }} />
+                    <Field label="Unit" value={l.unit} onChange={(v) => setL(i, "unit", v)} style={{ maxWidth: 80 }} />
+                    <Field label="Waste %" value={l.waste ?? ""} numeric placeholder={String(QUOTE_DEFAULTS.waste)} onChange={(v) => setL(i, "waste", v)} style={{ maxWidth: 100 }} />
+                    <Field label="Material cost / unit" value={l.cost ?? ""} numeric onChange={(v) => setL(i, "cost", v)} style={{ maxWidth: 150 }} />
+                    <Field label="Install / unit" value={l.install ?? ""} numeric onChange={(v) => setL(i, "install", v)} style={{ maxWidth: 130 }} />
+                    <Field required label="Selling rate" value={l.rate ?? ""} numeric onChange={(v) => setL(i, "rate", v)} style={{ maxWidth: 130 }} />
+                  </Row> : <T muted>{money(x.net)} {l.unit} × {Number(l.rate) > 0 ? money(l.rate) : "—"} = <T bold>{money(x.sell)}</T></T>}
+                  {isAdmin && <Row wrap>
+                    <Pill kind="acc" text={`Buy ${money(x.buy)} ${l.unit || ""} (incl. ${x.waste}% waste)`} />
+                    <Pill kind="acc" text={`Real cost ${money(x.unitCost)} / ${l.unit || "unit"}`} />
+                    {x.margin != null && <Pill kind={x.margin < minMargin ? "bad" : "good"} text={`Margin ${x.margin}%`} />}
+                    {h?.cost && <Pill kind={ageDays(h.cost.created_at) > PRICE_STALE_DAYS ? "warn" : "good"} text={`lowest cost on file ${money(h.cost.price)} · ${ageDays(h.cost.created_at)}d`} />}
+                    {h?.cost && editable && Number(l.cost) !== Number(h.cost.price) && <Btn kind="ghost" title="Use this cost" onPress={() => setL(i, "cost", h.cost.price)} />}
+                    {h?.sell && <Pill kind="acc" text={`last quoted ${money(h.sell.price)}`} />}
+                    {!h?.cost && h?.est && <Pill kind="warn" text={`AI estimate ${money(h.est.price)} · verify`} />}
                   </Row>}
-                  {isAdmin && !h && <T size={12} muted>No price on file. Ask suppliers below.</T>}
-                  {(() => { const a = (adv[q.id]?.lines || []).find((x: any) => x.i === i); return a ? <Row wrap><Pill kind="acc" text={a.rate > 0 ? `AI: ${money(a.rate)}` : "AI: ask suppliers"} /><T size={12} muted style={{ flex: 1 }}>{a.reason}</T>{editable && a.rate > 0 && <Btn kind="ghost" title="Use" onPress={() => useAdvice(q, false, i)} />}</Row> : null; })()}
+                  {a && a.level !== "ok" && <Row wrap>
+                    <Pill kind={a.level === "high" ? "bad" : "warn"} text={`AI auditor: ${a.issue}${a.suggest_qty ? ` (suggests ${a.suggest_qty})` : ""}`} />
+                    {a.level === "high" && editable && <Btn kind="ghost" title={(au.ack || []).includes(i) ? "✓ checked by me" : "I checked it"} onPress={() => update("quotes", q.id, { rfq: { ...q.rfq, audit: { ...au, ack: (au.ack || []).includes(i) ? au.ack.filter((z: number) => z !== i) : [...(au.ack || []), i] } } })} />}
+                  </Row>}
+                  {(() => { const ad = (adv[q.id]?.lines || []).find((z: any) => z.i === i); return ad ? <Row wrap><Pill kind="acc" text={ad.rate > 0 ? `Advisor: ${money(ad.rate)}` : "Advisor: ask suppliers"} /><T size={12} muted style={{ flex: 1 }}>{ad.reason}</T>{editable && ad.rate > 0 && <Btn kind="ghost" title="Use" onPress={() => setL(i, "rate", ad.rate)} />}</Row> : null; })()}
                 </View>);
             })}
-            <Row wrap><T bold>{arUI ? "الإجمالي" : "Total"}: {SAR(quoteTotal(q))}</T><T muted size={13}>+ VAT 15% = {SAR(r2(quoteTotal(q) * 1.15))}</T>{blank > 0 && <Pill kind="warn" text={`${blank} ${arUI ? "بدون سعر" : "without rate"}`} />}</Row>
-            {adv[q.id]?.summary ? <Card style={{ backgroundColor: c.sunk }}><Row><Icon name="spark" color={c.accent} /><T bold>Advisor</T></Row><T>{adv[q.id].summary}</T>{editable && <Btn title="Use all suggested rates" onPress={() => useAdvice(q, true)} />}<T size={12} muted>Nothing changes until you press Save rates.</T></Card> : null}
+            <View style={{ backgroundColor: c.accentSoft, borderRadius: 14, padding: 12, gap: 4 }}>
+              <Row><T style={{ flex: 1 }}>Total to client (before VAT)</T><T bold>{SAR(tot.sell)}</T></Row>
+              <Row><T style={{ flex: 1 }}>VAT 15%</T><T>{SAR(tot.vat)}</T></Row>
+              {isAdmin && <><Row><T style={{ flex: 1 }}>Our real cost (material + waste + installation)</T><T>{SAR(tot.cost)}</T></Row>
+                <Row><T bold style={{ flex: 1 }}>Profit · margin</T><T bold color={tot.margin < minMargin ? c.bad : c.good}>{SAR(tot.profit)} · {tot.margin}%</T></Row></>}
+            </View>
+            {au && <Card style={{ backgroundColor: c.sunk }}>
+              <Row><Icon name="spark" color={c.accent} /><T bold>Second AI check</T><T muted size={12}>{stamp(au.at)}</T></Row>
+              <T>{au.summary}</T>
+              {(au.missing || []).length > 0 && <T size={14}>Maybe missing: {au.missing.join(", ")}</T>}
+              {(au.rfis || []).length > 0 && <T size={14}>Ask the consultant (RFI): {au.rfis.join(" · ")}</T>}
+            </Card>}
+            {adv[q.id]?.summary ? <Card style={{ backgroundColor: c.sunk }}><Row><Icon name="spark" color={c.accent} /><T bold>Price advisor</T></Row><T>{adv[q.id].summary}</T>{editable && <Btn title="Use all suggested rates" onPress={() => setEb({ ...eb, [q.id]: lines.map((l: any, j: number) => { const ad = (adv[q.id]?.lines || []).find((z: any) => z.i === j); return ad?.rate > 0 ? { ...l, rate: ad.rate } : l; }) })} />}</Card> : null}
+            {isAdmin && !locked && (tried[q.id] ? <Checks list={guards} /> : null)}
             {msg[q.id] ? <T color={c.accent}>{msg[q.id]}</T> : null}
             {isAdmin && <Row wrap>
-              {editable && <Btn kind="primary" title="Save rates" onPress={() => saveRates(q)} />}
-              {editable && <Btn icon={<Icon name="spark" />} title="AI advice" busy={advBusy === q.id} onPress={() => advise(q)} />}
-              <Btn icon={<Icon name="share" />} title="Quotation PDF" disabled={blank > 0} onPress={() => setPdfQ(q)} />
-              {editable && <Btn icon={<Icon name="truck" />} title="Ask suppliers" onPress={() => setAsk({ quote_id: q.id, items: q.lines.map((l: any) => ({ desc: l.desc, qty: l.qty, unit: l.unit })) })} />}
+              {editable && eb[q.id] && <Btn kind="primary" title="Save" onPress={() => saveLines(q)} />}
+              {editable && <Btn icon={<Icon name="spark" />} title="Second AI check" busy={advBusy === "audit" + q.id} onPress={() => audit(q)} />}
+              {editable && <Btn icon={<Icon name="spark" />} title="Price advice" busy={advBusy === q.id} onPress={() => advise(q)} />}
+              {editable && <Btn icon={<Icon name="truck" />} title="Ask suppliers" onPress={() => setAsk({ quote_id: q.id, items: lines.map((l: any) => ({ desc: l.desc, qty: lineCalc(l).buy, unit: l.unit })) })} />}
+              {editable && <Btn kind="primary" icon={<Icon name="check" color={c.accentInk} />} title="Approve & Lock" onPress={() => { setTried({ ...tried, [q.id]: true }); if (!eb[q.id] && !guards.some((g) => g.s === "bad")) setLk({ q, ...terms, guarantee: terms.guarantee || "" }); else if (eb[q.id]) setMsg({ ...msg, [q.id]: "Press Save first." }); }} />}
+              {locked && ["Draft", "Abu Review"].includes(q.status) && <Btn kind="ghost" title="Unlock to change" onPress={() => setUnl({ q, why: "" })} />}
               {q.status === "Draft" && q.owner === "abu" && <Btn title="Send to Abu" onPress={() => setStatus(q, "Abu Review")} />}
-              {editable && <Btn title="Mark sent" disabled={blank > 0} onPress={() => setStatus(q, "Sent to Client")} />}
-              {q.status === "Sent to Client" && <Btn kind="primary" title="Approved → open project" onPress={() => approve(q)} />}
+              <Btn icon={<Icon name="share" />} title="Quotation PDF" disabled={!locked} onPress={() => setPdfQ(q)} />
+              {q.status === "Sent to Client" && <Btn kind="primary" title="Client approved → open project" onPress={() => approve(q)} />}
               {q.status === "Sent to Client" && <Btn kind="danger" title="Lost" onPress={() => setLost({ q, why: "" })} />}
             </Row>}
+            {isAdmin && !locked && <T size={12} muted>The PDF opens only after Approve & Lock. Rules: every line has quantity, cost and rate; margin at least {minMargin}%; AI warnings checked.</T>}
             {isAbu && q.status === "Abu Review" && <Btn big kind="primary" title={lang === "ur" ? "ٹھیک ہے، ایڈمن کو واپس بھیجیں" : lang === "en" ? "Approve and send back" : "موافق، أعده للمدير"} onPress={() => setStatus(q, "Draft")} />}
             {q.lost_reason ? <T muted size={13}>Lost: {q.lost_reason}</T> : null}
             {(q.history || []).slice(-4).reverse().map((h: string, i: number) => <T key={i} size={12} muted>{h}</T>)}
@@ -140,13 +189,32 @@ export default function Quotes() {
           }} />
         </>}
       </Sheet>
+      <Sheet open={!!lk} onClose={() => setLk(null)} title="Approve & Lock">
+        {lk && (() => { const tt = quoteTotals(lk.q.lines); return <>
+          <T bold size={17}>{lk.q.title}</T>
+          <Table cols={["", "SAR"]} numeric={[1]} rows={[["Total to client (before VAT)", money(tt.sell)], ["VAT 15%", money(tt.vat)], ["Total with VAT", money(r2(tt.sell + tt.vat))], ["Our real cost", money(tt.cost)], [`Profit (${tt.margin}%)`, money(tt.profit)]]} />
+          <Field required label="Payment terms" value={lk.payment} onChange={(v) => setLk({ ...lk, payment: v })} placeholder="e.g. 30% advance, 60% against progress, 10% on handover" />
+          <Field label="Guarantee / warranty" value={lk.guarantee} onChange={(v) => setLk({ ...lk, guarantee: v })} placeholder="e.g. 1 year on installation workmanship" />
+          <Row wrap><Field label="Valid for (days)" value={lk.validity_days} numeric onChange={(v) => setLk({ ...lk, validity_days: v })} style={{ maxWidth: 160 }} /><Field label="Notes" value={lk.notes} onChange={(v) => setLk({ ...lk, notes: v })} /></Row>
+          <T size={13} muted>After locking, prices cannot change unless you unlock (the reason is kept in the history). Then the PDF can be made and sent.</T>
+          <Btn big kind="primary" icon={<Icon name="check" color={c.accentInk} />} title="Approve & Lock" disabled={!String(lk.payment || "").trim()} onPress={async () => {
+            const lock = { at: new Date().toISOString(), by: profile.name, total: tt.sell, cost: tt.cost, margin: tt.margin, terms: { payment: lk.payment, guarantee: lk.guarantee, validity_days: num(lk.validity_days) || 15, notes: lk.notes || "" } };
+            await update("quotes", lk.q.id, { rfq: { ...(lk.q.rfq || {}), lock }, history: hist(lk.q, `approved & locked: ${money(tt.sell)} SAR, margin ${tt.margin}%`) });
+            setLk(null);
+          }} />
+        </>; })()}
+      </Sheet>
+      <Sheet open={!!unl} onClose={() => setUnl(null)} title="Unlock the quotation">
+        {unl && <><Field required label="Why do you need to change it?" value={unl.why} onChange={(v) => setUnl({ ...unl, why: v })} />
+          <Btn big kind="danger" title="Unlock" disabled={!unl.why.trim()} onPress={async () => { await update("quotes", unl.q.id, { rfq: { ...(unl.q.rfq || {}), lock: null }, history: hist(unl.q, `unlocked: ${unl.why}`) }); setUnl(null); }} /></>}
+      </Sheet>
       <Sheet open={!!lost} onClose={() => setLost(null)} title="Why was it lost?">
         {lost && <><Field label="Reason (rate too high, time too short, client chose another…)" value={lost.why} onChange={(v) => setLost({ ...lost, why: v })} />
           <Btn big kind="primary" title="Save" onPress={async () => { await setStatus(lost.q, "Lost", { lost_reason: lost.why }); setLost(null); }} /></>}
       </Sheet>
       {ask && <RequestPrices init={ask} onClose={() => setAsk(null)} />}
       {pdfQ && (() => {
-        const L = (lang === "ur" ? "en" : lang) as any, doc = quotationDoc(pdfQ, L, terms), html = docHTML(doc, L, profile.name), ch = pdfChecks(t, doc, html);
+        const L = (lang === "ur" ? "en" : lang) as any, doc = quotationDoc(pdfQ, L, pdfQ.rfq?.lock?.terms || terms), html = docHTML(doc, L, profile.name), ch = pdfChecks(t, doc, html);
         const tooLow = (pdfQ.lines || []).filter((l: any) => { const h = priceHint(d, l.desc); return h?.cost && Number(l.rate) < Number(h.cost.price); });
         const all = [...ch, { s: tooLow.length ? "bad" : "good", text: tooLow.length ? `${tooLow.length} lines below cost` : "No line below cost" } as any];
         return (
