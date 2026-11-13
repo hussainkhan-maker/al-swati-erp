@@ -22,6 +22,11 @@ export function priceHint(d: any, desc: string) {
   return { item: m.item, score: m.score, cost: of("cost"), sell: of("sell"), est: of("estimate") };
 }
 
+// Quotation lines as they are stored: numbers as numbers, empty boxes as null.
+const cleanLines = (ls: any[]) => (ls || []).map((l: any) => ({ ...l, qty: num(l.qty) || 0, waste: l.waste === "" || l.waste == null ? null : num(l.waste), cost: l.cost === "" || l.cost == null ? null : num(l.cost), install: l.install === "" || l.install == null ? null : num(l.install), rate: l.rate === "" || l.rate == null ? null : num(l.rate) }));
+
+const sig = (ls: any[]) => JSON.stringify(cleanLines(ls).map((l: any) => [l.desc, l.unit, l.qty, l.waste, l.cost, l.install, l.rate]));
+
 export default function Quotes() {
   const { d, role, update, insert, lang, t, profile } = useData(); const c = useColors();
   const margin = pref(d, "margin", { target: 20, minimum: 12, round_to: 5 }), terms = pref(d, "quote_terms", { validity_days: 15 });
@@ -56,10 +61,10 @@ export default function Quotes() {
     setRates({}); setMsg({ ...msg, [q.id]: warn.length ? "Saved. Check: " + warn.join(" · ") : "Saved and synced to Abu." });
   };
   const saveLines = async (q: any) => {
-    const lines = (eb[q.id] || []).map((l: any) => ({ ...l, qty: num(l.qty) || 0, waste: l.waste === "" || l.waste == null ? null : num(l.waste), cost: l.cost === "" ? null : num(l.cost), install: l.install === "" ? null : num(l.install), rate: l.rate === "" || l.rate == null ? null : num(l.rate) }));
+    const lines = cleanLines(eb[q.id] || []);
     await update("quotes", q.id, { lines, history: hist(q, "lines edited (Super-Admin)") });
     for (const l of lines) { const h = priceHint(d, l.desc); if (l.rate > 0 && h && h.score >= 0.75) await insert("prices", { item_id: h.item.id, price: l.rate, kind: "sell", source: "quote", quote_id: q.id }); }
-    const { [q.id]: _, ...rest } = eb; setEb(rest); setMsg({ ...msg, [q.id]: "Saved." });
+    setEb((prev) => { const next = { ...prev }; delete next[q.id]; return next; }); setMsg((m) => ({ ...m, [q.id]: "Saved." }));
   };
   // Second AI: an independent senior estimator checks the lines against what was read from the BOQ / drawings.
   const audit = async (q: any) => {
@@ -100,7 +105,8 @@ export default function Quotes() {
         const editable = isAdmin && ["Draft", "Abu Review"].includes(q.status) && !locked;
         const lines = eb[q.id] || q.lines || [];
         const tot = quoteTotals(lines), guards = quoteGuards({ ...q, lines }, minMargin);
-        const setL = (i: number, k: string, v: any) => setEb({ ...eb, [q.id]: lines.map((l: any, j: number) => (j === i ? { ...l, [k]: v } : l)) });
+        const setL = (i: number, k: string, v: any) => setEb((prev) => ({ ...prev, [q.id]: (prev[q.id] || q.lines || []).map((l: any, j: number) => (j === i ? { ...l, [k]: v } : l)) }));
+        const dirty = !!eb[q.id] && sig(eb[q.id]) !== sig(q.lines || []); // unsaved changes only if something really differs
         const au = q.rfq?.audit;
         return (
           <Card key={q.id}>
@@ -153,11 +159,11 @@ export default function Quotes() {
             {isAdmin && !locked && (tried[q.id] ? <Checks list={guards} /> : null)}
             {msg[q.id] ? <T color={c.accent}>{msg[q.id]}</T> : null}
             {isAdmin && <Row wrap>
-              {editable && eb[q.id] && <Btn kind="primary" title="Save" onPress={() => saveLines(q)} />}
+              {editable && dirty && <Btn kind="primary" title="Save" onPress={() => saveLines(q)} />}
               {editable && <Btn icon={<Icon name="spark" />} title="Second AI check" busy={advBusy === "audit" + q.id} onPress={() => audit(q)} />}
               {editable && <Btn icon={<Icon name="spark" />} title="Price advice" busy={advBusy === q.id} onPress={() => advise(q)} />}
               {editable && <Btn icon={<Icon name="truck" />} title="Ask suppliers" onPress={() => setAsk({ quote_id: q.id, items: lines.map((l: any) => ({ desc: l.desc, qty: lineCalc(l).buy, unit: l.unit })) })} />}
-              {editable && <Btn kind="primary" icon={<Icon name="check" color={c.accentInk} />} title="Approve & Lock" onPress={() => { setTried({ ...tried, [q.id]: true }); if (!eb[q.id] && !guards.some((g) => g.s === "bad")) setLk({ q, ...terms, guarantee: terms.guarantee || "" }); else if (eb[q.id]) setMsg({ ...msg, [q.id]: "Press Save first." }); }} />}
+              {editable && <Btn kind="primary" icon={<Icon name="check" color={c.accentInk} />} title="Approve & Lock" onPress={() => { setTried({ ...tried, [q.id]: true }); if (!dirty && !guards.some((g) => g.s === "bad")) setLk({ q, ...terms, guarantee: terms.guarantee || "" }); else if (dirty) setMsg({ ...msg, [q.id]: "Press Save first." }); }} />}
               {locked && ["Draft", "Abu Review"].includes(q.status) && <Btn kind="ghost" title="Unlock to change" onPress={() => setUnl({ q, why: "" })} />}
               {q.status === "Draft" && q.owner === "abu" && <Btn title="Send to Abu" onPress={() => setStatus(q, "Abu Review")} />}
               <Btn icon={<Icon name="share" />} title="Quotation PDF" disabled={!locked} onPress={() => setPdfQ(q)} />
