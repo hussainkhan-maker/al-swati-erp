@@ -110,6 +110,7 @@ export function Dashboard() {
         <T size={12} muted>{stamp(rep.created_at)}</T>
       </> : <T muted>The first report arrives at 07:00 once the AI key and the daily schedule are switched on.</T>}
       {newQ > 0 && <Pill kind="warn" text={`${newQ} new client queries`} />}
+      {(() => { const wait = (d.quotes || []).filter((q: any) => q.status === "Draft" && !q.rfq?.lock && (q.lines || []).length && (q.lines || []).every((l: any) => Number(l.rate) > 0)); return wait.length ? <Pill kind="bad" text={`${wait.length} quotation(s) waiting for your Approve & Lock`} /> : null; })()}
     </Card></Rise>
   </>;
   const table = <>
