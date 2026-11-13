@@ -12,7 +12,7 @@ Deno.serve(async (req) => {
   const [{ data: ledger }, { data: subs }, { data: quotes }, { data: inq }, { data: reqs }, { data: txns }, { data: prog }] = await Promise.all([
     db.from("project_ledger").select("*"),
     db.from("subcontractors").select("name, rate"),
-    db.from("quotes").select("title, status, lines, updated_at"),
+    db.from("quotes").select("title, status, lines, updated_at, rfq"),
     db.from("inquiries").select("ref, subject, status, deadline, created_at"),
     db.from("supplier_requests").select("status, sent_at, suppliers(name)").eq("status", "Sent"),
     db.from("txns").select("type, flags, created_at, amount, total, gross").gte("created_at", since).eq("status", "active"),
@@ -22,6 +22,8 @@ Deno.serve(async (req) => {
   (ledger || []).forEach((l: any) => { if (Number(l.profit) < 0 && Number(l.gross) > 0) items.push({ level: "bad", text: `${l.name}: loss ${l.profit} SAR` }); if (Number(l.sub_due) > 0) items.push({ level: "warn", text: `${l.name}: subcontractors due ${l.sub_due} SAR` }); });
   (subs || []).filter((s: any) => !(Number(s.rate) > 0)).forEach((s: any) => items.push({ level: "bad", text: `Subcontractor ${s.name} has no rate` }));
   (quotes || []).filter((q: any) => ["Draft", "Abu Review"].includes(q.status)).forEach((q: any) => { const n = (q.lines || []).filter((l: any) => !(Number(l.rate) > 0)).length; if (n) items.push({ level: "warn", text: `Quotation "${q.title}": ${n} lines without a rate` }); });
+  // Reminder: quotations priced but not yet approved and locked by the owner.
+  (quotes || []).filter((q: any) => q.status === "Draft" && !q.rfq?.lock && (q.lines || []).length && (q.lines || []).every((l: any) => Number(l.rate) > 0)).forEach((q: any) => { const days = Math.floor((Date.now() - Date.parse(q.updated_at)) / 864e5); items.push({ level: days >= 2 ? "bad" : "warn", text: `Quotation "${q.title}" waits for your Approve & Lock${days ? ` since ${days} day(s)` : ""}` }); });
   (inq || []).forEach((q: any) => {
     if (q.status === "New") items.push({ level: "warn", text: `Query ${q.ref} "${q.subject}" not reviewed yet` });
     if (q.deadline && !["Sent", "Won", "Lost"].includes(q.status)) { const d = Math.ceil((Date.parse(q.deadline) - Date.now()) / 864e5); if (d <= 2) items.push({ level: "bad", text: `Query ${q.ref} is due in ${d} day(s)` }); }
@@ -36,7 +38,13 @@ Deno.serve(async (req) => {
       method: "POST",
       headers: { "x-api-key": Deno.env.get("ANTHROPIC_API_KEY")!, "anthropic-version": "2023-06-01", "content-type": "application/json" },
       body: JSON.stringify({ model: Deno.env.get("AI_MODEL") ?? "claude-sonnet-5-5", max_tokens: 600, messages: [{ role: "user", content:
-        `You are the main agent of a stone and flooring contractor's ERP in Saudi Arabia. Write the owner's morning summary in simple Roman Urdu, at most 6 short lines, most urgent first, with numbers as digits. Use only these items: ${JSON.stringify(items.slice(0, 80))}` }] }),
+        `You are the main agent of a stone and flooring contractor's ERP in Saudi Arabia. Write the owner's morning briefing in simple Roman Urdu, numbers as digits, exactly these 5 lines:
+Projects: <which projects need attention>
+Alerts: <data errors or anomalies caught, or "Koi nahi">
+Procurement: <supplier/price item to act on, one sentence>
+Paisa: <money impact in SAR from the items>
+Agla kaam: <the one button or approval the owner should do next>
+Use only these items, never invent: ${JSON.stringify(items.slice(0, 80))}` }] }),
     });
     if (r.ok) { const j = await r.json(); summary = j.content?.[0]?.text || summary; }
   } catch { /* keep the plain summary */ }
