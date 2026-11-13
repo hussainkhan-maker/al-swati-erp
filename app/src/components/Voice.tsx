@@ -31,11 +31,11 @@ export function Voice({ value, onChange, hints = [], placeholder }: { value: str
 
   return (
     <View style={{ gap: 10, alignItems: "stretch" }}>
-      <Pressable accessibilityRole="button" accessibilityLabel={t("speak")} onPress={toggle}
+      <Pressable accessibilityRole="button" accessibilityLabel={t("tapSpeak")} onPress={toggle}
         style={({ pressed }) => ({ alignSelf: "center", width: 132, height: 132, borderRadius: 66, borderWidth: 6, borderColor: on ? c.bad : c.accent, backgroundColor: on ? c.badSoft : c.surface, alignItems: "center", justifyContent: "center", opacity: pressed ? 0.8 : 1 })}>
         <Icon name={on ? "stop" : "mic"} size={54} color={on ? c.bad : c.accent} />
       </Pressable>
-      <T center bold size={18}>{on ? t("listening") : t("speak")}</T>
+      <T center bold size={18}>{on ? t("listening") : t("tapSpeak")}</T>
       {err ? <T center color={c.warn}>{err}</T> : null}
       <Field label={t("orType")} value={value} onChange={onChange} multiline placeholder={placeholder} />
     </View>
