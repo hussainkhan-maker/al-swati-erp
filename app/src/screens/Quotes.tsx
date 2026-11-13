@@ -204,6 +204,7 @@ export default function Quotes() {
           <Row wrap><Field label="Valid for (days)" value={lk.validity_days} numeric onChange={(v) => setLk({ ...lk, validity_days: v })} style={{ maxWidth: 160 }} /><Field label="Notes" value={lk.notes} onChange={(v) => setLk({ ...lk, notes: v })} /></Row>
           <T size={13} muted>After locking, prices cannot change unless you unlock (the reason is kept in the history). Then the PDF can be made and sent.</T>
           <Btn big kind="primary" icon={<Icon name="check" color={c.accentInk} />} title="Approve & Lock" disabled={!String(lk.payment || "").trim()} onPress={async () => {
+            if (!String(lk.payment || "").trim()) return; // payment terms are required before locking
             const lock = { at: new Date().toISOString(), by: profile.name, total: tt.sell, cost: tt.cost, margin: tt.margin, terms: { payment: lk.payment, guarantee: lk.guarantee, validity_days: num(lk.validity_days) || 15, notes: lk.notes || "" } };
             await update("quotes", lk.q.id, { rfq: { ...(lk.q.rfq || {}), lock }, history: hist(lk.q, `approved & locked: ${money(tt.sell)} SAR, margin ${tt.margin}%`) });
             setLk(null);
