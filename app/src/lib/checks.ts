@@ -86,3 +86,43 @@ export function rfqGates(text: string, a: any, b: any, hasPrice: (desc: string) 
   G.push({ n: 6, name: "Price list coverage", s: un.length ? "warn" : "good", d: un.length ? un : ["Every line has a price on file"] });
   return G;
 }
+
+// ───────── quotation safety: all maths and limits are done here in code, never by the AI ─────────
+export const QUOTE_DEFAULTS = { waste: 12, minMargin: 15 };
+const STONE = /stone|marble|granite|travertine|limestone|riyadh|حجر|رخام|جرانيت|ترافرتين/i;
+/** One quotation line: client is billed the NET quantity; material is bought with waste on top. */
+export function lineCalc(l: any) {
+  const net = Number(l.qty) || 0, waste = l.waste === "" || l.waste == null ? QUOTE_DEFAULTS.waste : Number(l.waste);
+  const cost = Number(l.cost) || 0, install = Number(l.install) || 0, rate = Number(l.rate) || 0;
+  const unitCost = r2(cost * (1 + waste / 100) + install);           // what one billed m² really costs us
+  const margin = rate > 0 ? r2(((rate - unitCost) / rate) * 100) : null;
+  return { net, waste, cost, install, rate, unitCost, margin, buy: r2(net * (1 + waste / 100)), sell: r2(net * rate), costTotal: r2(net * unitCost) };
+}
+export function quoteTotals(lines: any[]) {
+  const c = (lines || []).map(lineCalc), sell = r2(c.reduce((s, x) => s + x.sell, 0)), cost = r2(c.reduce((s, x) => s + x.costTotal, 0));
+  return { sell, cost, profit: r2(sell - cost), margin: sell > 0 ? r2(((sell - cost) / sell) * 100) : 0, vat: r2(sell * 0.15) };
+}
+/** Hard rules before a quotation can be approved and locked. */
+export function quoteGuards(q: any, minMargin = QUOTE_DEFAULTS.minMargin): Check[] {
+  const out: Check[] = [], lines = q.lines || [];
+  if (!lines.length) out.push({ s: "bad", text: "No lines" });
+  lines.forEach((l: any, i: number) => {
+    const x = lineCalc(l), n = `Line ${i + 1} (${String(l.desc || "").slice(0, 40)})`;
+    if (!(x.net > 0)) out.push({ s: "bad", text: `${n}: quantity missing` });
+    if (!(x.rate > 0)) out.push({ s: "bad", text: `${n}: selling rate missing` });
+    if (!(x.cost > 0) && !(x.install > 0)) out.push({ s: "bad", text: `${n}: enter the material cost and/or installation cost` });
+    if (!(x.waste >= 0 && x.waste <= 30)) out.push({ s: "bad", text: `${n}: waste ${x.waste}% is not between 0 and 30` });
+    else if (STONE.test(l.desc || "") && x.waste < 10) out.push({ s: "warn", text: `${n}: stone waste only ${x.waste}% (normally 10–15%)` });
+    if (x.margin != null && x.margin < minMargin) out.push({ s: "bad", text: `${n}: margin ${x.margin}% is below your minimum ${minMargin}%` });
+    const th = String(l.desc || "").match(/(\d+(?:\.\d+)?)\s*(mm|cm)\b/i);
+    if (th && STONE.test(l.desc || "")) { const mm = Number(th[1]) * (th[2].toLowerCase() === "cm" ? 10 : 1); if (mm < 15 || mm > 50) out.push({ s: "bad", text: `${n}: thickness ${mm} mm looks wrong for stone` }); }
+    const sz = String(l.desc || "").match(/(\d{2,3})\s*[x×*]\s*(\d{2,3})/);
+    if (sz && [Number(sz[1]), Number(sz[2])].some((v) => v > 320 || v % 5 !== 0)) out.push({ s: "warn", text: `${n}: size ${sz[1]}×${sz[2]} is not a usual slab/tile size` });
+  });
+  const t = quoteTotals(lines);
+  if (t.sell > 0 && t.margin < minMargin) out.push({ s: "bad", text: `Whole quotation margin ${t.margin}% is below your minimum ${minMargin}%` });
+  const au = q.rfq?.audit;
+  if (!au) out.push({ s: "warn", text: "Second AI check not run yet" });
+  else { const high = (au.lines || []).filter((a: any) => a.level === "high" && !(au.ack || []).includes(a.i)); if (high.length) out.push({ s: "bad", text: `AI auditor flagged ${high.length} line(s): fix them or tick “checked”` }); }
+  return out;
+}
