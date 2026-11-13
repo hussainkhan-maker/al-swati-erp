@@ -122,7 +122,7 @@ export function quotationDoc(q: any, lang: Lang, terms: any = {}): Doc {
     cols: ["#", H("Description", "الوصف", "تفصیل"), H("Qty", "الكمية", "مقدار"), H("Unit", "الوحدة", "یونٹ"), H("Rate (SAR)", "السعر", "ریٹ"), H("Amount (SAR)", "المبلغ", "رقم")],
     rows, numCols: [2, 4, 5],
     sum: [[H("Subtotal", "المجموع", "میزان"), money(sub)], [H("VAT 15%", "ضريبة 15%", "VAT 15%"), money(vat)], [H("Total", "الإجمالي", "کل"), money(r2(sub + vat))],
-      [H("Valid for", "صالح لمدة", "مدت"), `${terms.validity_days ?? 15} ${H("days", "يوم", "دن")}`], [H("Payment", "الدفع", "ادائیگی"), terms.payment ?? ""], [H("Notes", "ملاحظات", "نوٹ"), terms.notes ?? ""]],
+      [H("Valid for", "صالح لمدة", "مدت"), `${terms.validity_days ?? 15} ${H("days", "يوم", "دن")}`], [H("Payment", "الدفع", "ادائیگی"), terms.payment ?? ""], ...(terms.guarantee ? [[H("Guarantee", "الضمان", "گارنٹی"), terms.guarantee] as [string, string]] : []), [H("Notes", "ملاحظات", "نوٹ"), terms.notes ?? ""]],
     check: { col: 5, total: sub },
   };
 }
