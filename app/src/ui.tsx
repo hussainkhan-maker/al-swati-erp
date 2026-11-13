@@ -63,20 +63,22 @@ export function Btn({ title, onPress, kind = "default", disabled, busy, big, sty
   const c = useColors();
   const bg = kind === "primary" ? c.accent : kind === "ghost" ? "transparent" : c.surface;
   const fg = kind === "primary" ? c.accentInk : kind === "danger" ? c.bad : c.ink;
+  // Buttons take the width of their words (never a full-width bar); "big" ones are a little taller and at least 180 wide.
   return (
     <Pressable accessibilityRole="button" disabled={disabled || busy} onPress={onPress}
-      style={({ pressed }) => [{ minHeight: big ? 64 : 48, paddingHorizontal: 16, borderRadius: 14, backgroundColor: bg, borderWidth: kind === "ghost" ? 0 : 1, borderColor: kind === "primary" ? c.accent : kind === "danger" ? c.bad : c.line, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 8, opacity: disabled ? 0.45 : pressed ? 0.75 : 1 }, style]}>
+      style={({ pressed, hovered }: any) => [{ alignSelf: "flex-start", minHeight: big ? 50 : 40, minWidth: big ? 180 : undefined, paddingHorizontal: big ? 22 : 14, borderRadius: 12, backgroundColor: bg, borderWidth: kind === "ghost" ? 0 : 1, borderColor: kind === "primary" ? c.accent : kind === "danger" ? c.bad : c.line, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 8, opacity: disabled ? 0.45 : pressed ? 0.75 : 1 },
+        web && !disabled ? { cursor: "pointer", transitionDuration: "150ms", transitionProperty: "transform, box-shadow", transform: [{ translateY: hovered && !pressed ? -1 : 0 }], boxShadow: hovered && kind !== "ghost" ? "0 4px 12px rgba(15,59,49,0.12)" : "none" } : null, style]}>
       {busy ? <ActivityIndicator color={fg} /> : icon}
-      <Text style={{ color: fg, fontSize: big ? 20 : 16, fontWeight: "700" }}>{title}</Text>
+      <Text style={{ color: fg, fontSize: big ? 17 : 15, fontWeight: "700" }}>{title}</Text>
     </Pressable>
   );
 }
 
-export function Field({ label, value, onChange, numeric, multiline, placeholder, style }: { label?: string; value: any; onChange: (v: string) => void; numeric?: boolean; multiline?: boolean; placeholder?: string; style?: ViewStyle }) {
+export function Field({ label, value, onChange, numeric, multiline, placeholder, style, required }: { label?: string; value: any; onChange: (v: string) => void; numeric?: boolean; multiline?: boolean; placeholder?: string; style?: ViewStyle; required?: boolean }) {
   const c = useColors(), { align, rtl } = useDir();
   return (
     <View style={[{ gap: 4, flex: 1, minWidth: 120 }, style]}>
-      {label ? <T size={13} muted>{label}</T> : null}
+      {label ? <T size={13} muted>{label}{required ? <Text style={{ color: c.bad, fontWeight: "800" }}> *</Text> : null}</T> : null}
       <TextInput value={value == null ? "" : String(value)} onChangeText={onChange} placeholder={placeholder} placeholderTextColor={c.muted}
         keyboardType={numeric ? "decimal-pad" : "default"} multiline={multiline}
         style={{ minHeight: multiline ? 110 : 48, borderWidth: 1, borderColor: c.line, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, backgroundColor: c.surface, color: c.ink, fontSize: 17, textAlign: numeric ? "left" : align, writingDirection: rtl && !numeric ? "rtl" : "ltr", textAlignVertical: multiline ? "top" : "center" }} />
@@ -117,9 +119,9 @@ export function Checks({ list, title }: { list: Check[]; title?: string }) {
   const c = useColors(), { row } = useDir();
   return (
     <View style={{ gap: 6 }}>
-      {title ? <T size={13} bold muted>{title}</T> : null}
-      {/* The same message is shown once, with how many times it came up. */}
-      {Object.values(list.reduce((m: Record<string, Check & { n: number }>, x) => { const k = x.s + "|" + x.text; m[k] ? m[k].n++ : (m[k] = { ...x, n: 1 }); return m; }, {})).map((x, i) => {
+      {/* Only problems are shown (each message once, with a count); when everything is fine, one quiet line. */}
+      {list.length > 0 && !list.some((x) => x.s !== "good") ? <T size={13} color={c.good}>✓ {list.length} checks passed</T> : null}
+      {Object.values(list.filter((x) => x.s !== "good").reduce((m: Record<string, Check & { n: number }>, x) => { const k = x.s + "|" + x.text; m[k] ? m[k].n++ : (m[k] = { ...x, n: 1 }); return m; }, {})).map((x, i) => {
         const [bg, fg, mark] = x.s === "bad" ? [c.badSoft, c.bad, "✕"] : x.s === "warn" ? [c.warnSoft, c.warn, "!"] : [c.goodSoft, c.good, "✓"];
         return <View key={i} style={{ flexDirection: row, gap: 8, backgroundColor: bg, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 7 }}><Text style={{ color: fg, fontWeight: "800", width: 16 }}>{mark}</Text><T size={14} color={fg} style={{ flex: 1 }}>{x.text}{x.n > 1 ? `  ×${x.n}` : ""}</T></View>;
       })}
@@ -128,7 +130,17 @@ export function Checks({ list, title }: { list: Check[]; title?: string }) {
 }
 
 export function Sheet({ open, onClose, title, children }: { open: boolean; onClose: () => void; title: string; children: React.ReactNode }) {
-  const c = useColors(); const { t } = useData();
+  const c = useColors(); const { t } = useData(); const wide = useWide();
+  if (web && wide) return (
+    <Modal visible={open} transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable onPress={onClose} style={{ flex: 1, backgroundColor: "rgba(10,30,25,0.45)", alignItems: "center", justifyContent: "center", padding: 24 }}>
+        <Pressable onPress={() => {}} style={{ width: "100%", maxWidth: 760, maxHeight: "92%", backgroundColor: c.bg, borderRadius: 24, overflow: "hidden", boxShadow: "0 24px 60px rgba(0,0,0,0.25)" } as any}>
+          <Row style={{ paddingHorizontal: 22, paddingVertical: 16, borderBottomWidth: 1, borderColor: c.line }}><View style={{ flex: 1 }}><H2>{title}</H2></View><Btn kind="ghost" title="✕" onPress={onClose} /></Row>
+          <ScrollView contentContainerStyle={{ padding: 22, gap: 14, paddingBottom: 30 }} keyboardShouldPersistTaps="handled">{children}</ScrollView>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
   return (
     <Modal visible={open} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
       <SafeAreaView style={{ flex: 1, backgroundColor: c.bg }}>
@@ -139,12 +151,13 @@ export function Sheet({ open, onClose, title, children }: { open: boolean; onClo
   );
 }
 
-export function Kpi({ label, value, hero }: { label: string; value: string; hero?: boolean }) {
+export function Kpi({ label, value, hero, onPress }: { label: string; value: string; hero?: boolean; onPress?: () => void }) {
   const c = useColors();
   return (
-    <Pressable style={({ hovered }: any) => [{ flexGrow: 1, flexBasis: 170, backgroundColor: hero ? c.accent : c.surface, borderColor: hero ? c.accent : c.line, borderWidth: 1, borderRadius: 18, padding: 16, gap: 6 }, lift(hovered)]}>
+    <Pressable onPress={onPress} style={({ hovered }: any) => [{ flexGrow: 1, flexBasis: 170, backgroundColor: hero ? c.accent : c.surface, borderColor: hero ? c.accent : c.line, borderWidth: 1, borderRadius: 18, padding: 16, gap: 6 }, lift(hovered)]}>
       <T size={12} color={hero ? c.accentInk : c.muted}>{label}</T>
       <Text style={{ fontSize: 24, fontWeight: "800", color: hero ? c.accentInk : c.ink, fontVariant: ["tabular-nums"] }}>{value}</Text>
+      {onPress ? <T size={12} color={hero ? c.accentInk : c.accent}>Details ›</T> : null}
     </Pressable>
   );
 }
