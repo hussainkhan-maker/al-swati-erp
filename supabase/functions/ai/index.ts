@@ -81,8 +81,8 @@ Rules: digits 0-9 only. Never invent a number that was not said: use null and as
     if (task === "receipt") {
       const img = await imageFrom(admin, "receipts", p.path);
       const prompt = `This image is a purchase receipt or invoice from Saudi Arabia (Arabic and/or English). Read it carefully. Return JSON only:
-{"supplier":"<name>","date":"YYYY-MM-DD or null","lines":[{"name":"<item as written; add English if Arabic>","qty":<n>,"unit":"<unit>","price":<unit price before VAT>,"total":<line total before VAT>}],"subtotal":<before VAT>,"vat":<VAT amount or 0>,"total":<grand total>,"confidence":"high|medium|low","notes":"<anything unclear>"}
-Digits 0-9. If something is unreadable use null and say so in notes. Do not guess.`;
+{"supplier":"<name>","invoice_no":"<invoice / tax invoice number or null>","buyer":"<the company the invoice is made out to (customer name, VAT no.) or null>","date":"YYYY-MM-DD or null","lines":[{"name":"<item as written; add English if Arabic>","qty":<n>,"unit":"<unit>","price":<unit price before VAT>,"total":<line total before VAT>}],"subtotal":<before VAT>,"vat":<VAT amount or 0>,"total":<grand total>,"confidence":"high|medium|low","notes":"<anything unclear>"}
+Digits 0-9. Read EVERY line: the same stone or tile often appears 2-4 times with different sizes or thicknesses (e.g. 60x60 2cm and 60x120 3cm) - keep each as its own line and put the size/thickness in the name, never merge them. Keep the Arabic name and add the English after it. If something is unreadable use null and say so in notes. Do not guess.`;
       return json(asJson(await claude(prompt, { images: [img] })));
     }
 
@@ -102,7 +102,8 @@ Digits 0-9. If something is unreadable use null and say so in notes. Do not gues
  "documents":[{"name":"<file or section>","kind":"drawing|boq|specification|letter|other","summary":"<one line: what it contains>"}],
  "specs":["<each requirement from specifications: material grade, thickness, finish, fixing method, standards, samples, warranty>"],
  "drawingQuantities":[{"what":"<area or element>","qty":<number>,"unit":"sqm|lm|no","source":"<which drawing / DXF layer>"}],
- "rfis":["<contradiction between BOQ, drawings and specs, or missing spec, to ask the consultant>"],"siteChecks":["<what must be verified on site before work>"],"notes":"<anything unclear>"}
+ "rfis":["<contradiction between BOQ, drawings and specs, or missing spec, to ask the consultant>"],"siteChecks":["<what must be verified on site before work>"],
+ "estimate":{"waste_pct":<cutting waste % from slab sizes vs. the areas, or null>,"waste_note":"<which slab size you assumed>","fixings":[{"item":"<bracket|pin|anchor bolt|channel|adhesive>","qty":<number or null>,"basis":"<how counted: per m², per panel, wind/dead load in KSA>"}]},"notes":"<anything unclear>"}
 Compare BOQ quantities with drawing quantities (including any "DXF takeoff" section in the text) and put every difference above 3% in rfis.
 Digits only. Never invent a quantity: if unreadable, qty null and say so in notes.
 BOQ TEXT:
@@ -123,7 +124,48 @@ ${String(p.text ?? "(see image)").slice(0, 30000)}`;
       const text = await claude(`Write a short, polite WhatsApp message in ${lang} from a stone and flooring contractor in Saudi Arabia to a supplier named "${p.supplier}", asking for their best price (before VAT), stock availability and delivery time for these items in ${p.city || "Riyadh"}:
 ${JSON.stringify(p.items)}
 List each item on its own line with size and quantity. Ask them to reply with unit prices. Sign as "${p.signature || "Al-Swati"}". Plain text only, no markdown. Do not invent anything not given.`, { max: 800 });
-      return json({ text: text.trim() });
+      if (!p.withEmail) return json({ text: text.trim() });
+      const em = asJson(await claude(`Write a formal procurement email in ${lang} (English if Arabic is not asked) from "${p.signature || "Al-Swati Contracting"}" to the supplier "${p.supplier}" in Saudi Arabia asking for a quotation for these items: ${JSON.stringify(p.items)}.
+Mention delivery to ${p.city || "Riyadh"} project site${p.needBy ? `, needed by ${p.needBy}` : ""}; ask for unit price before VAT, VAT 15% shown separately, stock vs. lead time, delivery to site or ex-yard, loading/unloading, and payment terms (cash, advance, or 30/60 days credit). Professional Saudi business tone. Do not invent anything not given.
+Return JSON only: {"subject":"","body":""}`, { max: 1200 }));
+      return json({ text: text.trim(), email: em });
+    }
+
+    if (task === "compare_quotes") {
+      // Auditor: compares supplier quotations side by side, flags hidden costs, names the best value.
+      if (!["admin", "abu"].includes(role)) return json({ error: "Not allowed" }, 403);
+      const imgs: Img[] = [];
+      for (const path of (p.paths || []).slice(0, 6)) { try { const f = await imageFrom(admin, "documents", path); if (/\.pdf$/i.test(path)) f.media_type = "application/pdf"; imgs.push(f); } catch { /* skip */ } }
+      return json(asJson(await claude(`You are the cost controller of a stone and flooring contractor in Saudi Arabia. Compare these supplier quotations for the same need${p.need ? ` (${p.need})` : ""}.
+QUOTATIONS (text and/or attached files):
+${String(p.text || "").slice(0, 30000)}
+Use only what is written. Prices in SAR. If VAT 15% is not stated say "VAT unclear".
+Return JSON only: {"rows":[{"supplier":"","item":"","unit_price":<n|null>,"total":<n|null>,"vat":"incl|excl|unclear","stock":"ready|<lead time>|unclear","delivery":"to site|ex-yard|unclear","payment":"cash|advance|<n> days credit|unclear","hidden":["<cost not included: loading, unloading, transport, crane, cutting, VAT>"]}],
+"best":{"supplier":"","why":"<one line: price balanced with delivery time>"},"recommendations":["<3 short points in simple Roman Urdu>"]}`, { images: imgs, max: 4000 })));
+    }
+
+    if (task === "contract") {
+      // Contract auditor: Arabic muqawala / quotation / agreement → plain summary + risky clauses with the Arabic text.
+      if (role !== "admin") return json({ error: "Only Super-Admin" }, 403);
+      const imgs: Img[] = [];
+      if (p.path) { const f = await imageFrom(admin, "documents", p.path); if (/\.pdf$/i.test(p.path)) f.media_type = "application/pdf"; imgs.push(f); }
+      return json(asJson(await claude(`You review construction contracts (Saudi muqawala, FIDIC-style) for a stone, marble and cladding subcontractor in Saudi Arabia. Read the attached contract / agreement / quotation${p.text ? " and this text" : ""}.
+${String(p.text || "").slice(0, 40000)}
+Find what puts the subcontractor at risk: delay penalties (gharama) and their cap, retention and payment withholding, payment timing, who pays transport, loading, crane and scaffolding, wastage and breakage liability, variation and measurement rules, termination, warranty and defects period, VAT, advance payment guarantees.
+Quote the original clause text exactly. Do not invent clauses. If a page is unreadable, say so.
+Return JSON only: {"summary_en":"<5 short lines>","summary_ur":"<5 short lines in simple Roman Urdu>","terms":[{"term":"<value, payment, duration, retention, penalty, warranty...>","value":"<as written>"}],
+"risks":[{"level":"high|medium","clause":"<original text, Arabic if Arabic>","risk":"<what can go wrong, plain English>","counter":"<what to ask for instead>"}]}`, { images: imgs, model: MODEL_STRONG, max: 6000 })));
+    }
+
+    if (task === "learn") {
+      // Memory agent: turns the owner's feedback into a rule every agent follows; saved in preferences ("rules").
+      if (role !== "admin") return json({ error: "Only Super-Admin" }, 403);
+      const rule = asJson(await claude(`The owner of a stone and flooring contractor in Saudi Arabia gave this feedback to his AI assistants: "${String(p.text).slice(0, 1000)}".
+Turn it into one rule. Return JSON only: {"category":"supplier|price|material|tone|process|other","observed_rule":"<the rule, one line>","action_for_agents":"<what the agents must do differently, one line>"}`, { max: 400 }));
+      const { data: cur } = await admin.from("preferences").select("value").eq("key", "rules").maybeSingle();
+      const list = [...((cur?.value as any)?.list || []), { ...rule, at: new Date().toISOString() }].slice(-60);
+      await admin.from("preferences").upsert({ key: "rules", value: { list }, updated_at: new Date().toISOString() });
+      return json(rule);
     }
 
     if (task === "find_suppliers") {
@@ -132,6 +174,22 @@ List each item on its own line with size and quantity. Ask them to reply with un
       const text = await claude(`Find real suppliers in Saudi Arabia for: ${String(p.material).slice(0, 200)}${p.city ? `, preferably in or delivering to ${p.city}` : ""}. Search the web (company websites, Google business listings, Saudi directories). Only Saudi-registered businesses. Do not invent anything: every field must come from a page you found; leave a field empty if you did not find it.
 Return JSON only: {"suppliers":[{"name":"","city":"","phone":"","whatsapp":"","email":"","website":"","cr_no":"","categories":["Marble|Granite|Porcelain|Ceramic|Civil|Fixing|Other"],"note":"<what they sell, one line>","source_url":"<page where you found it>"}]} with at most 8 suppliers.`, { webSearch: 6, max: 4000 });
       return json(asJson(text));
+    }
+
+    if (task === "audit_takeoff") {
+      // Second AI (the auditor): checks the estimator's lines against what was read from the BOQ / drawings / specs.
+      // It only checks and flags; the app's own code does every calculation (waste, cost, margin).
+      if (role !== "admin") return json({ error: "Only Super-Admin" }, 403);
+      return json(asJson(await claude(`You are a senior quantity surveyor for a stone, marble, granite and porcelain cladding and flooring contractor in Riyadh.
+A junior estimator prepared these quotation lines: ${JSON.stringify(p.lines).slice(0, 30000)}
+What was read from the client's BOQ / drawings / specs (may be empty): ${JSON.stringify(p.source || {}).slice(0, 40000)}
+Check every line, strictly and without guessing:
+- quantity and unit match the BOQ/drawing (m² vs lm vs pcs); flag anything that looks copied wrong (extra zero, m² used for running metres)
+- material, finish, thickness and size are stated and plausible for KSA (cladding 20-30 mm stone, 30-40 mm for heavy panels; tiles 60x60, 60x120, 80x80, 120x120 cm common); flag odd sizes or thickness
+- waste % is realistic for the material and pattern (stone cladding 10-15%, book-match / cut pieces / curves 15-20%)
+- items usually needed but missing from the quotation (skirting, risers, steps, coping, window sills, cut edges, anchors/brackets, adhesive, grout, sealant, mock-up, protection)
+- contradictions between BOQ, drawings and specs that need an RFI to the consultant
+Return JSON only: {"lines":[{"i":<line index>,"level":"ok|warn|high","issue":"<short, plain English>","suggest_qty":<number or null>}],"missing":["<item>"],"rfis":["<question for the consultant>"],"summary":"<2 short lines in simple Roman Urdu>"}`, { model: MODEL_STRONG, max: 4000 })));
     }
 
     if (task === "advise") {
