@@ -89,13 +89,27 @@ export function buildStatement(d: Record<string, any[]>, role: string, lang: Lan
     const sh = (x.split || []).length ? ((x.split.find((s: any) => s.project_id === P.id)?.pct || 0) / 100) : x.project_id === P.id ? 1 : 0;
     if (!sh) return;
     const amt = x.type === "income" ? Number(x.net) : x.type === "purchase" ? Number(x.total) - Number(x.vat_amount || 0) : Number(x.amount);
-    rows.push([day(x.created_at), TL[x.type], x.description || x.supplier || x.sub_name || x.company || "", r2((["purchase", "expense", "subpay"].includes(x.type) ? -1 : 1) * amt * sh)]);
+    rows.push([dd(x), TL[x.type], x.description || x.supplier || x.sub_name || x.company || "", r2((["purchase", "expense", "subpay"].includes(x.type) ? -1 : 1) * amt * sh)]);
   });
   rows.sort((a, b) => (a[0] < b[0] ? -1 : 1));
   const tot = r2(rows.reduce((s, r) => s + r[3], 0));
   return { title: H("Project statement", "كشف حساب مشروع", "پروجیکٹ کا حساب") + " · " + P.name, cols: [H("Date", "التاريخ", "تاریخ"), H("Entry", "البند", "اندراج"), H("Details", "التفاصيل", "تفصیل"), H("Amount", "المبلغ", "رقم")], rows, numCols: [3],
-    sum: [[H("Received (gross)", "المستلم", "کل وصولی"), money(L.gross)], [H("VAT", "الضريبة", "VAT"), money(L.vat)], [H("Service fee", "رسوم الخدمة", "سروس فیس"), money(L.fee)], [H("Loan balance", "رصيد القرض", "قرض باقی"), money(L.loan_balance)], [H("Subcontract work", "عمل المقاولين", "سب کنٹریکٹ کام"), money(L.sub_work)], [H("Net cash movement", "صافي الحركة", "خالص"), money(tot)], [H("Profit (estimate)", "الربح التقديري", "منافع (اندازہ)"), money(L.profit)]],
+    sum: [...projectWork(d, P.id, H), [H("Received (gross)", "المستلم", "کل وصولی"), money(L.gross)], [H("VAT", "الضريبة", "VAT"), money(L.vat)], [H("Service fee", "رسوم الخدمة", "سروس فیس"), money(L.fee)], [H("Loan balance", "رصيد القرض", "قرض باقی"), money(L.loan_balance)], [H("Subcontract work", "عمل المقاولين", "سب کنٹریکٹ کام"), money(L.sub_work)], [H("Net cash movement", "صافي الحركة", "خالص"), money(tot)], [H("Profit (estimate)", "الربح التقديري", "منافع (اندازہ)"), money(L.profit)]],
     check: { col: 3, total: tot } };
+}
+
+/** Work on one project: total m² of all subcontractors, then each one's m², earned (m² × rate) and paid. */
+function projectWork(d: Record<string, any[]>, pid: string, H: (en: string, ar: string, ur: string) => string): [string, string][] {
+  const pr = active(d.progress).filter((p) => p.project_id === pid), pays = active(d.txns).filter((x) => x.type === "subpay" && x.project_id === pid);
+  const names = Array.from(new Set([...pr.map((p) => p.sub_name), ...pays.map((x) => x.sub_name)].filter(Boolean)));
+  const out: [string, string][] = [[H("Total m² done (all subcontractors)", "مجموع المتر المنفذ", "کل m² (سب سب کنٹریکٹر)"), money(r2(pr.reduce((s, p) => s + Number(p.qty || 0), 0)))]];
+  names.forEach((n) => {
+    const mine = pr.filter((p) => norm(p.sub_name) === norm(n));
+    const m2 = r2(mine.reduce((s, p) => s + Number(p.qty || 0), 0)), earned = r2(mine.reduce((s, p) => s + Number(p.qty || 0) * Number(p.rate || 0), 0));
+    const paid = r2(pays.filter((x) => norm(x.sub_name) === norm(n)).reduce((s, x) => s + Number(x.amount || 0), 0));
+    out.push([n, `${money(m2)} m² · ${H("earned", "مستحق", "کمائی")} ${money(earned)} · ${H("paid", "مدفوع", "ادا")} ${money(paid)} · ${H("balance", "متبقي", "باقی")} ${money(r2(earned - paid))}`]);
+  });
+  return out;
 }
 
 /** Quotation as a document: lines, subtotal, VAT 15%, total, validity and terms. */
