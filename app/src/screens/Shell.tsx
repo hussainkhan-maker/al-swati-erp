@@ -40,9 +40,9 @@ function MoreAdmin({ go }: { go: (k: string) => void }) {
 const TABS: Record<string, TabDef[]> = {
   admin: [
     { key: "home", label: "Home", icon: "home", C: Admin.Dashboard },
-    { key: "money", label: "Money", icon: "cash", C: Admin.Money },
     { key: "queries", label: "Queries", icon: "inbox", C: Queries },
     { key: "quotes", label: "Quotations", icon: "doc", C: Quotes },
+    { key: "money", label: "Entries", icon: "cash", C: Admin.Money },
     { key: "more", label: "More", icon: "log", C: MoreAdmin },
   ],
   abu: [
@@ -63,7 +63,7 @@ const TABS: Record<string, TabDef[]> = {
     { key: "report", label: "رپورٹ", icon: "doc", C: Sup.Report },
   ],
 };
-const SUB_LABEL: Record<string, string> = { projects: "Projects & subcontractors", suppliers: "Suppliers", prices: "Prices", agents: "AI agents", people: "People", team: "Team on site", audit: "Audit log" };
+const SUB_LABEL: Record<string, string> = { projects: "Projects", suppliers: "Suppliers", prices: "Prices", agents: "AI agents", people: "People", team: "Team on site", audit: "Audit log" };
 const SUB_ICON: Record<string, string> = { projects: "folder", suppliers: "truck", prices: "tag", agents: "spark", people: "people", team: "pin", audit: "log" };
 const SUBS: Record<string, React.ComponentType<any>> = { projects: Admin.Projects, suppliers: Suppliers, prices: Prices, agents: Agents, people: Admin.People, team: Admin.Team, audit: Admin.Audit };
 
@@ -129,7 +129,7 @@ export default function Shell() {
       <Animated.View style={{ opacity: introV, transform: [{ scale: introV.interpolate({ inputRange: [0, 1], outputRange: [0.85, 1] }) }], alignItems: "center", gap: 8 }}>
         <View style={{ width: 64, height: 64, borderRadius: 20, backgroundColor: DEEP.bg2, alignItems: "center", justifyContent: "center" }}><Icon name="spark" size={34} color={DEEP.glow} /></View>
         <Text style={{ color: DEEP.ink, fontSize: 30, fontWeight: "800" }}>AL-Swati</Text>
-        <Text style={{ color: DEEP.muted, fontSize: 14 }}>Stone · Marble · Granite · Porcelain · Flooring</Text>
+        <Text style={{ color: DEEP.muted, fontSize: 14 }}>Stone · Marble · Granite · Porcelain</Text>
       </Animated.View>
     </View>
   );
@@ -137,8 +137,12 @@ export default function Shell() {
   const cur = tabs.find((x) => x.key === tab) || tabs[0];
   const Body = sub ? SUBS[sub] : cur.C;
   // Laptop sidebar: every main page in one list (admin's "More" pages are listed directly).
-  const navItems = [...tabs.filter((x) => !(role === "admin" && x.key === "more")).map((x) => ({ key: x.key, label: x.label, icon: x.icon, isSub: false })),
-    ...(role === "admin" ? Object.keys(SUBS).map((k) => ({ key: k, label: SUB_LABEL[k], icon: SUB_ICON[k], isSub: true })) : [])];
+  const T_ = (k: string) => { const x = tabs.find((y) => y.key === k)!; return { key: k, label: x.label, icon: x.icon, isSub: false }; };
+  const S_ = (k: string) => ({ key: k, label: SUB_LABEL[k], icon: SUB_ICON[k], isSub: true });
+  // Admin sidebar order: what is used most first; the list of all entries near the end.
+  const navItems = role === "admin"
+    ? [T_("home"), S_("projects"), T_("queries"), T_("quotes"), S_("suppliers"), S_("prices"), S_("agents"), S_("people"), S_("team"), T_("money"), S_("audit")]
+    : tabs.map((x) => ({ key: x.key, label: x.label, icon: x.icon, isSub: false }));
   const sidebar = wide && (
     <View style={{ width: 236, margin: 12, marginRight: 0, borderRadius: 24, backgroundColor: DEEP.bg, padding: 16, gap: 4 }}>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 10, paddingHorizontal: 6, marginBottom: 8 }}>
