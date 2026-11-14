@@ -11,6 +11,7 @@ import { lineCalc, QUOTE_DEFAULTS, quoteGuards, quoteTotals } from "../lib/check
 import { priceSummary } from "../lib/match";
 import { RequestPrices } from "./Suppliers";
 import { RfiEditor } from "./RFIs";
+import { ProposalSheet } from "./Proposal";
 
 const AR: Record<string, string> = { Draft: "مسودة", "Abu Review": "مراجعة أبو", "Sent to Client": "أُرسل للعميل", Approved: "معتمد", Lost: "خسرنا" };
 export const pref = (d: any, key: string, dflt: any) => ({ ...dflt, ...((d.preferences || []).find((p: any) => p.key === key)?.value || {}) });
@@ -45,6 +46,7 @@ export default function Quotes() {
   const [tried, setTried] = useState<Record<string, boolean>>({}), [lk, setLk] = useState<any>(null), [unl, setUnl] = useState<any>(null);
   const [seeP, setSeeP] = useState<any>(null); // all prices paid for one line
   const [rfi, setRfi] = useState<any>(null); // RFI being written from this quotation
+  const [prop, setProp] = useState<any>(null); // technical proposal for this quotation
   const minMargin = Number(margin.minimum_safe ?? Math.max(QUOTE_DEFAULTS.minMargin, Number(margin.minimum) || 0));
   const list = (d.quotes || []).filter((q: any) => !isAbu || q.owner === "abu");
 
@@ -185,6 +187,7 @@ export default function Quotes() {
               {locked && ["Draft", "Abu Review"].includes(q.status) && <Btn kind="ghost" title="Unlock to change" onPress={() => setUnl({ q, why: "" })} />}
               {q.status === "Draft" && q.owner === "abu" && <Btn title="Send to Abu" onPress={() => setStatus(q, "Abu Review")} />}
               <Btn icon={<Icon name="share" />} title="Quotation PDF" disabled={!locked} onPress={() => setPdfQ(q)} />
+              {isAdmin && <Btn icon={<Icon name="log" />} title={q.rfq?.proposal ? "Technical proposal ✓" : "Technical proposal"} onPress={() => setProp(q)} />}
               {q.status === "Sent to Client" && <Btn kind="primary" title="Client approved → open project" onPress={() => approve(q)} />}
               {q.status === "Sent to Client" && <Btn kind="danger" title="Lost" onPress={() => setLost({ q, why: "" })} />}
               {isAdmin && !locked && ["Draft", "Lost"].includes(q.status) && <Btn kind="ghost" title="Delete" onPress={() => setDel({ q, err: "" })} />}
@@ -252,6 +255,7 @@ export default function Quotes() {
       </Sheet>
       {ask && <RequestPrices init={ask} onClose={() => setAsk(null)} />}
       {rfi && <RfiEditor init={rfi} onClose={() => setRfi(null)} />}
+      {prop && <ProposalSheet q={(d.quotes || []).find((x: any) => x.id === prop.id) || prop} onClose={() => setProp(null)} />}
       {seeP && <Sheet open onClose={() => setSeeP(null)} title="Prices paid for this material">
         <T bold>{seeP.desc}</T>
         <T size={13} muted>Matched across Arabic and English names; a different size or thickness is never counted. Average {money(seeP.ps.avg)}.</T>
