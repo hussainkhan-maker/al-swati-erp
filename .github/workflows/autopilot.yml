@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Read new queries and draft quotations
         run: |
           URL=$(grep -oE 'https://[a-z0-9]+\.supabase\.co' app/src/config.ts | head -1)
