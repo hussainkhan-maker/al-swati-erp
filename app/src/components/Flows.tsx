@@ -7,6 +7,7 @@ import { Check, entryChecks, purchaseChecks } from "../lib/checks";
 import { active, companiesOf, pname, useData } from "../lib/data";
 import { pickPhoto, uploadFile } from "../lib/files";
 import { matchItems, money, num, r2, splitIncome, uid } from "../lib/fmt";
+import { invoicesOf } from "../lib/invoices";
 import { localAnswer, mentionedProject } from "../lib/localAnswer";
 import { speechLang } from "../lib/i18n";
 import { buildStatement, Doc, docHTML, makeAndShare, pdfChecks } from "../lib/pdf";
@@ -84,7 +85,7 @@ function SpeakSheet({ init, onClose, open }: { init?: any; onClose: () => void; 
   };
 
   // Opened from a project's buttons: go straight to the right form with the project (and subcontractor) filled in.
-  useEffect(() => { if (init?.intent) { byHand(init.intent, init.project_id, init.sub_name); if (init.amount || init.relRet) setO((x: any) => ({ ...x, amount: init.amount ?? x.amount, relRet: !!init.relRet })); } }, []);
+  useEffect(() => { if (init?.intent) { byHand(init.intent, init.project_id, init.sub_name); if (init.amount || init.relRet || init.invoice_no) setO((x: any) => ({ ...x, amount: init.amount ?? x.amount, relRet: !!init.relRet, invoice_no: init.invoice_no || "" })); } }, []);
 
   // Lines left empty (a subcontractor who did not work that day) are skipped.
   const form = o ? { ...o, amount: num(o.amount), loan: num(o.loan || 0), rows: (o.rows || []).filter((r: any) => String(r.qty ?? "").trim() !== "").map((r: any) => ({ ...r, qty: num(r.qty) })) } : null;
@@ -116,7 +117,7 @@ function SpeakSheet({ init, onClose, open }: { init?: any; onClose: () => void; 
       let queued = false;
       const q = (r: any) => { if (r.queued) queued = true; };
       if (form.intent === "progress") for (const r of form.rows) q(await ins("progress", { project_id: form.project_id, sub_name: r.sub_name, qty: r.qty, unit: r.unit, work: r.work, work_date: when, heard: text, flags }));
-      else if (form.intent === "income") q(await ins("txns", { type: "income", project_id: form.project_id, gross: form.amount, loan: form.loan || 0, paid_on: when, method: how, description: [form.relRet ? "Retention release" : null, memo].filter(Boolean).join(" · ") || null, heard: text, flags }));
+      else if (form.intent === "income") q(await ins("txns", { type: "income", project_id: form.project_id, gross: form.amount, loan: form.loan || 0, invoice_no: form.invoice_no || null, paid_on: when, method: how, description: [form.relRet ? "Retention release" : null, memo].filter(Boolean).join(" · ") || null, heard: text, flags }));
       else if (form.intent === "loan") q(await ins("txns", { type: "loan", project_id: form.project_id, amount: form.amount, paid_on: when, method: how, description: memo, heard: text, flags }));
       else if (form.intent === "subpay") q(await ins("txns", { type: "subpay", project_id: form.project_id, amount: form.amount, sub_name: form.sub_name, paid_on: when, method: how, description: [form.relRet ? "Retention release" : null, memo].filter(Boolean).join(" · ") || null, heard: text, flags }));
       else if (form.intent === "expense") q(await ins("txns", { type: "expense", project_id: form.project_id, amount: form.amount, description: [form.description, memo].filter(Boolean).join(" · "), paid_on: when, method: how, heard: text, flags }));
@@ -165,8 +166,18 @@ function SpeakSheet({ init, onClose, open }: { init?: any; onClose: () => void; 
             <Field label={t("work")} value={r.work} onChange={(v) => setRow(i, "work", v)} />
           </Row>)).concat([<Btn key="add" kind="ghost" icon={<Icon name="plus" />} title="Add another subcontractor line" onPress={() => set("rows", [...o.rows, { sub_name: "", qty: "", unit: "sqm", work: "" }])} />,
             <T key="sum" bold>Total today: {money((form?.rows || []).reduce((s2: number, r: any) => s2 + (r.qty || 0), 0))} m²</T>]) : <>
-          <Field required label={t("amount")} value={o.amount} numeric onChange={(v) => set("amount", v)} />
-          {o.intent === "income" && <Field label={t("loanDeduct")} value={o.loan} numeric onChange={(v) => set("loan", v)} />}
+          {o.intent === "loan" && <T muted size={13}>Money {P?.company || "the company"} gave us to run the work. It is paid back when they cut it from a later payment (enter that cut with the payment).</T>}
+          <Field required label={o.intent === "income" ? "Full payment, with VAT, before any cut (SAR)" : o.intent === "loan" ? `Loan amount ${P?.company ? P.company + " gave" : "taken"} (SAR)` : t("amount")} value={o.amount} numeric onChange={(v) => set("amount", v)} />
+          {o.intent === "income" && (() => { // Which of the company's invoices this payment is for (part payments add up per invoice).
+            const open = invoicesOf(d, o.project_id).filter((v: any) => v.left > 0.5 || v.invoice_no === o.invoice_no);
+            return open.length ? <Select label="For which invoice?" value={o.invoice_no || ""} onChange={(v) => set("invoice_no", v)}
+              options={[{ value: "", label: "No invoice / not sure" }, ...open.map((v: any) => ({ value: v.invoice_no, label: `Invoice ${v.invoice_no}: ${money(v.left)} still to come` }))]} /> : null; })()}
+          {o.intent === "income" && (() => { // The company cuts its loan back from this payment.
+            const open = Number((d.project_ledger || []).find((l: any) => l.project_id === o.project_id)?.loan_balance) || 0;
+            return <>
+              <Field label={`Loan ${P?.company || "the company"} cut from this payment (SAR)`} value={o.loan} numeric onChange={(v) => set("loan", v)} placeholder="0" />
+              {open > 0.5 ? <Row wrap style={{ alignItems: "center" }}><T muted size={13}>Loan still open on this project: {money(open)} SAR.</T>{num(o.loan || 0) !== open ? <Btn kind="ghost" title={`They cut all of it (${money(open)})`} onPress={() => set("loan", String(open))} /> : null}</Row> : null}
+            </>; })()}
           {o.intent === "income" && (() => { const ret = Number((((d.preferences || []).find((q: any) => q.key === "project_terms")?.value || {})[o.project_id] || {}).retention) || 0; return <>
             <Btn kind={o.relRet ? "primary" : "default"} title={(o.relRet ? "✓ " : "") + "This payment is the retention being released"} onPress={() => set("relRet", !o.relRet)} />
             {ret > 0 && !o.relRet && num(o.amount) > 0 && <T muted size={13}>Retention {ret}%: the client keeps about {money(r2(num(o.amount) / 1.15 / (1 - ret / 100) * ret / 100))} SAR more on this payment (shown in the project's client account).</T>}
