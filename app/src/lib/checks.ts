@@ -112,7 +112,7 @@ export function quoteGuards(q: any, minMargin = QUOTE_DEFAULTS.minMargin): Check
     if (!(x.rate > 0)) out.push({ s: "bad", text: `${n}: selling rate missing` });
     if (!(x.cost > 0) && !(x.install > 0)) out.push({ s: "bad", text: `${n}: enter the material cost and/or installation cost` });
     if (!(x.waste >= 0 && x.waste <= 30)) out.push({ s: "bad", text: `${n}: waste ${x.waste}% is not between 0 and 30` });
-    else if (NATURAL_STONE.test(l.desc || "") && x.waste < 10) out.push({ s: "warn", text: `${n}: stone waste only ${x.waste}% (normally 10–15%)` });
+    else if (NATURAL_STONE.test(l.desc || "") && x.waste < 15) out.push({ s: "warn", text: `${n}: stone waste ${x.waste}% — at bid stage, with no engineer checking the drawings, use 15–18%` });
     if (x.margin != null && x.margin < minMargin) out.push({ s: "bad", text: `${n}: margin ${x.margin}% is below your minimum ${minMargin}%` });
     const th = String(l.desc || "").match(/(\d+(?:\.\d+)?)\s*(mm|cm)\b/i);
     if (th && NATURAL_STONE.test(l.desc || "")) { const mm = Number(th[1]) * (th[2].toLowerCase() === "cm" ? 10 : 1); if (mm < 15 || mm > 50) out.push({ s: "bad", text: `${n}: thickness ${mm} mm looks wrong for stone` }); }
@@ -121,6 +121,9 @@ export function quoteGuards(q: any, minMargin = QUOTE_DEFAULTS.minMargin): Check
   });
   const t = quoteTotals(lines);
   if (t.sell > 0 && t.margin < minMargin) out.push({ s: "bad", text: `Whole quotation margin ${t.margin}% is below your minimum ${minMargin}%` });
+  // Bid stage: the shop-drawing engineer is only hired after award, so his fee must already be inside the price.
+  if (t.sell > 0 && !lines.some((l: any) => /engineer|shop\s*drawing|design|مهندس|مخططات|تصميم/i.test(l.desc || "")) && !/engineer|shop\s*drawing/i.test(q.rfq?.lock?.terms?.notes || q.rfq?.eng_note || ""))
+    out.push({ s: "warn", text: "No allowance for shop drawings / engineer (usually 2,000–5,000 SAR): add a line, or put it in the rates" });
   const au = q.rfq?.audit;
   if (!au) out.push({ s: "warn", text: "Second AI check not run yet" });
   else if (au.stale) out.push({ s: "warn", text: "Lines changed after the second AI check (RFI answer) — run it again" });
