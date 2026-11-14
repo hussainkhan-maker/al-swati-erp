@@ -1,10 +1,10 @@
 // Super-Admin screens: dashboard, money, projects & subcontractors, people, team on site, audit log.
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Linking, Pressable, View } from "react-native";
 import { useFlows } from "../components/Flows";
 import { active, pname, useData } from "../lib/data";
 import { day, money, num, SAR, stamp } from "../lib/fmt";
-import { supabase } from "../lib/supabase";
+import { ai, supabase } from "../lib/supabase";
 import { Bars, Btn, Card, Checks, DEEP, Empty, Field, H1, H2, Icon, Kpi, MonthCal, Photo, Pill, Rise, Row, Screen, Select, Sheet, T, Table, Tile, useColors, useWide } from "../ui";
 
 const sum = (a: any[], k: string) => a.reduce((s, x) => s + (Number(x[k]) || 0), 0);
@@ -32,8 +32,16 @@ export function clientAccount(d: any, pid: string) {
 const TYPE_ICON: Record<string, string> = { income: "cash", loan: "pct", purchase: "receipt", expense: "tag", subpay: "people", progress: "ruler" };
 
 export function Dashboard() {
-  const { d, profile } = useData(); const flows = useFlows(); const c = useColors(); const wide = useWide();
+  const { d, profile, reload } = useData(); const flows = useFlows(); const c = useColors(); const wide = useWide();
   const L = d.project_ledger || [], rep = (d.agent_reports || [])[0];
+  // Morning briefing: made the first time Super-Admin opens the app each day (no schedule or secret key needed).
+  const [brief, setBrief] = useState(""), riyadhDay = (t: any) => new Date(new Date(t).getTime() + 3 * 3600e3).toISOString().slice(0, 10);
+  const makeBrief = async (force = false) => {
+    setBrief("busy");
+    try { const r = await ai("briefing", { force }); if (!r.skipped) await reload(["agent_reports"]); setBrief(r.skipped && force ? "Made less than 30 minutes ago." : ""); }
+    catch (e: any) { setBrief(e.message); }
+  };
+  useEffect(() => { if (d.agent_reports && (!rep || riyadhDay(rep.created_at) !== riyadhDay(Date.now()))) makeBrief(); }, [!!d.agent_reports]);
   const vat = sum(d.vat_by_company || [], "vat");
   const newQ = (d.inquiries || []).filter((q: any) => q.status === "New").length;
   const [chart, setChart] = useState<"m2" | "in" | "out">("m2");
@@ -108,7 +116,8 @@ export function Dashboard() {
         <T size={15}>{rep.summary}</T>
         <Checks list={(rep.items || []).slice(0, 6).map((i: any) => ({ s: i.level === "bad" ? "bad" : "warn", text: i.text }))} />
         <T size={12} muted>{stamp(rep.created_at)}</T>
-      </> : <T muted>The first report arrives at 07:00 once the AI key and the daily schedule are switched on.</T>}
+      </> : <T muted>{brief === "busy" ? "The main agent is checking everything…" : "No report yet."}</T>}
+      <Row><Btn kind="ghost" icon={<Icon name="spark" />} title={brief === "busy" ? "Checking…" : "Check again now"} busy={brief === "busy"} onPress={() => makeBrief(true)} />{brief && brief !== "busy" ? <T size={12} muted style={{ flex: 1 }}>{brief}</T> : null}</Row>
       {newQ > 0 && <Pill kind="warn" text={`${newQ} new client queries`} />}
       {(() => { const wait = (d.quotes || []).filter((q: any) => q.status === "Draft" && !q.rfq?.lock && (q.lines || []).length && (q.lines || []).every((l: any) => Number(l.rate) > 0)); return wait.length ? <Pill kind="bad" text={`${wait.length} quotation(s) waiting for your Approve & Lock`} /> : null; })()}
     </Card></Rise>
