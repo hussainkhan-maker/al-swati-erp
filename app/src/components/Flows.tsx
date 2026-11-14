@@ -7,6 +7,7 @@ import { Check, entryChecks, purchaseChecks } from "../lib/checks";
 import { active, companiesOf, pname, useData } from "../lib/data";
 import { pickPhoto, uploadFile } from "../lib/files";
 import { matchItems, money, num, r2, splitIncome, uid } from "../lib/fmt";
+import { localAnswer, mentionedProject } from "../lib/localAnswer";
 import { speechLang } from "../lib/i18n";
 import { buildStatement, Doc, docHTML, makeAndShare, pdfChecks } from "../lib/pdf";
 import { ai, supabase } from "../lib/supabase";
@@ -332,25 +333,32 @@ function StatementSheet({ init, onClose }: { init?: any; onClose: () => void }) 
 // Opened from the AI button on every page: it knows which page you are on, and checks entries for mistakes.
 function AskSheet({ init, onClose }: { init?: any; onClose: () => void }) {
   const { t, d, role, lang } = useData(); const c = useColors();
-  const [q, setQ] = useState(""), [a, setA] = useState(""), [busy, setBusy] = useState(false);
+  const [q, setQ] = useState(""), [a, setA] = useState(""), [busy, setBusy] = useState(false), [free, setFree] = useState(false);
   const page = init?.page || "";
   const W = (en: string, ar: string, ur: string) => (lang === "ar" ? ar : lang === "ur" ? ur : en);
   const quick = page ? [W("What do I do on this page, step by step?", "ماذا أفعل في هذه الصفحة خطوة بخطوة؟", "اس صفحے پر قدم بہ قدم کیا کروں؟"),
     W("Check my latest entries for mistakes and tell me what to correct", "راجع آخر إدخالاتي وقل لي ما الذي يجب تصحيحه", "میری تازہ اینٹریاں چیک کرو، کیا غلط ہے اور کیسے ٹھیک کروں"),
     W("What should I do next?", "ما الخطوة التالية؟", "اب اگلا کام کیا ہے؟")] : [];
   const ask = async (asked?: string) => {
-    const qq = (asked ?? q).trim(); if (!qq) return; if (asked) setQ(asked); setBusy(true); setA("");
-    // only what this phone already holds, which is only what this role may see
-    const data: any = { projects: (d.projects || []).map((p: any) => ({ id: p.id, name: p.name, company: p.company, fee_pct: p.fee_pct })) };
-    if (d.project_ledger) data.ledger = d.project_ledger;
+    const qq = (asked ?? q).trim(); if (!qq) return; if (asked) setQ(asked); setBusy(true); setA(""); setFree(false);
+    // 1) Token saver: simple money / m² questions are answered from the app's own numbers, with no AI call.
+    if (!page) {
+      const local = localAnswer(d, qq, lang);
+      if (local) { setA(local.text); setFree(true); setBusy(false); if (role !== "admin") Speech.speak(local.text, { language: speechLang(lang) }); return; }
+    }
+    // 2) Otherwise send the AI only what the question needs (one project's entries, not everything).
+    const pr = mentionedProject(d, qq), inP = (x: any) => !pr || x.project_id === pr.id || (x.split || []).some((s: any) => s.project_id === pr.id);
+    const about = (re: RegExp) => re.test(qq.toLowerCase()) || re.test(page.toLowerCase());
+    const data: any = { projects: (d.projects || []).filter((p: any) => !pr || p.id === pr.id).map((p: any) => ({ id: p.id, name: p.name, company: p.company, fee_pct: p.fee_pct })) };
+    if (d.project_ledger) data.ledger = (d.project_ledger as any[]).filter((l) => !pr || l.project_id === pr.id);
     if (d.sub_ledger) data.subcontractors = d.sub_ledger;
-    data.progress = active(d.progress).slice(0, 400).map((p: any) => ({ date: p.created_at?.slice(0, 10), project: pname(d, p.project_id), sub: p.sub_name, qty: p.qty, unit: p.unit, work: p.work }));
-    if (d.txns) data.entries = active(d.txns).slice(0, 300).map((x: any) => ({ date: x.created_at?.slice(0, 10), type: x.type, project: pname(d, x.project_id), amount: x.amount ?? x.total ?? x.gross, net: x.net, supplier: x.supplier, sub: x.sub_name, vat: x.vat_amount, vat_company: x.vat_company }));
-    if (d.vat_by_company) data.vat_by_company = d.vat_by_company;
-    if (d.quotes) data.quotes = d.quotes.map((x: any) => ({ title: x.title, status: x.status, lines: x.lines }));
-    if (d.documents) data.documents = d.documents.map((x: any) => ({ project: pname(d, x.project_id), no: x.doc_no, rev: x.rev, state: x.state, date: x.created_at?.slice(0, 10) }));
-    if (d.inquiries) data.queries = d.inquiries.map((x: any) => ({ ref: x.ref, subject: x.subject, status: x.status, deadline: x.deadline }));
-    if (d.supplier_requests) data.supplier_requests = d.supplier_requests.map((x: any) => ({ supplier: (d.suppliers || []).find((s: any) => s.id === x.supplier_id)?.name, status: x.status, sent: x.sent_at }));
+    data.progress = active(d.progress).filter(inP).slice(0, pr ? 150 : 80).map((p: any) => ({ date: p.created_at?.slice(0, 10), project: pname(d, p.project_id), sub: p.sub_name, qty: p.qty, unit: p.unit, work: p.work }));
+    if (d.txns) data.entries = active(d.txns).filter(inP).slice(0, pr ? 150 : 80).map((x: any) => ({ date: x.created_at?.slice(0, 10), type: x.type, project: pname(d, x.project_id), amount: x.amount ?? x.total ?? x.gross, net: x.net, supplier: x.supplier, sub: x.sub_name, vat: x.vat_amount, vat_company: x.vat_company }));
+    if (d.vat_by_company && about(/vat|ضريب|tax|ٹیکس/)) data.vat_by_company = d.vat_by_company;
+    if (d.quotes && about(/quot|عرض|کوٹیشن|price|rate|ریٹ|سعر/)) data.quotes = d.quotes.slice(0, 15).map((x: any) => ({ title: x.title, status: x.status, lines: (x.lines || []).slice(0, 30).map((l: any) => ({ desc: l.desc, qty: l.qty, unit: l.unit, rate: l.rate })) }));
+    if (d.documents && about(/doc|drawing|مخطط|ڈرائنگ|submittal/)) data.documents = d.documents.slice(0, 60).map((x: any) => ({ project: pname(d, x.project_id), no: x.doc_no, rev: x.rev, state: x.state, date: x.created_at?.slice(0, 10) }));
+    if (d.inquiries && about(/quer|rfq|enquir|inquir|استفسار|کوئری|client/)) data.queries = d.inquiries.slice(0, 40).map((x: any) => ({ ref: x.ref, subject: x.subject, status: x.status, deadline: x.deadline }));
+    if (d.supplier_requests && about(/supplier|مورد|سپلائر/)) data.supplier_requests = d.supplier_requests.slice(0, 40).map((x: any) => ({ supplier: (d.suppliers || []).find((s: any) => s.id === x.supplier_id)?.name, status: x.status, sent: x.sent_at }));
     const question = page ? `[The person is on the "${page}" page of the app. Explain how to use that page, point out entries that look wrong (missing project, wrong amount, VAT, duplicate, unknown subcontractor) and say exactly how to correct them.] ${qq}` : qq;
     try { const r = await ai("ask", { question, data }); setA(r.text); if (role !== "admin") Speech.speak(r.text, { language: speechLang(lang) }); }
     catch (e: any) { setA(/401|ANTHROPIC|api key/i.test(e.message) ? W("The AI is not switched on yet. Super-Admin adds the ANTHROPIC_API_KEY in Supabase → Edge Functions → Secrets.", "الذكاء الاصطناعي غير مفعّل بعد. يضيف المدير مفتاح ANTHROPIC_API_KEY في Supabase.", "AI ابھی چالو نہیں۔ Super-Admin کو Supabase → Edge Functions → Secrets میں ANTHROPIC_API_KEY ڈالنی ہے۔") : e.message); } finally { setBusy(false); }
@@ -360,7 +368,7 @@ function AskSheet({ init, onClose }: { init?: any; onClose: () => void }) {
       {quick.length ? <View style={{ gap: 8 }}>{quick.map((x) => <Btn key={x} title={x} onPress={() => ask(x)} disabled={busy} />)}</View> : null}
       <Voice value={q} onChange={setQ} placeholder={lang === "en" ? "How much has Uzair done on Malqa, and what do we owe him?" : ""} />
       <Btn big kind="primary" icon={<Icon name="spark" color={c.accentInk} />} title={lang === "ar" ? "اسأل" : lang === "ur" ? "پوچھیں" : "Ask"} onPress={() => ask()} busy={busy} disabled={!q.trim()} />
-      {a ? <Card style={{ backgroundColor: c.accentSoft, borderColor: c.accentSoft }}><T size={17}>{a}</T></Card> : null}
+      {a ? <Card style={{ backgroundColor: c.accentSoft, borderColor: c.accentSoft }}><T size={17}>{a}</T>{free ? <T size={12} muted>{lang === "ar" ? "من أرقامك مباشرة — بدون ذكاء اصطناعي" : lang === "ur" ? "سیدھا آپ کے حساب سے — AI استعمال نہیں ہوا" : "Straight from your numbers — no AI used"}</T> : null}</Card> : null}
     </Sheet>
   );
 }
