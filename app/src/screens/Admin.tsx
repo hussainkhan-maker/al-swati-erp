@@ -6,7 +6,7 @@ import { active, pname, useData } from "../lib/data";
 import { day, money, num, SAR, stamp } from "../lib/fmt";
 import { pricesFor } from "../lib/match";
 import { ai, supabase } from "../lib/supabase";
-import { Bars, Btn, Card, Checks, Empty, StatStrip, Field, H1, H2, Icon, Kpi, MonthCal, Photo, Pill, Rise, Row, Screen, Select, Sheet, T, Table, Tile, useColors, useWide } from "../ui";
+import { Bars, Btn, Card, Checks, DEEP, ELEV, Empty, Marble, StatStrip, Field, H1, H2, Icon, Kpi, MonthCal, Photo, Pill, Rise, Row, Screen, Select, Sheet, T, Table, Tile, useColors, useWide } from "../ui";
 
 const sum = (a: any[], k: string) => a.reduce((s, x) => s + (Number(x[k]) || 0), 0);
 const TYPE: Record<string, string> = { income: "Income", loan: "Loan", purchase: "Purchase", expense: "Expense", subpay: "Sub payment" };
@@ -107,7 +107,7 @@ export function Dashboard() {
   const hero = (
     <View style={{ flexDirection: wide ? "row" : "column", alignItems: wide ? "flex-end" : "flex-start", gap: 12, paddingBottom: 4 }}>
       <View style={{ flex: 1, gap: 2 }}>
-        <T size={13} muted>{new Date().toLocaleDateString("en", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}</T>
+        {!wide && <T size={13} muted>{new Date().toLocaleDateString("en", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}</T>}
         <H1>{greet}, {profile.name}</H1>
         <T size={14} muted>{L.length} projects running, {money(totalM2)} m² installed so far.</T>
       </View>
@@ -122,19 +122,21 @@ export function Dashboard() {
   const main: [string, string, string][] = [["net", "Cash in hand from clients", SAR(sum(L, "net"))], ["owes", "Clients still owe (ex VAT)", SAR((d.projects || []).reduce((s2: number, p: any) => s2 + clientAccount(d, p.id).owes, 0))],
     ["cost", "Costs (ex VAT)", SAR(sum(L, "cost"))], ["profit", "Profit estimate", SAR(sum(L, "profit"))]];
   const minor: [string, string, string][] = [["sub_work", "Subcontract work", SAR(sum(L, "sub_work"))], ["loan_balance", "Company loans open", SAR(sum(L, "loan_balance"))], ["vat", "Purchase VAT to recover", SAR(vat)]];
+  // The one dark element of the page: the money position on a verde-marble slab. Each figure opens its breakdown.
   const kpis = (
-    <View style={{ backgroundColor: c.surface, borderWidth: 1, borderColor: c.line, borderRadius: 10, overflow: "hidden" }}>
-      <View style={{ flexDirection: wide ? "row" : "column" }}>
+    <View style={[{ backgroundColor: DEEP.bg, borderRadius: 14, overflow: "hidden" }, ELEV]}>
+      <Marble />
+      <View style={{ flexDirection: wide ? "row" : "column", paddingVertical: wide ? 22 : 8, paddingHorizontal: wide ? 8 : 0 }}>
         {main.map(([k, l, v], i) => (
-          <Pressable key={k} onPress={() => setKd(k)} style={({ hovered }: any) => ({ flex: 1, paddingVertical: 16, paddingHorizontal: 18, gap: 4, borderColor: c.line, borderLeftWidth: wide && i ? 1 : 0, borderTopWidth: !wide && i ? 1 : 0, backgroundColor: hovered ? c.sunk : c.surface, cursor: "pointer" } as any)}>
-            <T size={13} muted>{l}</T>
-            <T size={wide ? 22 : 20} bold numberOfLines={1} style={{ letterSpacing: -0.3 }} color={k === "profit" && sum(L, "profit") < 0 ? c.bad : c.ink}>{String(v).replace(/ SAR$/, "")}<T size={13} muted> SAR</T></T>
+          <Pressable key={k} onPress={() => setKd(k)} style={({ hovered }: any) => ({ flex: 1, paddingVertical: wide ? 4 : 14, paddingHorizontal: 20, gap: 6, borderColor: "rgba(255,255,255,0.12)", borderLeftWidth: wide && i ? 1 : 0, borderTopWidth: !wide && i ? 1 : 0, opacity: hovered ? 0.85 : 1, cursor: "pointer" } as any)}>
+            <T size={13} color={DEEP.muted}>{l}</T>
+            <T size={wide ? 26 : 22} bold numberOfLines={1} style={{ letterSpacing: -0.5 }} color={k === "profit" && sum(L, "profit") < 0 ? "#F2A497" : "#FFFFFF"}>{String(v).replace(/ SAR$/, "")}<T size={13} color={DEEP.muted}> SAR</T></T>
           </Pressable>))}
       </View>
-      <View style={{ flexDirection: "row", flexWrap: "wrap", borderTopWidth: 1, borderColor: c.line, backgroundColor: c.sunk }}>
+      <View style={{ flexDirection: "row", flexWrap: "wrap", borderTopWidth: 1, borderColor: "rgba(255,255,255,0.10)", backgroundColor: "rgba(0,0,0,0.14)", paddingHorizontal: wide ? 8 : 0 }}>
         {minor.map(([k, l, v]) => (
-          <Pressable key={k} onPress={() => setKd(k)} style={({ hovered }: any) => ({ flexGrow: 1, flexDirection: "row", gap: 8, alignItems: "baseline", paddingVertical: 10, paddingHorizontal: 18, cursor: "pointer", opacity: hovered ? 0.75 : 1 } as any)}>
-            <T size={13} muted>{l}</T><T size={14} bold>{v}</T>
+          <Pressable key={k} onPress={() => setKd(k)} style={({ hovered }: any) => ({ flexGrow: 1, flexDirection: "row", gap: 8, alignItems: "baseline", paddingVertical: 12, paddingHorizontal: 20, cursor: "pointer", opacity: hovered ? 0.75 : 1 } as any)}>
+            <T size={13} color={DEEP.muted}>{l}</T><T size={14} bold color={DEEP.ink}>{v}</T>
           </Pressable>))}
       </View>
     </View>
