@@ -7,7 +7,7 @@ import { Check, entryChecks, purchaseChecks } from "../lib/checks";
 import { active, companiesOf, pname, useData } from "../lib/data";
 import { pickPhoto, uploadFile } from "../lib/files";
 import { matchItems, money, num, r2, splitIncome, uid } from "../lib/fmt";
-import { invoicesOf } from "../lib/invoices";
+import { invoicesOf, openOldestFirst, spread } from "../lib/invoices";
 import { localAnswer, mentionedProject } from "../lib/localAnswer";
 import { speechLang } from "../lib/i18n";
 import { buildStatement, Doc, docHTML, makeAndShare, pdfChecks } from "../lib/pdf";
@@ -85,7 +85,7 @@ function SpeakSheet({ init, onClose, open }: { init?: any; onClose: () => void; 
   };
 
   // Opened from a project's buttons: go straight to the right form with the project (and subcontractor) filled in.
-  useEffect(() => { if (init?.intent) { byHand(init.intent, init.project_id, init.sub_name); if (init.amount || init.relRet || init.invoice_no) setO((x: any) => ({ ...x, amount: init.amount ?? x.amount, relRet: !!init.relRet, invoice_no: init.invoice_no || "" })); } }, []);
+  useEffect(() => { if (init?.intent) { byHand(init.intent, init.project_id, init.sub_name); if (init.amount || init.relRet || init.invoice_no) setO((x: any) => ({ ...x, amount: init.amount ?? x.amount, relRet: !!init.relRet, ...(init.invoice_no ? { invoice_no: init.invoice_no } : {}) })); } }, []);
 
   // Lines left empty (a subcontractor who did not work that day) are skipped.
   const form = o ? { ...o, amount: num(o.amount), loan: num(o.loan || 0), rows: (o.rows || []).filter((r: any) => String(r.qty ?? "").trim() !== "").map((r: any) => ({ ...r, qty: num(r.qty) })) } : null;
@@ -93,6 +93,10 @@ function SpeakSheet({ init, onClose, open }: { init?: any; onClose: () => void; 
   const blocked = checks.some((x) => x.s === "bad");
   const P = form ? projects.find((p: any) => p.id === form.project_id) : null;
   const sp = form?.intent === "income" && P && form.amount > 0 ? splitIncome(form.amount, Number(P.fee_pct), form.loan) : null;
+  // Which invoice a payment goes to: the one picked, or else the oldest one still open (retention releases are left unlinked).
+  const openInv = form?.intent === "income" && form.project_id ? openOldestFirst(d, form.project_id) : [];
+  const invNo: string = form?.intent !== "income" ? "" : form.invoice_no ?? (form.relRet ? "" : openInv[0]?.invoice_no || "");
+  const parts = form?.intent === "income" && form.amount > 0 ? (invNo ? spread(openInv, invNo, form.amount) : [{ invoice_no: null, amount: form.amount }]) : [];
   const set = (k: string, v: any) => setO((x: any) => ({ ...x, [k]: v }));
   const setRow = (i: number, k: string, v: any) => setO((x: any) => ({ ...x, rows: x.rows.map((r: any, j: number) => (j === i ? { ...r, [k]: v } : r)) }));
 
@@ -117,7 +121,12 @@ function SpeakSheet({ init, onClose, open }: { init?: any; onClose: () => void; 
       let queued = false;
       const q = (r: any) => { if (r.queued) queued = true; };
       if (form.intent === "progress") for (const r of form.rows) q(await ins("progress", { project_id: form.project_id, sub_name: r.sub_name, qty: r.qty, unit: r.unit, work: r.work, work_date: when, heard: text, flags }));
-      else if (form.intent === "income") q(await ins("txns", { type: "income", project_id: form.project_id, gross: form.amount, loan: form.loan || 0, invoice_no: form.invoice_no || null, paid_on: when, method: how, description: [form.relRet ? "Retention release" : null, memo].filter(Boolean).join(" · ") || null, heard: text, flags }));
+      else if (form.intent === "income") {
+        // One payment that covers more than one invoice is saved as one line per invoice; the loan cut goes on the biggest line.
+        const big = parts.reduce((b: number, x: any, i: number) => (x.amount > parts[b].amount ? i : b), 0);
+        for (const [i, x] of parts.entries()) q(await ins("txns", { type: "income", project_id: form.project_id, gross: x.amount, loan: i === big ? form.loan || 0 : 0, invoice_no: x.invoice_no, paid_on: when, method: how,
+          description: [form.relRet ? "Retention release" : null, parts.length > 1 ? `Part of one payment of ${money(form.amount)}` : null, memo].filter(Boolean).join(" · ") || null, heard: text, flags: i ? [] : flags }));
+      }
       else if (form.intent === "loan") q(await ins("txns", { type: "loan", project_id: form.project_id, amount: form.amount, paid_on: when, method: how, description: memo, heard: text, flags }));
       else if (form.intent === "subpay") q(await ins("txns", { type: "subpay", project_id: form.project_id, amount: form.amount, sub_name: form.sub_name, paid_on: when, method: how, description: [form.relRet ? "Retention release" : null, memo].filter(Boolean).join(" · ") || null, heard: text, flags }));
       else if (form.intent === "expense") q(await ins("txns", { type: "expense", project_id: form.project_id, amount: form.amount, description: [form.description, memo].filter(Boolean).join(" · "), paid_on: when, method: how, heard: text, flags }));
@@ -152,7 +161,7 @@ function SpeakSheet({ init, onClose, open }: { init?: any; onClose: () => void; 
         {o.intent === "expense" && <Select label="Type of expense *" value="small" options={[{ value: "small", label: "Small expense (no photo): transport, food, tools…" }, { value: "material", label: "Material purchase (invoice photo; AI reads items, VAT, invoice no.)" }]}
           onChange={(v) => { if (v === "material") { const pid = o.project_id; onClose(); setTimeout(() => open("purchase", { voice: { project_id: pid } }), 350); } }} />}
         {(parsed?.questions || []).filter(Boolean).map((qq: string, i: number) => <Card key={i} style={{ backgroundColor: c.warnSoft, borderColor: c.warnSoft }}><T color={c.warn}>{t("question")}: {qq}</T></Card>)}
-        <Select label={t("project") + " *"} value={o.project_id} options={projOpts(projects)} onChange={(v) => set("project_id", v)} />
+        <Select label={t("project") + " *"} value={o.project_id} options={projOpts(projects)} onChange={(v) => setO((x: any) => ({ ...x, project_id: v, invoice_no: undefined }))} />
         {o.intent !== "rate" && <Row wrap>
           <Field label={o.intent === "progress" ? "Date of work (YYYY-MM-DD)" : "Date paid (YYYY-MM-DD)"} value={o.date ?? today()} onChange={(v) => set("date", v)} style={{ maxWidth: 220 }} />
           {o.intent !== "progress" && <Select label="Paid by" value={o.method || "Cash"} options={METHODS.map((m) => ({ value: m, label: m }))} onChange={(v) => set("method", v)} />}
@@ -169,9 +178,12 @@ function SpeakSheet({ init, onClose, open }: { init?: any; onClose: () => void; 
           {o.intent === "loan" && <T muted size={13}>Money {P?.company || "the company"} gave us to run the work. It is paid back when they cut it from a later payment (enter that cut with the payment).</T>}
           <Field required label={o.intent === "income" ? "Full payment, with VAT, before any cut (SAR)" : o.intent === "loan" ? `Loan amount ${P?.company ? P.company + " gave" : "taken"} (SAR)` : t("amount")} value={o.amount} numeric onChange={(v) => set("amount", v)} />
           {o.intent === "income" && (() => { // Which of the company's invoices this payment is for (part payments add up per invoice).
-            const open = invoicesOf(d, o.project_id).filter((v: any) => v.left > 0.5 || v.invoice_no === o.invoice_no);
-            return open.length ? <Select label="For which invoice?" value={o.invoice_no || ""} onChange={(v) => set("invoice_no", v)}
-              options={[{ value: "", label: "No invoice / not sure" }, ...open.map((v: any) => ({ value: v.invoice_no, label: `Invoice ${v.invoice_no}: ${money(v.left)} still to come` }))]} /> : null; })()}
+            const shown = [...openInv, ...invoicesOf(d, o.project_id).filter((v: any) => v.left <= 0.5 && v.invoice_no === o.invoice_no)];
+            return shown.length ? <>
+              <Select label="For which invoice? (the oldest unpaid one is picked for you)" value={invNo} onChange={(v) => set("invoice_no", v)}
+                options={[...shown.map((v: any, i: number) => ({ value: v.invoice_no, label: `Invoice ${v.invoice_no}: ${money(v.left)} still to come, waiting ${v.age} days${i === 0 && v.left > 0.5 ? " (oldest)" : ""}` })), { value: "", label: "Not for an invoice" }]} />
+              {parts.length > 1 ? <T muted size={13}>{"This payment covers more than one invoice, so it is shared out: " + parts.map((x: any) => `${money(x.amount)} ${x.invoice_no ? "to invoice " + x.invoice_no : "not linked to an invoice"}`).join(", ") + "."}</T> : null}
+            </> : null; })()}
           {o.intent === "income" && (() => { // The company cuts its loan back from this payment.
             const open = Number((d.project_ledger || []).find((l: any) => l.project_id === o.project_id)?.loan_balance) || 0;
             return <>
