@@ -28,11 +28,16 @@ function Main() {
     const { data, error } = await supabase.from("profiles").select("*").eq("id", uid).single();
     if (error || !data) setProblem("This account has no role yet. Ask Super-Admin to add you.");
     else if (!data.active) setProblem("This account is switched off. Ask Super-Admin.");
-    else { setProblem(""); setProfile(data as Profile); }
+    else { setProblem(""); setProfile(data as Profile); if ((data as any).must_change) setMustSet(true); }
     setReady(true);
   };
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => { setMustSet(!!data.session?.user.user_metadata?.temp_password); load(data.session?.user.id); });
+    supabase.auth.getSession().then(({ data }) => {
+      // Sign in again after 7 days (the database and the AI refuse older sign-ins anyway).
+      const at = Date.parse(data.session?.user.last_sign_in_at || "");
+      if (data.session && at && at < Date.now() - 7 * 864e5) { setProblem("For safety, please sign in again (every 7 days)."); supabase.auth.signOut(); return; }
+      setMustSet(!!data.session?.user.user_metadata?.temp_password); load(data.session?.user.id);
+    });
     const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => { setMustSet(!!s?.user.user_metadata?.temp_password); load(s?.user.id); });
     return () => sub.subscription.unsubscribe();
   }, []);
