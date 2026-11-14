@@ -21,8 +21,8 @@ jobs:
       run:
         working-directory: app
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with: { node-version: 20 }
       - name: App icon
         run: pip install --quiet pillow && python3 scripts/make_icon.py
@@ -31,15 +31,15 @@ jobs:
       - name: Build the web version
         run: npx expo export --platform web --output-dir dist && cp dist/index.html dist/404.html && mkdir -p dist/blog && cp dist/index.html dist/blog/index.html
       - name: Keep the built site as a download
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with: { name: AL-Swati-web, path: app/dist }
       # Publishing needs GitHub Pages: free for a public repository, or GitHub Pro for a private one.
-      - uses: actions/configure-pages@v5
+      - uses: actions/configure-pages@v6
         continue-on-error: true
         id: pages
         with: { enablement: true }
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         if: steps.pages.outcome == 'success'
         with: { path: app/dist }
-      - uses: actions/deploy-pages@v4
+      - uses: actions/deploy-pages@v5
         if: steps.pages.outcome == 'success'
