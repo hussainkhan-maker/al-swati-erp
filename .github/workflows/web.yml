@@ -29,7 +29,7 @@ jobs:
       - name: Install packages
         run: npm install --no-audit --no-fund
       - name: Build the web version
-        run: npx expo export --platform web --output-dir dist && cp dist/index.html dist/404.html
+        run: npx expo export --platform web --output-dir dist && cp dist/index.html dist/404.html && mkdir -p dist/blog && cp dist/index.html dist/blog/index.html
       - name: Keep the built site as a download
         uses: actions/upload-artifact@v4
         with: { name: AL-Swati-web, path: app/dist }
