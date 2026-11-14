@@ -60,7 +60,13 @@ export async function projectFromQuote(q: any, d: any, reload: (k?: string[]) =>
  *  (the server also runs it by itself when a query arrives, and every 30 minutes). */
 export function useAutopilot(_hint?: (d: any, desc: string) => any) {
   const { d, role, reload } = useData();
-  const busy = useRef(false), last = useRef("");
+  const busy = useRef(false), last = useRef(""), mailed = useRef(false);
+  // When Super-Admin opens the app, look at the linked Outlook once straight away (the server also does it every 30 minutes).
+  useEffect(() => {
+    if (role !== "admin" || mailed.current) return;
+    mailed.current = true;
+    supabase.functions.invoke("inbound-query", { body: { action: "outlook_pull" } }).then((r) => (r.data?.taken ? reload(["inquiries"]) : null)).catch(() => {});
+  }, [role]);
   const key = ((d.inquiries || []) as any[]).filter((q) => (q.status === "New" && !q.reading) || (q.reading && !q.quote_id && ["New", "Under Review"].includes(q.status))).map((q) => q.id).join(",");
   useEffect(() => {
     if (role !== "admin" || !key || busy.current || last.current === key) return;
