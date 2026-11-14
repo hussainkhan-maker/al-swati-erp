@@ -108,8 +108,8 @@ export function Dashboard({ go }: { go?: (k: string) => void } = {}) {
 
   // Page header: date, title and the three things done most often. No banner: the numbers below are the point.
   const hero = (
-    <View style={{ flexDirection: wide ? "row" : "column", alignItems: wide ? "flex-end" : "flex-start", gap: 12, paddingBottom: 4 }}>
-      <View style={{ flex: 1, gap: 2 }}>
+    <View style={{ flexDirection: wide ? "row" : "column", flexWrap: "wrap", alignItems: wide ? "flex-end" : "flex-start", gap: 12, paddingBottom: 4 }}>
+      <View style={{ flex: 1, minWidth: 240, gap: 2 }}>
         {!wide && <T size={13} muted>{new Date().toLocaleDateString("en", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}</T>}
         <H1>{greet}, {profile.name}</H1>
         <T size={14} muted>{L.length} projects running, {money(totalM2)} m² installed so far.</T>
