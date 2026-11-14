@@ -2,6 +2,7 @@
 // Tasks: parse (spoken/typed note → one action), receipt (photo → lines), rfq (BOQ read twice), ask (owner's questions), estimate (market price).
 import { createClient } from "npm:@supabase/supabase-js@2.45.4";
 import * as XLSX from "npm:xlsx@0.18.5";
+import { extractText, getDocumentProxy } from "npm:unpdf@0.12.1";
 
 const URL_ = Deno.env.get("SUPABASE_URL")!;
 const ANON = Deno.env.get("SUPABASE_ANON_KEY")!;
@@ -9,6 +10,8 @@ const SERVICE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const KEY = Deno.env.get("ANTHROPIC_API_KEY")!;
 const MODEL = Deno.env.get("AI_MODEL") ?? "claude-sonnet-5-5";
 const MODEL_STRONG = Deno.env.get("AI_MODEL_STRONG") ?? "claude-opus-5-5";
+// Token saver: short writing jobs (emails, follow-ups, rules, topic lists, the morning summary) use the small, cheap model.
+const MODEL_FAST = Deno.env.get("AI_MODEL_FAST") ?? "claude-haiku-5-5";
 const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, content-type, apikey, x-client-info" };
 const LANG: Record<string, string> = { ar: "Arabic", ur: "Urdu", en: "English" };
 
@@ -22,6 +25,8 @@ Ground rules for every task:
 - Normal values: facade cladding stone 20-30 mm (30-40 mm heavy panels), floor marble/granite 20 mm, porcelain 9-20 mm; common tile sizes 60x60, 60x120, 80x80, 120x120 cm, stone panels 30x60, 40x80, 60x90 cm; cutting waste 10-15% for normal work, 15-20% for book-match, many cuts or curves, and 15-18% at bid stage when no engineer has checked the drawings.
 - Dry-fix cladding needs stainless steel anchors/brackets (count per panel, typically 4 per panel); wet-fix needs adhesive/mortar. Flag missing skirting, risers, steps, sills, coping, cut edges, sealant, mock-up and protection.
 - Plain, professional language. Roman Urdu only where the task asks for it.`;
+let TASK = ""; // which task is running, for the usage log
+const LOG = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 let RULES = ""; // filled per request from preferences "rules" (the owner's feedback, "Teach your AI")
 async function claude(prompt: string, opts: { images?: Img[]; model?: string; max?: number; webSearch?: number } = {}) {
   const content: unknown[] = (opts.images ?? []).map((i) => i.media_type === "application/pdf"
@@ -38,6 +43,8 @@ async function claude(prompt: string, opts: { images?: Img[]; model?: string; ma
   });
   if (!r.ok) throw new Error(`AI ${r.status}: ${(await r.text()).slice(0, 300)}`);
   const j = await r.json();
+  // Usage log: every call's tokens are counted per task, so the owner sees where the AI money goes.
+  try { const u = j.usage || {}; await LOG.from("ai_usage").insert({ task: TASK, model: opts.model ?? MODEL, input_tokens: u.input_tokens || 0, output_tokens: u.output_tokens || 0, cache_read: u.cache_read_input_tokens || 0, cache_write: u.cache_creation_input_tokens || 0, files: (opts.images ?? []).length }); } catch { /* never block the answer */ }
   return (j.content ?? []).filter((c: { type: string }) => c.type === "text").map((c: { text: string }) => c.text).join("");
 }
 /** Public share links (Google Drive, Dropbox, OneDrive, WeTransfer-style direct links) → direct download URLs. */
@@ -66,6 +73,19 @@ async function fetchShared(url: string, label: string): Promise<{ name: string; 
   } catch (e) { return { note: `${label}: could not download (${(e as Error).message})` }; }
 }
 
+/** Text of a PDF when it has enough real text per page (≥ 400 characters), else null (drawing or scan). */
+async function pdfText(admin: ReturnType<typeof createClient>, bucket: string, path: string): Promise<string | null> {
+  try {
+    const { data } = await admin.storage.from(bucket).download(path);
+    if (!data) return null;
+    const pdf = await getDocumentProxy(new Uint8Array(await data.arrayBuffer()));
+    const { totalPages, text } = await extractText(pdf, { mergePages: false });
+    const pages = (Array.isArray(text) ? text : [text]).map((x) => String(x || "").replace(/[ \t]+/g, " ").trim());
+    const chars = pages.reduce((n, x) => n + x.length, 0);
+    if (!totalPages || chars / totalPages < 400) return null;
+    return pages.map((x, i) => `--- page ${i + 1} ---\n${x}`).join("\n").slice(0, 60000);
+  } catch { return null; }
+}
 function asJson(t: string) {
   const fence = t.match(/```(?:json)?\s*([\s\S]*?)```/);
   const s = fence ? fence[1] : t.slice(Math.min(...["{", "["].map((c) => (t.indexOf(c) < 0 ? Infinity : t.indexOf(c)))));
@@ -92,6 +112,7 @@ Deno.serve(async (req) => {
     if (!prof?.active) return json({ error: "Account not active" }, 403);
     const role = prof.role as string;
     const { task, ...p } = await req.json();
+    TASK = String(task || "");
     try { const { data: rl } = await admin.from("preferences").select("value").eq("key", "rules").maybeSingle(); RULES = ((rl?.value as any)?.list || []).slice(-30).map((r: any) => `- ${r.action_for_agents || r.observed_rule}`).join("\n"); } catch { RULES = ""; }
 
     if (task === "parse") {
@@ -133,7 +154,12 @@ Digits 0-9. Read EVERY line: the same stone or tile often appears 2-4 times with
         const { data: q } = await admin.from("inquiries").select("body, attachments").eq("id", p.inquiry_id).single();
         p.text = [p.text, q?.body].filter(Boolean).join("\n\n");
         for (const a of (q?.attachments || []).filter((a: any) => /^image\/|pdf$/i.test(a.type || "")).slice(0, 5)) {
-          try { const f = await imageFrom(admin, "inbox", a.path); if (/pdf/i.test(a.type)) f.media_type = "application/pdf"; imgs.push(f); } catch { /* skip unreadable file */ }
+          try {
+            // Token saver: a PDF that has real text (BOQ, specification, letter) is sent as text — far fewer tokens.
+            // Drawings and scans (little or no text) are still sent as the file, because they must be seen.
+            if (/pdf/i.test(a.type)) { const t = await pdfText(admin, "inbox", a.path); if (t) { p.text = [p.text, `=== ${a.name} (text of the PDF) ===\n${t}`].filter(Boolean).join("\n\n"); continue; } }
+            const f = await imageFrom(admin, "inbox", a.path); if (/pdf/i.test(a.type)) f.media_type = "application/pdf"; imgs.push(f);
+          } catch { /* skip unreadable file */ }
         }
       }
       if (p.path) imgs.push(await imageFrom(admin, "documents", p.path));
@@ -201,7 +227,7 @@ Return JSON only: {"summary_en":"<5 short lines>","summary_ur":"<5 short lines i
       // Memory agent: turns the owner's feedback into a rule every agent follows; saved in preferences ("rules").
       if (role !== "admin") return json({ error: "Only Super-Admin" }, 403);
       const rule = asJson(await claude(`The owner of a stone and flooring contractor in Saudi Arabia gave this feedback to his AI assistants: "${String(p.text).slice(0, 1000)}".
-Turn it into one rule. Return JSON only: {"category":"supplier|price|material|tone|process|other","observed_rule":"<the rule, one line>","action_for_agents":"<what the agents must do differently, one line>"}`, { max: 400 }));
+Turn it into one rule. Return JSON only: {"category":"supplier|price|material|tone|process|other","observed_rule":"<the rule, one line>","action_for_agents":"<what the agents must do differently, one line>"}`, { max: 400, model: MODEL_FAST }));
       const { data: cur } = await admin.from("preferences").select("value").eq("key", "rules").maybeSingle();
       const list = [...((cur?.value as any)?.list || []), { ...rule, at: new Date().toISOString() }].slice(-60);
       await admin.from("preferences").upsert({ key: "rules", value: { list }, updated_at: new Date().toISOString() });
@@ -309,7 +335,7 @@ Alerts: <data errors or anomalies caught, or "Koi nahi">
 Procurement: <supplier/price/RFI item to act on, one sentence>
 Paisa: <money impact in SAR from the items>
 Agla kaam: <the one button or approval the owner should do next>
-Use only these items, never invent: ${JSON.stringify(items.slice(0, 80))}`, { max: 600 })).trim() || summary;
+Use only these items, never invent: ${JSON.stringify(items.slice(0, 80))}`, { max: 600, model: MODEL_FAST })).trim() || summary;
       } catch { /* keep the plain summary */ }
       await admin.from("agent_reports").insert({ for_role: "admin", summary, items });
       return json({ ok: true, items: items.length });
@@ -322,13 +348,13 @@ Use only these items, never invent: ${JSON.stringify(items.slice(0, 80))}`, { ma
       return json(asJson(await claude(`Write a formal Request for Information (RFI) email in ${lang} from "${p.signature || "Al-Swati Contracting"}" (stone, marble, granite and porcelain cladding and flooring contractor, Saudi Arabia) to ${p.to_name || "the consultant"} about the project / tender "${p.project || ""}". Reference: ${p.ref || ""}.
 Questions (keep every one, number them, keep BOQ item / drawing references exactly as given, do not add new questions, do not answer them): ${JSON.stringify(p.questions).slice(0, 12000)}
 Ask for a reply by ${p.due || "the date stated"} because the price depends on it. Polite, short, professional Saudi business tone. No invented facts.
-Return JSON only: {"subject":"<${p.ref || "RFI"} - short subject>","body":"<full email text>"}`, { max: 2500 })));
+Return JSON only: {"subject":"<${p.ref || "RFI"} - short subject>","body":"<full email text>"}`, { max: 2500, model: MODEL_FAST })));
     }
     if (task === "rfi_followup") {
       if (role !== "admin") return json({ error: "Only Super-Admin" }, 403);
       const lang = p.lang === "ar" ? "Arabic" : "English";
       return json(asJson(await claude(`Write a short, polite follow-up email in ${lang} from "${p.signature || "Al-Swati Contracting"}" to ${p.to_name || "the consultant"} about RFI ${p.ref} "${p.subject}" sent on ${p.sent_on}, which has no answer yet. This is follow-up number ${p.n || 1}. Remind them the quotation is waiting for these answers; list the open questions briefly: ${JSON.stringify(p.questions).slice(0, 6000)}. Not pushy. No invented facts.
-Return JSON only: {"subject":"","body":""}`, { max: 1200 })));
+Return JSON only: {"subject":"","body":""}`, { max: 1200, model: MODEL_FAST })));
     }
     if (task === "rfi_apply") {
       // Reads the consultant's answer and proposes exact changes to the quotation lines. Nothing is changed until the owner applies it.
@@ -348,7 +374,7 @@ Return JSON only: {"answers":[{"q":"<question>","answer":"<short>","clear":true|
       return json(asJson(await claude(`Company profile (use only this about the company): ${JSON.stringify(p.profile || {})}
 Already written posts: ${JSON.stringify(p.done || []).slice(0, 4000)}
 Suggest 14 blog topics that people in Saudi Arabia actually search for when they need a stone, marble, granite or porcelain cladding / flooring contractor (owners, developers, project managers, consultants) in ${(p.cities || ["Riyadh", "Dammam", "Al-Hassa"]).join(", ")}. Mix English and Arabic topics. Practical and useful (choosing stone for Riyadh heat, dry-fix vs wet-fix cladding, maintenance, cost factors, approvals and samples), never clickbait, not already written.
-Return JSON only: {"topics":[{"title":"","lang":"en|ar","keyword":"<main search phrase>","why":"<one line>"}]}`, { max: 2500, webSearch: 3 })));
+Return JSON only: {"topics":[{"title":"","lang":"en|ar","keyword":"<main search phrase>","why":"<one line>"}]}`, { max: 2500, webSearch: 3, model: MODEL_FAST })));
     }
     if (task === "blog") {
       if (role !== "admin") return json({ error: "Only Super-Admin" }, 403);
@@ -369,7 +395,7 @@ How we know them: ${c.source || "not stated"}. Notes: ${c.notes || "-"}. ${p.kin
 Company profile (the ONLY facts you may state about the company; never invent projects, clients, numbers or claims): ${JSON.stringify(p.profile || {})}
 Purpose: introduce our stone / marble / granite / porcelain cladding and flooring work and ask if they have current or upcoming projects where we could quote (BOQ / drawings welcome). 90-140 words, specific to their role and city, plain and respectful, one clear question, no hype, no pressure, no fake urgency. ${p.kind === "follow-up" ? "One short gentle reminder only." : ""}
 Last line: "If you prefer not to receive emails from us, just reply 'no thanks' and we will not write again." (in ${lang}).
-Return JSON only: {"subject":"<short, specific, not salesy>","body":""}`, { max: 1200 })));
+Return JSON only: {"subject":"<short, specific, not salesy>","body":""}`, { max: 1200, model: MODEL_FAST })));
     }
 
     // ───────── Files shared as links in a query (Google Drive, Google Sheets, Dropbox) → downloaded and attached. ─────────
@@ -413,7 +439,7 @@ Purpose: ${KINDS[p.kind] || KINDS.custom}
 Details from the owner (use exactly, never change numbers): ${String(p.details || "-").slice(0, 4000)}
 Their email (for context only): """${String(q.body || "").slice(0, 3000)}"""
 Short, polite, professional Saudi business tone. No invented facts, prices, dates or promises.
-Return JSON only: {"subject":"<Re: ... >","body":"<email text>"}`, { max: 1500 })));
+Return JSON only: {"subject":"<Re: ... >","body":"<email text>"}`, { max: 1500, model: MODEL_FAST })));
     }
 
     // ───────── Technical proposal: company profile + quotation + what was read from the specs → proposal sections. ─────────
