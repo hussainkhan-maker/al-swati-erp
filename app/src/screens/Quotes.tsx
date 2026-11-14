@@ -12,6 +12,7 @@ import { priceSummary } from "../lib/match";
 import { RequestPrices } from "./Suppliers";
 import { RfiEditor } from "./RFIs";
 import { ProposalSheet } from "./Proposal";
+import { projectFromQuote } from "../lib/pipeline";
 
 const AR: Record<string, string> = { Draft: "مسودة", "Abu Review": "مراجعة أبو", "Sent to Client": "أُرسل للعميل", Approved: "معتمد", Lost: "خسرنا" };
 export const pref = (d: any, key: string, dflt: any) => ({ ...dflt, ...((d.preferences || []).find((p: any) => p.key === key)?.value || {}) });
@@ -100,10 +101,8 @@ export default function Quotes() {
     setRates(next);
   };
   const approve = async (q: any) => {
-    const { data, error } = await supabase.from("projects").insert({ name: q.title, client: q.client, company: "", fee_pct: 0, quote_id: q.id, scope: q.lines }).select().single();
-    if (error) { setMsg({ ...msg, [q.id]: error.message }); return; }
-    await setStatus(q, "Approved", { project_id: data.id });
-    setMsg({ ...msg, [q.id]: "Project opened. Set its company and service fee under More → Projects." });
+    try { await projectFromQuote(q, d, reload); setMsg({ ...msg, [q.id]: "Project opened with the scope and client rate from this quotation. Add its company, service fee and retention under Projects." }); }
+    catch (e: any) { setMsg({ ...msg, [q.id]: e.message }); }
   };
 
   return (
