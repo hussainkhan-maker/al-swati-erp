@@ -293,6 +293,12 @@ export function Projects() {
     const paid = sum(active(d.txns).filter((t: any) => t.type === "subpay" && t.project_id === pid && lc(t.sub_name) === lc(x.name)), "amount");
     return [x.name, money(qty), money(earned), money(paid), money(earned - paid)];
   });
+  const subNums = (pid: string) => subsOf(pid).map((x: any) => {
+    const pr = active(d.progress).filter((r: any) => r.project_id === pid && lc(r.sub_name) === lc(x.name));
+    const qty = sum(pr, "qty"), earned = pr.reduce((t: number, r: any) => t + (Number(r.qty) || 0) * (Number(r.rate) || 0), 0);
+    const paid = sum(active(d.txns).filter((t: any) => t.type === "subpay" && t.project_id === pid && lc(t.sub_name) === lc(x.name)), "amount");
+    return { x, qty, earned, paid, due: earned - paid };
+  });
   const saveLinks = async (pid: string, want: string[]) => {
     for (const x of d.subcontractors || []) {
       const has = (x.projects || []).includes(pid), on = want.includes(x.id);
@@ -382,10 +388,17 @@ export function Projects() {
         {!wide && <Btn kind="ghost" title="‹ All projects" onPress={() => setSel(null)} />}
         <View style={{ gap: 10 }}>
           <Row style={{ alignItems: "flex-start" }}><View style={{ flex: 1, gap: 2 }}><H1>{x.name}</H1>
-            <T size={14} muted>{[x.client, x.company, `service fee ${x.fee_pct}%`, a.r ? `retention ${money(a.r)}%` : null, a.rate ? `client rate ${money(a.rate)} SAR/m²` : null].filter(Boolean).join(", ")}</T>
-            {(pc.pm_name || pc.cm_name) ? <T size={13} muted>{[pc.pm_name && `Project manager ${pc.pm_name} ${pc.pm_phone || ""}`, pc.cm_name && `Construction manager ${pc.cm_name} ${pc.cm_phone || ""}`].filter(Boolean).join("; ")}</T> : null}</View>
+            <T size={14} muted>{x.client ? `Client: ${x.client}` : "No client set"}</T></View>
             <Btn title="Edit project" onPress={() => openProject(x)} />
           </Row>
+          {/* Project facts, each with its own label (instead of one long sentence). */}
+          <View style={[{ flexDirection: "row", flexWrap: "wrap", backgroundColor: c.surface, borderWidth: 1, borderColor: c.line, borderRadius: 12, paddingVertical: 4 }, ELEV]}>
+            {([["Company", x.company || "—"], ["Service fee", `${x.fee_pct}%`], ["Retention", a.r ? `${money(a.r)}%` : "Not set"], ["Client rate", a.rate ? `${money(a.rate)} SAR / m²` : "Not set"],
+              ...(pc.pm_name ? [["Project manager", `${pc.pm_name}${pc.pm_phone ? "\n" + pc.pm_phone : ""}`]] : []), ...(pc.cm_name ? [["Construction manager", `${pc.cm_name}${pc.cm_phone ? "\n" + pc.cm_phone : ""}`]] : [])] as [string, string][]).map(([k, v]) => (
+              <View key={k} style={{ flexGrow: 1, flexBasis: wide ? 150 : 130, paddingVertical: 10, paddingHorizontal: 16, gap: 2 }}>
+                <T size={12} muted>{k}</T><T size={14} bold color={v === "Not set" ? c.muted : c.ink}>{v}</T>
+              </View>))}
+          </View>
           <Row wrap>
             <Btn kind="primary" icon={<Icon name="cash" size={16} color={c.accentInk} />} title="Payment received" onPress={() => flows("speak", { intent: "income", project_id: x.id })} />
             <Btn icon={<Icon name="people" size={16} />} title="Pay subcontractor" onPress={() => flows("speak", { intent: "subpay", project_id: x.id, sub_name: subs.length === 1 ? subs[0].name : "" })} />
@@ -395,32 +408,45 @@ export function Projects() {
           </Row>
         </View>
 
-        <StatStrip items={[{ label: "Installed", value: money(a.m2) + " m²" }, { label: "Client still owes", value: SAR(a.owes) }, { label: "Received from client", value: SAR(a.received) }, { label: "Retention kept by client", value: SAR(a.retHeld) }]} />
+        <StatStrip items={[{ label: "Installed", value: money(a.m2) + " m²" }, { label: "Client still owes", value: SAR(a.owes) }, { label: "Received from client", value: SAR(a.received) },
+          { label: "Subcontractors still to be paid", value: SAR(subNums(x.id).reduce((t, r) => t + r.due, 0)), tone: subNums(x.id).some((r) => r.due > 0.5) ? "bad" : undefined }, { label: "Retention kept by client", value: SAR(a.retHeld) }]} />
         {!a.rate && <T muted size={13}>Add the client rate per m² (Edit) to see the work value and what is still to come.</T>}
         <VarianceCard x={x} done={a.m2} />
 
-        <Rise i={5}><Card>
-          <Row><View style={{ flex: 1 }}><H2>Subcontractors on this project</H2></View><Btn icon={<Icon name="plus" />} title="Add" onPress={() => setS({ name: "", rate: "", unit: "sqm", projects: [x.id] })} /></Row>
-          {subs.length ? subs.map((q: any) => { const r = subRows(x.id).find((rr: any) => rr[0] === q.name) || []; const sc = contacts.sub?.[q.id] || {}; return (
-            <Pressable key={q.id} onPress={() => setS({ ...q, ...sc })} style={({ hovered }: any) => ({ flexDirection: "row", alignItems: "center", gap: 12, padding: 10, borderRadius: 14, backgroundColor: hovered ? c.accentSoft : "transparent" })}>
-              <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: c.accentSoft, alignItems: "center", justifyContent: "center" }}><T bold color={c.accent}>{String(q.name).slice(0, 1).toUpperCase()}</T></View>
-              <View style={{ flex: 1 }}><T bold>{q.name}</T><T muted size={12}>{[`${money(q.rate)} / ${q.unit}`, sc.phone, sc.iqama && "Iqama " + sc.iqama].filter(Boolean).join(" · ")}</T></View>
-              <View style={{ alignItems: "flex-end" }}><T bold>{r[1] || 0} m²</T><T muted size={12}>earned {r[2] || 0} · paid {r[3] || 0}</T><T size={12} color={c.accent}>balance {r[4] || 0}</T></View>
-            </Pressable>); }) : <T muted>None yet. Tap Add.</T>}
+        <Rise i={5}><Card style={{ padding: 0, gap: 0, overflow: "hidden" }}>
+          <View style={{ padding: 18, paddingBottom: 12 }}><SectionHead title="Subcontractors" sub="What each one has done, earned, been paid, and what is still to pay" right={<Btn icon={<Icon name="plus" size={16} />} title="Add" onPress={() => setS({ name: "", rate: "", unit: "sqm", projects: [x.id] })} />} /></View>
+          {subs.length ? (() => { const R = subNums(x.id), tot = R.reduce((t, r) => ({ qty: t.qty + r.qty, earned: t.earned + r.earned, paid: t.paid + r.paid, due: t.due + r.due }), { qty: 0, earned: 0, paid: 0, due: 0 });
+            const cell = (v: any, o: any = {}) => <View style={{ flex: o.f || 1, alignItems: o.left ? "flex-start" : "flex-end", justifyContent: "center" }}>{typeof v === "string" ? <T size={o.h ? 12 : 14} bold={o.b} muted={o.h} color={o.col}>{v}</T> : v}</View>;
+            return <View>
+              <View style={{ flexDirection: "row", gap: 12, paddingVertical: 8, paddingHorizontal: 18, backgroundColor: c.sunk, borderTopWidth: 1, borderBottomWidth: 1, borderColor: c.line }}>
+                {cell("Name", { f: 1.6, left: true, h: true })}{wide && cell("Rate", { h: true })}{cell("m² done", { h: true })}{wide && cell("Earned", { h: true })}{wide && cell("Paid", { h: true })}{cell("Still to pay", { h: true })}{cell("", { f: 0.7 })}
+              </View>
+              {R.map((r, i) => { const sc = contacts.sub?.[r.x.id] || {}; return (
+                <Pressable key={r.x.id} onPress={() => setS({ ...r.x, ...sc })} style={({ hovered }: any) => ({ flexDirection: "row", gap: 12, paddingVertical: 11, paddingHorizontal: 18, borderTopWidth: i ? 1 : 0, borderColor: c.line, backgroundColor: hovered ? c.sunk : c.surface, cursor: "pointer" } as any)}>
+                  {cell(<View><T bold size={14}>{r.x.name}</T>{sc.phone ? <T size={12} muted>{sc.phone}</T> : null}</View>, { f: 1.6, left: true })}
+                  {wide && cell(`${money(r.x.rate)} / ${r.x.unit === "sqm" ? "m²" : r.x.unit}`, { col: c.muted })}{cell(money(r.qty))}{wide && cell(money(r.earned))}{wide && cell(money(r.paid))}
+                  {cell(money(r.due), { b: true, col: r.due > 0.5 ? c.warn : c.good })}
+                  {cell(r.due > 0.5 ? <Btn kind="ghost" title="Pay" onPress={() => flows("speak", { intent: "subpay", project_id: x.id, sub_name: r.x.name })} /> : <T size={12} muted>Settled</T>, { f: 0.7 })}
+                </Pressable>); })}
+              <View style={{ flexDirection: "row", gap: 12, paddingVertical: 11, paddingHorizontal: 18, borderTopWidth: 1, borderColor: c.line, backgroundColor: c.sunk }}>
+                {cell("Total", { f: 1.6, left: true, b: true })}{wide && cell("")}{cell(money(tot.qty), { b: true })}{wide && cell(money(tot.earned), { b: true })}{wide && cell(money(tot.paid), { b: true })}{cell(money(tot.due), { b: true, col: tot.due > 0.5 ? c.warn : c.good })}{cell("", { f: 0.7 })}
+              </View>
+            </View>; })() : <View style={{ paddingHorizontal: 18, paddingBottom: 18 }}><T muted>No subcontractors on this project yet. Press Add.</T></View>}
         </Card></Rise>
 
-        <Rise i={6}><Card>
-          <H2>History</H2>
-          <T muted size={12}>Everything on this project, newest first. Tap a line for all details (note, VAT, invoice, photo).</T>
-          {subs.length > 0 && <Row wrap>{[{ name: "" }, ...subs].map((q: any) => <Btn key={q.name || "all"} kind={hf === q.name ? "primary" : "default"} title={q.name || "All"} onPress={() => setHf(q.name)} />)}</Row>}
-          {hf ? <T muted size={13}>{hf}: {money(sum(rows.filter((r: any) => r.kind === "progress"), "qty"))} m² done · paid {money(sum(rows.filter((r: any) => r.kind === "subpay"), "amount"))} SAR</T> : null}
-          {rows.length ? rows.map((r: any) => (
-            <Pressable key={r.kind + r.id} onPress={() => setDet(r)} style={({ hovered }: any) => ({ flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 9, paddingHorizontal: 8, borderRadius: 12, borderBottomWidth: 1, borderColor: c.line, backgroundColor: hovered ? c.accentSoft : "transparent" })}>
-              <View style={{ width: 34, height: 34, borderRadius: 10, backgroundColor: c.accentSoft, alignItems: "center", justifyContent: "center" }}><Icon name={TYPE_ICON[r.kind] || "doc"} size={18} color={c.accent} /></View>
-              <View style={{ flex: 1 }}><T bold size={14}>{r.kind === "progress" ? "Work done" : TYPE[r.kind]} · {r.sub_name || r.supplier || r.description || "—"}</T>
-                <T muted size={12}>{[dkey(r), r.method, r.invoice_no && "Invoice " + r.invoice_no, Number(r.vat_amount) > 0 && `VAT ${money(r.vat_amount)} → ${r.vat_company || "?"}`].filter(Boolean).join(" · ")}</T></View>
-              <T bold>{r.kind === "progress" ? `${money(r.qty)} m²` : `${money(r.gross ?? r.total ?? r.amount)}`}</T>
-            </Pressable>)) : <T muted>Nothing yet.</T>}
+        <Rise i={6}><Card style={{ padding: 0, gap: 0, overflow: "hidden" }}>
+          <View style={{ padding: 18, paddingBottom: 12, gap: 8 }}>
+            <SectionHead title="History" sub="Everything on this project, newest first. Click a line for the full details." right={subs.length ? <Select value={hf} onChange={setHf} style={{ width: 210 }} options={[{ value: "", label: "Everyone" }, ...subs.map((q: any) => ({ value: q.name, label: q.name }))]} /> : undefined} />
+            {hf ? <T size={13} color={c.accent}>{hf}: {money(sum(rows.filter((r: any) => r.kind === "progress"), "qty"))} m² done, paid {money(sum(rows.filter((r: any) => r.kind === "subpay"), "amount"))} SAR</T> : null}
+          </View>
+          {rows.length ? rows.map((r: any, i: number) => { const inc = r.kind === "income", prog = r.kind === "progress"; return (
+            <Pressable key={r.kind + r.id} onPress={() => setDet(r)} style={({ hovered }: any) => ({ flexDirection: "row", alignItems: "center", gap: 14, paddingVertical: 10, paddingHorizontal: 18, borderTopWidth: 1, borderColor: c.line, backgroundColor: hovered ? c.sunk : c.surface, cursor: "pointer" } as any)}>
+              {wide ? <View style={{ width: 88 }}><T size={13} muted>{dkey(r)}</T></View> : null}
+              <View style={{ width: 96 }}><Pill kind={inc ? "good" : prog ? "acc" : "plain"} text={prog ? "Work done" : TYPE[r.kind]} /></View>
+              <View style={{ flex: 1 }}><T size={14} bold>{r.sub_name || r.supplier || r.description || "—"}</T>
+                <T muted size={12}>{[!wide && dkey(r), r.method, r.invoice_no && "Invoice " + r.invoice_no, Number(r.vat_amount) > 0 && `VAT ${money(r.vat_amount)} to ${r.vat_company || "?"}`].filter(Boolean).join(", ")}</T></View>
+              <T bold size={14} color={inc ? c.good : c.ink}>{prog ? `${money(r.qty)} m²` : `${inc ? "+" : "−"}${money(r.gross ?? r.total ?? r.amount)}`}</T>
+            </Pressable>); }) : <View style={{ paddingHorizontal: 18, paddingBottom: 18 }}><T muted>Nothing yet.</T></View>}
         </Card></Rise>
       </View>
     );
