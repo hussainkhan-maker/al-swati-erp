@@ -12,6 +12,11 @@ const MODEL = Deno.env.get("AI_MODEL") ?? "claude-sonnet-5-5";
 const MODEL_STRONG = Deno.env.get("AI_MODEL_STRONG") ?? "claude-opus-5-5";
 // Token saver: short writing jobs (emails, follow-ups, rules, topic lists, the morning summary) use the small, cheap model.
 const MODEL_FAST = Deno.env.get("AI_MODEL_FAST") ?? "claude-haiku-5-5";
+// Free AI: when GEMINI_API_KEY is set, every task whose model name starts with "gemini" runs on Google Gemini instead of Claude.
+// Turn it on with Supabase secrets, e.g. AI_MODEL_FAST=gemini-2.5-flash (short writing jobs) and, if you like the results, AI_MODEL=gemini-2.5-flash.
+// Keep AI_MODEL_STRONG on Claude for BOQ reading. If Gemini fails or its free daily limit runs out, the call falls back to Claude automatically.
+const GEMINI_KEY = Deno.env.get("GEMINI_API_KEY") ?? "";
+const CLAUDE_FALLBACK = "claude-sonnet-5-5";
 const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, content-type, apikey, x-client-info" };
 const LANG: Record<string, string> = { ar: "Arabic", ur: "Urdu", en: "English" };
 
@@ -30,6 +35,11 @@ const LOG = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_S
 let USER_ID: string | null = null; // who is asking (for the daily AI limit)
 let RULES = ""; // filled per request from preferences "rules" (the owner's feedback, "Teach your AI")
 async function claude(prompt: string, opts: { images?: Img[]; model?: string; max?: number; webSearch?: number } = {}) {
+  const chosen = opts.model ?? MODEL;
+  if (chosen.startsWith("gemini")) {
+    if (GEMINI_KEY && !opts.webSearch) { try { return await gemini(prompt, chosen, opts); } catch (e) { console.error("Gemini failed, using Claude:", e); } }
+    opts = { ...opts, model: CLAUDE_FALLBACK };
+  }
   const content: unknown[] = (opts.images ?? []).map((i) => i.media_type === "application/pdf"
     ? { type: "document", source: { type: "base64", media_type: "application/pdf", data: i.data } }
     : { type: "image", source: { type: "base64", media_type: i.media_type, data: i.data } });
@@ -47,6 +57,27 @@ async function claude(prompt: string, opts: { images?: Img[]; model?: string; ma
   // Usage log: every call's tokens are counted per task, so the owner sees where the AI money goes.
   try { const u = j.usage || {}; await LOG.from("ai_usage").insert({ user_id: USER_ID, task: TASK, model: opts.model ?? MODEL, input_tokens: u.input_tokens || 0, output_tokens: u.output_tokens || 0, cache_read: u.cache_read_input_tokens || 0, cache_write: u.cache_creation_input_tokens || 0, files: (opts.images ?? []).length }); } catch { /* never block the answer */ }
   return (j.content ?? []).filter((c: { type: string }) => c.type === "text").map((c: { text: string }) => c.text).join("");
+}
+
+// Google Gemini (free tier) with the same company guide and rules; returns plain text like claude().
+async function gemini(prompt: string, model: string, opts: { images?: Img[]; max?: number }) {
+  const parts: unknown[] = (opts.images ?? []).map((i) => ({ inline_data: { mime_type: i.media_type, data: i.data } }));
+  parts.push({ text: prompt });
+  const r = await fetch("https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent", {
+    method: "POST",
+    headers: { "x-goog-api-key": GEMINI_KEY, "content-type": "application/json" },
+    body: JSON.stringify({
+      system_instruction: { parts: [{ text: GUIDE + (RULES ? "\nThe owner's own rules (always follow):\n" + RULES : "") }] },
+      contents: [{ role: "user", parts }],
+      generationConfig: { maxOutputTokens: Math.max(opts.max ?? 2000, 8192) },
+    }),
+  });
+  if (!r.ok) throw new Error("Gemini " + r.status + ": " + (await r.text()).slice(0, 300));
+  const j = await r.json();
+  try { const u = j.usageMetadata || {}; await LOG.from("ai_usage").insert({ user_id: USER_ID, task: TASK, model, input_tokens: u.promptTokenCount || 0, output_tokens: (u.candidatesTokenCount || 0) + (u.thoughtsTokenCount || 0), cache_read: u.cachedContentTokenCount || 0, cache_write: 0, files: (opts.images ?? []).length }); } catch { /* never block the answer */ }
+  const text = (j.candidates?.[0]?.content?.parts ?? []).map((p: { text?: string }) => p.text ?? "").join("");
+  if (!text) throw new Error("Gemini returned no text");
+  return text;
 }
 /** Public share links (Google Drive, Dropbox, OneDrive, WeTransfer-style direct links) → direct download URLs. */
 function shareLinks(text: string): { url: string; label: string }[] {
