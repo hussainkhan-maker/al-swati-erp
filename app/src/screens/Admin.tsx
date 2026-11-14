@@ -4,6 +4,7 @@ import { Linking, Pressable, View } from "react-native";
 import { useFlows } from "../components/Flows";
 import { active, pname, useData } from "../lib/data";
 import { day, money, num, SAR, stamp } from "../lib/fmt";
+import { pricesFor } from "../lib/match";
 import { ai, supabase } from "../lib/supabase";
 import { Bars, Btn, Card, Checks, DEEP, Empty, Field, H1, H2, Icon, Kpi, MonthCal, Photo, Pill, Rise, Row, Screen, Select, Sheet, T, Table, Tile, useColors, useWide } from "../ui";
 
@@ -30,6 +31,46 @@ export function clientAccount(d: any, pid: string) {
   return { r: r * 100, rate, m2: Number(m2), received: normal + released, covered, retHeld, workValue, unpaidWork, owes: unpaidWork + retHeld };
 }
 const TYPE_ICON: Record<string, string> = { income: "cash", loan: "pct", purchase: "receipt", expense: "tag", subpay: "people", progress: "ruler" };
+
+const isM2 = (u: any) => /^(sqm|m2|m²|م2|م²|متر مربع)$/i.test(String(u || "").trim());
+/** Quoted vs done vs bought (m²) for one project, and "teach the AI" from what really happened. */
+function VarianceCard({ x, done }: { x: any; done: number }) {
+  const { d } = useData(); const c = useColors();
+  const scope = (x.scope || (d.quotes || []).find((q: any) => q.id === x.quote_id)?.lines || []) as any[];
+  const quoted = scope.filter((l) => isM2(l.unit)).reduce((s, l) => s + (Number(l.qty) || 0), 0);
+  const bought = active(d.txns || []).filter((t: any) => t.type === "purchase" && t.project_id === x.id)
+    .reduce((s: number, t: any) => s + (t.lines || []).filter((l: any) => isM2(l.unit)).reduce((z: number, l: any) => z + (Number(l.qty) || 0), 0), 0);
+  const [teach, setTeach] = useState<any>(null), [msg, setMsg] = useState("");
+  if (!quoted && !bought) return null;
+  const pct = quoted ? Math.round((done / quoted) * 1000) / 10 : null;
+  const waste = done > 0 && bought > 0 ? Math.round(((bought - done) / done) * 1000) / 10 : null;
+  const over = pct != null && pct > 103;
+  return (
+    <Card>
+      <Row><H2>Quoted vs done</H2><View style={{ flex: 1 }} /><Btn kind="ghost" icon={<Icon name="spark" />} title="Teach the AI from this project" onPress={() => setTeach({ note: "" })} /></Row>
+      <Row wrap>
+        <Pill text={`Quoted ${money(quoted)} m²`} /><Pill kind={over ? "bad" : "acc"} text={`Done ${money(done)} m²${pct != null ? ` (${pct}%)` : ""}`} />
+        {bought > 0 && <Pill text={`Stone bought ${money(bought)} m²`} />}
+        {waste != null && <Pill kind={waste > 18 ? "bad" : waste > 15 ? "warn" : "good"} text={`Real waste ${waste}%`} />}
+      </Row>
+      {over && <T size={13} color={c.bad}>More m² done than quoted: is the extra a variation the client must pay for? Raise it before the next invoice.</T>}
+      {msg ? <T size={13} color={c.accent}>{msg}</T> : null}
+      <Sheet open={!!teach} onClose={() => setTeach(null)} title="Teach the AI from this project">
+        {teach && <>
+          <T size={14}>The AI will remember this for the next quotations: quoted {money(quoted)} m², done {money(done)} m²{bought ? `, bought ${money(bought)} m²` : ""}{waste != null ? `, real waste ${waste}%` : ""}.</T>
+          <Field label="Why was it different? (drawings changed, AI read wrong, more cutting, breakage…)" value={teach.note} multiline onChange={(v) => setTeach({ ...teach, note: v })} />
+          <Btn big kind="primary" title={teach.busy ? "Saving…" : "Save the lesson"} disabled={teach.busy} onPress={async () => {
+            setTeach({ ...teach, busy: true });
+            try {
+              const r = await ai("learn", { text: `Project "${x.name}" (${(scope[0]?.desc || "stone work").slice(0, 80)}): quoted ${quoted} m2, actually done ${done} m2${bought ? `, stone bought ${bought} m2` : ""}${waste != null ? `, real cutting waste ${waste}%` : ""}. Owner's reason: ${teach.note || "not given"}. Use this when estimating similar work.` });
+              setTeach(null); setMsg(`Saved: ${r.action_for_agents || r.observed_rule || "lesson stored"}`);
+            } catch (e: any) { setTeach({ ...teach, busy: false }); setMsg(e.message); }
+          }} />
+        </>}
+      </Sheet>
+    </Card>
+  );
+}
 
 export function Dashboard() {
   const { d, profile, reload } = useData(); const flows = useFlows(); const c = useColors(); const wide = useWide();
@@ -108,6 +149,21 @@ export function Dashboard() {
         </Row>)) : <T muted>Nothing yet. Your entries will show here.</T>}
     </Card></Rise>
   );
+  // Supplier price watch: an invoice line in the last 30 days that costs 5%+ more than the lowest earlier price for the same material.
+  const rises = useMemo(() => {
+    const out: string[] = [], since = Date.now() - 30 * 864e5;
+    for (const t of active(d.txns || []).filter((t: any) => t.type === "purchase" && Date.parse(t.paid_on || t.created_at) > since).slice(0, 40)) {
+      const when = String(t.paid_on || t.created_at).slice(0, 10);
+      for (const l of (t.lines || []).slice(0, 15)) {
+        if (!(Number(l.price) > 0) || !l.name) continue;
+        const before = pricesFor(d, l.name).filter((b) => b.from === "invoice" && b.date < when);
+        if (before.length && Number(l.price) > before[0].price * 1.05)
+          out.push(`${l.name}: ${t.supplier || "?"} charged ${money(l.price)} on ${when}; lowest before ${money(before[0].price)} from ${before[0].supplier || "?"} (${before[0].date})`);
+        if (out.length >= 5) return out;
+      }
+    }
+    return out;
+  }, [d.txns]);
   const side = <>
     <Rise i={3}><Card><MonthCal marks={marks} /><T size={12} muted>A dot = a payment or work entry that day.</T></Card></Rise>
     <Rise i={5}><Card>
@@ -119,6 +175,7 @@ export function Dashboard() {
       </> : <T muted>{brief === "busy" ? "The main agent is checking everything…" : "No report yet."}</T>}
       <Row><Btn kind="ghost" icon={<Icon name="spark" />} title={brief === "busy" ? "Checking…" : "Check again now"} busy={brief === "busy"} onPress={() => makeBrief(true)} />{brief && brief !== "busy" ? <T size={12} muted style={{ flex: 1 }}>{brief}</T> : null}</Row>
       {newQ > 0 && <Pill kind="warn" text={`${newQ} new client queries`} />}
+      {rises.map((r, i) => <T key={i} size={13} color={c.bad}>▲ {r}</T>)}
       {(() => { const wait = (d.quotes || []).filter((q: any) => q.status === "Draft" && !q.rfq?.lock && (q.lines || []).length && (q.lines || []).every((l: any) => Number(l.rate) > 0)); return wait.length ? <Pill kind="bad" text={`${wait.length} quotation(s) waiting for your Approve & Lock`} /> : null; })()}
     </Card></Rise>
   </>;
@@ -327,6 +384,7 @@ export function Projects() {
             .map(([l, v, h]: any, i) => <Rise key={l} i={i + 1} style={{ flexGrow: 1, flexBasis: 160 }}><Kpi hero={h} label={l} value={v} /></Rise>)}
         </View>
         {!a.rate && <T muted size={13}>Add the client rate per m² (Edit) to see the work value and what is still to come.</T>}
+        <VarianceCard x={x} done={a.m2} />
 
         <Rise i={5}><Card>
           <Row><View style={{ flex: 1 }}><H2>Subcontractors on this project</H2></View><Btn icon={<Icon name="plus" />} title="Add" onPress={() => setS({ name: "", rate: "", unit: "sqm", projects: [x.id] })} /></Row>
