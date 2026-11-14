@@ -19,7 +19,7 @@ if (web && typeof document !== "undefined" && !document.getElementById("al-swati
   l.href = "https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Sans+Arabic:wght@400;500;600&display=swap";
   document.head.appendChild(l);
   const st = document.createElement("style");
-  st.textContent = `*{font-family:"IBM Plex Sans","IBM Plex Sans Arabic",system-ui,-apple-system,"Segoe UI",sans-serif !important;font-variant-numeric:tabular-nums}`;
+  st.textContent = `*{font-family:"IBM Plex Sans","IBM Plex Sans Arabic",system-ui,-apple-system,"Segoe UI",sans-serif !important;font-variant-numeric:tabular-nums}[tabindex]{transition:background-color .18s ease,box-shadow .18s ease,transform .14s ease,border-color .18s ease,opacity .18s ease}[tabindex]:focus-visible{outline:2px solid #17594C;outline-offset:2px}@media (prefers-reduced-motion:reduce){[tabindex]{transition:none}}`;
   document.head.appendChild(st);
 }
 /** Laptop-size window: sidebar layout and wider grids. */
@@ -28,8 +28,24 @@ export const useWide = () => useWindowDimensions().width >= 960;
 const lift = (hovered?: boolean, _pressed?: boolean): any => web ? { cursor: "pointer", borderColor: hovered ? "#B9C3BE" : undefined } : {};
 
 /** Layout wrapper (kept for older screens). Content appears at once: no entrance animation. */
-export function Rise({ children, style }: { children: React.ReactNode; i?: number; style?: any }) {
-  return <View style={style}>{children}</View>;
+const calm = web && typeof window !== "undefined" && !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+/** Sections fade up a few pixels when a page opens, one after another (skipped when the device asks for less motion). */
+export function Rise({ children, style, i = 0 }: { children: React.ReactNode; i?: number; style?: any }) {
+  const v = useRef(new Animated.Value(calm ? 1 : 0)).current;
+  useEffect(() => { if (!calm) Animated.timing(v, { toValue: 1, duration: 360, delay: Math.min(i, 8) * 55, easing: Easing.out(Easing.cubic), useNativeDriver: !web }).start(); }, []);
+  return <Animated.View style={[style, { opacity: v, transform: [{ translateY: v.interpolate({ inputRange: [0, 1], outputRange: [10, 0] }) }] }]}>{children}</Animated.View>;
+}
+
+/** A number that counts up to its value when it first appears. */
+export function CountUp({ value, style, color, size = 24 }: { value: number; style?: TextStyle; color?: string; size?: number }) {
+  const [n, setN] = useState(calm ? value : 0);
+  useEffect(() => {
+    if (calm) { setN(value); return; }
+    let raf = 0; const t0 = Date.now(), from = 0;
+    const tick = () => { const p = Math.min(1, (Date.now() - t0) / 900), e = 1 - Math.pow(1 - p, 3); setN(from + (value - from) * e); if (p < 1) raf = requestAnimationFrame(tick); };
+    raf = requestAnimationFrame(tick); return () => cancelAnimationFrame(raf);
+  }, [value]);
+  return <Text style={[{ fontSize: size, fontWeight: "600", color, fontVariant: ["tabular-nums"] }, style]}>{Math.round(n).toLocaleString("en")}</Text>;
 }
 export const useColors = () => (useColorScheme() === "dark" ? DARK : LIGHT);
 
@@ -84,16 +100,46 @@ export function Row({ children, style, wrap }: { children: React.ReactNode; styl
 
 export function Btn({ title, onPress, kind = "default", disabled, busy, big, style, icon }: { title: string; onPress: () => any; kind?: "default" | "primary" | "danger" | "ghost"; disabled?: boolean; busy?: boolean; big?: boolean; style?: ViewStyle; icon?: React.ReactNode }) {
   const c = useColors();
-  const bg = kind === "primary" ? c.accent : kind === "ghost" ? "transparent" : c.surface;
-  const fg = kind === "primary" ? c.accentInk : kind === "danger" ? c.bad : c.ink;
-  // Buttons take the width of their words (never a full-width bar); "big" ones are a little taller and at least 180 wide.
+  const P = kind === "primary", G = kind === "ghost", D = kind === "danger";
+  const bg = P ? c.accent : G ? "transparent" : c.surface;
+  const fg = P ? c.accentInk : D ? c.bad : G ? c.accent : c.ink;
+  // Primary: solid verde with a faint top highlight. Others: white with a soft edge. Hover lifts 1px, press sinks back.
+  const rest: any = web ? (P ? { boxShadow: "inset 0 1px 0 rgba(255,255,255,0.14), 0 1px 2px rgba(17,38,31,0.28)" } : G ? {} : { boxShadow: "0 1px 2px rgba(17,38,31,0.07)" }) : {};
+  const up: any = web ? (P ? { boxShadow: "inset 0 1px 0 rgba(255,255,255,0.14), 0 4px 12px rgba(23,89,76,0.28)", transform: [{ translateY: -1 }] } : G ? { backgroundColor: c.accentSoft } : { boxShadow: "0 3px 10px rgba(17,38,31,0.10)", borderColor: "#C8D1CC", transform: [{ translateY: -1 }] }) : {};
   return (
     <Pressable accessibilityRole="button" disabled={disabled || busy} onPress={onPress}
-      style={({ pressed, hovered }: any) => [{ alignSelf: "flex-start", minHeight: big ? 44 : 36, minWidth: big ? 160 : undefined, paddingHorizontal: big ? 18 : 12, borderRadius: 8, backgroundColor: bg, borderWidth: kind === "ghost" ? 0 : 1, borderColor: kind === "primary" ? c.accent : kind === "danger" ? "#E3B5AF" : c.line, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 7, opacity: disabled ? 0.45 : 1 },
-        web && !disabled ? { cursor: "pointer", backgroundColor: hovered || pressed ? (kind === "primary" ? "#124A3F" : kind === "ghost" ? c.accentSoft : c.sunk) : bg } : null, style]}>
+      style={({ pressed, hovered }: any) => [{ alignSelf: "flex-start", minHeight: big ? 46 : 38, minWidth: big ? 160 : undefined, paddingHorizontal: big ? 20 : 14, borderRadius: 10, backgroundColor: bg, borderWidth: G || P ? 0 : 1, borderColor: D ? "#E8C2BC" : c.line, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 8, opacity: disabled ? 0.45 : 1 },
+        rest, web && !disabled ? { cursor: "pointer" } : null, hovered && !disabled && !pressed ? up : null,
+        pressed && !disabled ? { transform: [{ scale: 0.98 }], backgroundColor: P ? "#124A3F" : G ? c.accentSoft : c.sunk } : null, style]}>
       {busy ? <ActivityIndicator color={fg} /> : icon}
-      <Text style={{ color: kind === "ghost" ? c.accent : fg, fontSize: big ? 15 : 14, fontWeight: "600" }}>{title}</Text>
+      <Text style={{ color: fg, fontSize: big ? 15 : 14, fontWeight: "600", letterSpacing: -0.1 }}>{title}</Text>
     </Pressable>
+  );
+}
+
+/** A small switch between a few views (in place of a row of buttons). */
+export function Segmented({ value, options, onChange }: { value: string; options: [string, string][]; onChange: (v: string) => void }) {
+  const c = useColors();
+  return (
+    <View style={{ flexDirection: "row", backgroundColor: c.sunk, borderRadius: 9, padding: 3, borderWidth: 1, borderColor: c.line }}>
+      {options.map(([k, l]) => { const on = value === k; return (
+        <Pressable key={k} accessibilityRole="button" accessibilityState={{ selected: on }} onPress={() => onChange(k)}
+          style={({ hovered }: any) => ({ paddingHorizontal: 12, height: 30, justifyContent: "center", borderRadius: 7, backgroundColor: on ? c.surface : "transparent", cursor: "pointer", ...(on && web ? { boxShadow: "0 1px 2px rgba(17,38,31,0.12)" } : {}), opacity: !on && hovered ? 0.75 : 1 } as any)}>
+          <Text style={{ fontSize: 13, fontWeight: on ? "600" : "500", color: on ? c.ink : c.muted }}>{l}</Text>
+        </Pressable>); })}
+    </View>
+  );
+}
+
+/** Section title with an optional quiet link on the right. */
+export function SectionHead({ title, sub, action, onAction, right }: { title: string; sub?: string; action?: string; onAction?: () => void; right?: React.ReactNode }) {
+  const c = useColors();
+  return (
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 2 }}>
+      <View style={{ flex: 1 }}><T size={16} bold style={{ letterSpacing: -0.2 }}>{title}</T>{sub ? <T size={12} muted>{sub}</T> : null}</View>
+      {right}
+      {action && onAction ? <Pressable onPress={onAction} style={({ hovered }: any) => ({ cursor: "pointer", opacity: hovered ? 0.7 : 1 } as any)}><Text style={{ color: c.accent, fontSize: 13, fontWeight: "600" }}>{action}</Text></Pressable> : null}
+    </View>
   );
 }
 
@@ -281,13 +327,19 @@ export function Bars({ data, unit = "", height = 140 }: { data: { label: string;
         return (
           <View key={i} style={{ flex: 1, alignItems: "center", gap: 4 }}>
             <Text style={{ fontSize: 11, color: c.muted, fontVariant: ["tabular-nums"] }}>{x.value ? Math.round(x.value) + unit : ""}</Text>
-            <View style={{ width: "62%", maxWidth: 30, height: h, borderTopLeftRadius: 3, borderTopRightRadius: 3, backgroundColor: top ? c.accent : "#C9D8D2" }} />
+            <Grow h={h} i={i} color={top ? c.accent : "#C9D8D2"} />
             <Text style={{ fontSize: 12, color: c.muted }}>{x.label}</Text>
           </View>
         );
       })}
     </View>
   );
+}
+
+function Grow({ h, i, color }: { h: number; i: number; color: string }) {
+  const v = useRef(new Animated.Value(calm ? 1 : 0)).current;
+  useEffect(() => { if (!calm) Animated.timing(v, { toValue: 1, duration: 520, delay: 120 + i * 45, easing: Easing.out(Easing.cubic), useNativeDriver: false }).start(); }, []);
+  return <Animated.View style={{ width: "62%", maxWidth: 30, height: v.interpolate({ inputRange: [0, 1], outputRange: [2, h] }), borderTopLeftRadius: 4, borderTopRightRadius: 4, backgroundColor: color }} />;
 }
 
 /** Month calendar; days with entries get a dot, today is filled. */
