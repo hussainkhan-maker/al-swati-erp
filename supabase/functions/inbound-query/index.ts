@@ -122,6 +122,10 @@ Deno.serve(async (req) => {
       body: body.slice(0, 200000), attachments: atts, dedupe_key: dedupe, deadline: p.deadline || null,
     }).select("id, ref").single();
     if (error) return json({ error: error.message }, 400);
+    // Start the autopilot on the server right away: the AI reads this query and drafts the quotation (app open or not).
+    const kick = fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/ai`, { method: "POST", headers: { "content-type": "application/json", Authorization: `Bearer ${Deno.env.get("SUPABASE_ANON_KEY")}`, apikey: Deno.env.get("SUPABASE_ANON_KEY")! }, body: JSON.stringify({ task: "autopilot" }) }).catch(() => {});
+    // @ts-ignore EdgeRuntime is provided by Supabase
+    if (typeof EdgeRuntime !== "undefined") EdgeRuntime.waitUntil(kick);
     return json(data);
   } catch (e) {
     return json({ error: String((e as Error).message ?? e) }, 500);
