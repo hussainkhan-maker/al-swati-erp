@@ -63,7 +63,10 @@ async function claude(prompt: string, opts: { images?: Img[]; model?: string; ma
 async function gemini(prompt: string, model: string, opts: { images?: Img[]; max?: number }) {
   const parts: unknown[] = (opts.images ?? []).map((i) => ({ inline_data: { mime_type: i.media_type, data: i.data } }));
   parts.push({ text: prompt });
-  const r = await fetch("https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent", {
+  // Free Gemini is sometimes busy (503) or rate-limited (429): wait a moment and try again, up to 3 times, before falling back to Claude.
+  let r: Response = new Response(null, { status: 599 });
+  for (let attempt = 1; ; attempt++) {
+  r = await fetch("https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent", {
     method: "POST",
     headers: { "x-goog-api-key": GEMINI_KEY, "content-type": "application/json" },
     body: JSON.stringify({
@@ -72,6 +75,9 @@ async function gemini(prompt: string, model: string, opts: { images?: Img[]; max
       generationConfig: { maxOutputTokens: Math.max(opts.max ?? 2000, 8192) },
     }),
   });
+    if (r.ok || attempt >= 3 || ![429, 500, 503].includes(r.status)) break;
+    await new Promise((res) => setTimeout(res, 2000 * attempt));
+  }
   if (!r.ok) throw new Error("Gemini " + r.status + ": " + (await r.text()).slice(0, 300));
   const j = await r.json();
   try { const u = j.usageMetadata || {}; await LOG.from("ai_usage").insert({ user_id: USER_ID, task: TASK, model, input_tokens: u.promptTokenCount || 0, output_tokens: (u.candidatesTokenCount || 0) + (u.thoughtsTokenCount || 0), cache_read: u.cachedContentTokenCount || 0, cache_write: 0, files: (opts.images ?? []).length }); } catch { /* never block the answer */ }
