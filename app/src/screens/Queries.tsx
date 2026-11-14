@@ -68,29 +68,40 @@ function pushDrafts() {
 
 /** Outlook (Microsoft 365): linked once with Microsoft's own sign-in. The server then reads new inbox emails every 30 minutes
  *  (app open or not), the AI keeps the client queries, and approved replies go to Outlook Drafts. Nothing is sent by itself. */
-async function mail(action: string) {
-  const { data, error } = await supabase.functions.invoke("inbound-query", { body: { action } });
+async function mail(action: string, extra: Record<string, unknown> = {}) {
+  const { data, error } = await supabase.functions.invoke("inbound-query", { body: { action, ...extra } });
   if (error) { let m = error.message; try { const j = await (error as any).context?.json?.(); if (j?.error) m = j.error; } catch { /* keep the first message */ } throw new Error(m); }
   if (data?.error) throw new Error(data.error);
   return data;
 }
 export function OutlookLink() {
   const { reload } = useData(); const c = useColors();
-  const [st, setSt] = useState<any>(null), [dev, setDev] = useState<any>(null), [msg, setMsg] = useState(""), [busy, setBusy] = useState("");
-  const load = () => mail("outlook_status").then(setSt).catch((e) => setMsg(e.message));
-  useEffect(() => { load(); }, []);
-  // While the code is on screen, ask every 5 seconds whether the sign-in on Microsoft's page is done.
+  const [st, setSt] = useState<any>(null), [waiting, setWaiting] = useState(false), [msg, setMsg] = useState(""), [busy, setBusy] = useState("");
+  const load = () => mail("outlook_status").then((x) => { setSt(x); return x; }).catch((e) => { setMsg(e.message); return null; });
+  // Back from Microsoft's sign-in page (…?code=…&state=…): hand the one-time code to the server, then look at the inbox.
   useEffect(() => {
-    if (!dev) return;
-    const t = setInterval(async () => {
-      try {
-        const r = await mail("outlook_finish");
-        if (r.done) { setDev(null); setMsg(`Connected to ${r.account}. Checking your inbox now…`); await load(); check(); }
-      } catch (e: any) { setDev(null); setMsg(e.message); }
-    }, 5000);
+    const u = Platform.OS === "web" ? new URLSearchParams(globalThis.location?.search || "") : null;
+    const back = u?.get("state") ? { code: u.get("code") || "", state: u.get("state") || "", error: u.get("error") || "", error_description: u.get("error_description") || "" } : null;
+    if (back) try { globalThis.history?.replaceState(null, "", globalThis.location.pathname); } catch { /* keep the address */ }
+    if (!back) { load(); return; }
+    setBusy("start");
+    mail("outlook_finish", back).then(async (r) => { const x = await load(); if (r.done && x?.linked) { setMsg(`Connected to ${r.account}. Checking your inbox now…`); check(); } })
+      .catch((e) => { setMsg(e.message); load(); }).finally(() => setBusy(""));
+  }, []);
+  // Signed in on the phone's browser: keep asking until the server has the link.
+  useEffect(() => {
+    if (!waiting) return;
+    const t = setInterval(async () => { const x = await load(); if (x?.linked) { setWaiting(false); setMsg(`Connected to ${x.account}.`); check(); } }, 5000);
     return () => clearInterval(t);
-  }, [dev]);
-  const start = async () => { setBusy("start"); setMsg(""); try { setDev(await mail("outlook_start")); } catch (e: any) { setMsg(e.message); } finally { setBusy(""); } };
+  }, [waiting]);
+  const start = async () => {
+    setBusy("start"); setMsg("");
+    try {
+      const { url } = await mail("outlook_start");
+      if (Platform.OS === "web") globalThis.location.assign(url); // Microsoft's page, then back here
+      else { setWaiting(true); Linking.openURL(url); }
+    } catch (e: any) { setMsg(e.message); } finally { setBusy(""); }
+  };
   const check = async () => {
     setBusy("check"); setMsg("");
     try { const r = await mail("outlook_pull"); setMsg(r.busy ? "Already checking, give it a minute." : `Looked at ${r.checked ?? 0} new email${r.checked === 1 ? "" : "s"}: ${r.taken ?? 0} client quer${r.taken === 1 ? "y" : "ies"} added${r.drafted ? `, ${r.drafted} reply draft(s) put in Outlook` : ""}.${r.more ? " More are waiting: press Check now again." : ""}`); await reload(["inquiries", "email_outbox"]); await load(); }
@@ -102,24 +113,18 @@ export function OutlookLink() {
       <Row><T bold style={{ flex: 1 }}>Outlook email</T>
         {st == null ? null : st.linked ? <Pill kind={st.last_error ? "bad" : "good"} text={st.last_error ? "needs attention" : mins == null ? `connected · ${st.account}` : `connected · checked ${mins} min ago`} /> : <Pill kind="warn" text="not connected" />}
       </Row>
-      {!dev && <T size={13} muted>{st?.linked
+      <T size={13} muted>{st?.linked
         ? `${st.account}: the AI reads each new email in your inbox and brings client queries here with their files (${st.taken} so far, from ${st.checked} emails looked at). They get the category "AL-Swati ERP" in Outlook. Replies you approve go to your Outlook Drafts; nothing is sent by itself.`
-        : "Link your Outlook once. The server then reads new emails every 30 minutes, even with the app closed: the AI keeps the client queries (with their files) and makes draft quotations. Replies you approve go to your Outlook Drafts; nothing is sent by itself."}</T>}
+        : "Link your Outlook once. The server then reads new emails every 30 minutes, even with the app closed: the AI keeps the client queries (with their files) and makes draft quotations. Replies you approve go to your Outlook Drafts; nothing is sent by itself."}</T>
       {st?.last_error ? <T size={13} color={c.bad}>{st.last_error}</T> : null}
-      {dev ? <View style={{ gap: 8 }}>
-        <T size={14}>1. Open the Microsoft page below (on this laptop or your phone).</T>
-        <T size={14}>2. Type this code, then sign in with your company email and press Accept:</T>
-        <T bold size={30} style={{ letterSpacing: 3 }}>{dev.user_code}</T>
-        <Row wrap><Btn kind="primary" title="Open microsoft.com/devicelogin" onPress={() => Linking.openURL(dev.url)} />
-          <Btn kind="ghost" title="Copy code" onPress={async () => { try { await (navigator as any).clipboard.writeText(dev.user_code); setMsg("Code copied."); } catch { /* type it by hand */ } }} />
-          <Btn kind="ghost" title="Cancel" onPress={() => setDev(null)} /></Row>
-        <T size={12} muted>Waiting for you to finish on Microsoft's page… The code works for {dev.minutes} minutes. Microsoft may ask you to allow "AL-Swati ERP mail" to read and write your mail: that is this app.</T>
-      </View> : <Row wrap>
+      {waiting ? <T size={13}>Finish the sign-in on Microsoft's page, then come back here. This card updates by itself.</T> : null}
+      <Row wrap>
         {st?.linked ? <><Btn kind="primary" title="Check now" busy={busy === "check"} onPress={check} />
           <Btn kind="ghost" title="Disconnect" onPress={async () => { try { await mail("outlook_disconnect"); setMsg("Disconnected. The app no longer reads your Outlook."); load(); } catch (e: any) { setMsg(e.message); } }} /></>
-          : <Btn kind="primary" title={st?.last_error ? "Connect Outlook again" : "Connect Outlook"} busy={busy === "start"} onPress={start} />}
-      </Row>}
-      {msg ? <T size={13} color={/^(Connected|Looked|Code|Disconnected|Already)/.test(msg) ? c.ink : c.bad}>{msg}</T> : null}
+          : <Btn kind="primary" title="Sign in with Microsoft" busy={busy === "start"} onPress={start} />}
+      </Row>
+      {!st?.linked ? <T size={12} muted>Microsoft asks you once to allow "AL-Swati ERP mail" to read and write your mail: that is this app.</T> : null}
+      {msg ? <T size={13} color={/^(Connected|Looked|Disconnected|Already)/.test(msg) ? c.ink : c.bad}>{msg}</T> : null}
     </Card>
   );
 }
