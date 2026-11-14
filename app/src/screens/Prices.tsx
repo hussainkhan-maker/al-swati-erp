@@ -4,6 +4,7 @@ import { View } from "react-native";
 import { PRICE_STALE_DAYS } from "../config";
 import { useData } from "../lib/data";
 import { ageDays, matchItems, money, num } from "../lib/fmt";
+import { sameMaterial } from "../lib/match";
 import { ai } from "../lib/supabase";
 import { Btn, Card, Empty, Field, H1, Icon, Photo, Pill, Row, Screen, Select, Sheet, T, useColors } from "../ui";
 
@@ -12,7 +13,8 @@ export default function Prices() {
   const [q, setQ] = useState(""), [ids, setIds] = useState<string[] | null>(null), [why, setWhy] = useState(""), [busy, setBusy] = useState("");
   const [item, setItem] = useState<any>(null), [price, setPrice] = useState<any>(null), [err, setErr] = useState("");
   const items = d.items || [];
-  const shown = ids ? items.filter((i: any) => ids.includes(i.id)) : q ? matchItems(q, items).map((m) => m.item) : items;
+  // Search finds the item by any spelling: Arabic or English names, aliases, sizes in any order (60x120 = 120×60).
+  const shown = ids ? items.filter((i: any) => ids.includes(i.id)) : q ? [...new Set([...matchItems(q, items).map((m) => m.item), ...items.filter((i: any) => [i.name, ...(i.aliases || [])].some((n: string) => sameMaterial(q, [n, i.size].filter(Boolean).join(" ")) >= 0.5))])] : items;
   const pricesOf = (id: string) => (d.prices || []).filter((p: any) => p.item_id === id);
 
   const smart = async () => { setBusy("search"); try { const r = await ai("match", { query: q, items: items.slice(0, 300).map((i: any) => ({ id: i.id, name: i.name, aliases: i.aliases, category: i.category, size: i.size })) }); setIds(r.ids || []); setWhy(r.why || ""); } catch (e: any) { setWhy(e.message); } finally { setBusy(""); } };
