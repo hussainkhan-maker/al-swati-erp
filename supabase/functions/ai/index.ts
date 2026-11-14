@@ -1,6 +1,7 @@
 // Edge Function "ai": the only place the Anthropic API key lives.
 // Tasks: parse (spoken/typed note → one action), receipt (photo → lines), rfq (BOQ read twice), ask (owner's questions), estimate (market price).
 import { createClient } from "npm:@supabase/supabase-js@2.45.4";
+import * as XLSX from "npm:xlsx@0.18.5";
 
 const URL_ = Deno.env.get("SUPABASE_URL")!;
 const ANON = Deno.env.get("SUPABASE_ANON_KEY")!;
@@ -12,6 +13,16 @@ const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers
 const LANG: Record<string, string> = { ar: "Arabic", ur: "Urdu", en: "English" };
 
 type Img = { media_type: string; data: string };
+// Fixed company guide + the owner's learned rules, sent once as a cached system prompt (cheaper on every call after the first).
+const GUIDE = `You work inside the ERP of Al-Swati Contracting, a stone, marble, granite and porcelain flooring and facade cladding contractor in Saudi Arabia (Riyadh, Dammam, Al-Hassa).
+Ground rules for every task:
+- Never invent facts, quantities, prices, names, projects or clients. If something is missing or unreadable, say so (null / "unclear").
+- Digits 0-9 only. Money in SAR. Saudi VAT is 15%, shown separately. Calculations are done by the app's code, not by you: give raw quantities and facts.
+- Materials: Arabic and English names refer to the same thing (رخام = marble, جرانيت = granite, بورسلان = porcelain, حجر رياض = Riyadh stone, ترافرتين = travertine). Keep size and thickness with the name; a different size or thickness is a different product.
+- Normal values: facade cladding stone 20-30 mm (30-40 mm heavy panels), floor marble/granite 20 mm, porcelain 9-20 mm; common tile sizes 60x60, 60x120, 80x80, 120x120 cm, stone panels 30x60, 40x80, 60x90 cm; cutting waste 10-15% for normal work, 15-20% for book-match, many cuts or curves, and 15-18% at bid stage when no engineer has checked the drawings.
+- Dry-fix cladding needs stainless steel anchors/brackets (count per panel, typically 4 per panel); wet-fix needs adhesive/mortar. Flag missing skirting, risers, steps, sills, coping, cut edges, sealant, mock-up and protection.
+- Plain, professional language. Roman Urdu only where the task asks for it.`;
+let RULES = ""; // filled per request from preferences "rules" (the owner's feedback, "Teach your AI")
 async function claude(prompt: string, opts: { images?: Img[]; model?: string; max?: number; webSearch?: number } = {}) {
   const content: unknown[] = (opts.images ?? []).map((i) => i.media_type === "application/pdf"
     ? { type: "document", source: { type: "base64", media_type: "application/pdf", data: i.data } }
@@ -20,13 +31,41 @@ async function claude(prompt: string, opts: { images?: Img[]; model?: string; ma
   const r = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: { "x-api-key": KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-    body: JSON.stringify({ model: opts.model ?? MODEL, max_tokens: opts.max ?? 2000, messages: [{ role: "user", content }],
+    body: JSON.stringify({ model: opts.model ?? MODEL, max_tokens: opts.max ?? 2000,
+      system: [{ type: "text", text: GUIDE + (RULES ? `\nThe owner's own rules (always follow):\n${RULES}` : ""), cache_control: { type: "ephemeral" } }],
+      messages: [{ role: "user", content }],
       ...(opts.webSearch ? { tools: [{ type: "web_search_20250305", name: "web_search", max_uses: opts.webSearch, user_location: { type: "approximate", country: "SA" } }] } : {}) }),
   });
   if (!r.ok) throw new Error(`AI ${r.status}: ${(await r.text()).slice(0, 300)}`);
   const j = await r.json();
   return (j.content ?? []).filter((c: { type: string }) => c.type === "text").map((c: { text: string }) => c.text).join("");
 }
+/** Public share links (Google Drive, Dropbox, OneDrive, WeTransfer-style direct links) → direct download URLs. */
+function shareLinks(text: string): { url: string; label: string }[] {
+  const out: { url: string; label: string }[] = [], seen = new Set<string>();
+  const add = (url: string, label: string) => { if (!seen.has(url)) { seen.add(url); out.push({ url, label }); } };
+  for (const m of text.matchAll(/https?:\/\/drive\.google\.com\/(?:file\/d\/|open\?id=|uc\?(?:export=download&)?id=)([\w-]{20,})/g)) add(`https://drive.google.com/uc?export=download&id=${m[1]}`, `drive-${m[1].slice(0, 8)}`);
+  for (const m of text.matchAll(/https?:\/\/docs\.google\.com\/spreadsheets\/d\/([\w-]{20,})/g)) add(`https://docs.google.com/spreadsheets/d/${m[1]}/export?format=xlsx`, `sheet-${m[1].slice(0, 8)}.xlsx`);
+  for (const m of text.matchAll(/https?:\/\/(?:www\.)?dropbox\.com\/[^\s"'<>)]+/g)) add(m[0].replace(/([?&])dl=0/, "$1dl=1") + (/[?&]dl=/.test(m[0]) ? "" : (m[0].includes("?") ? "&" : "?") + "dl=1"), "dropbox");
+  return out.slice(0, 8);
+}
+/** Download one shared file (max 20 MB). Folders and private links are skipped with a note. */
+async function fetchShared(url: string, label: string): Promise<{ name: string; type: string; bytes: Uint8Array } | { note: string }> {
+  try {
+    const r = await fetch(url, { redirect: "follow" });
+    if (!r.ok) return { note: `${label}: link not public or not found (${r.status})` };
+    const type = r.headers.get("content-type") || "application/octet-stream";
+    if (/text\/html/i.test(type)) return { note: `${label}: this is a folder or a private file. Ask the client to share each file with "Anyone with the link".` };
+    const len = Number(r.headers.get("content-length") || 0);
+    if (len > 20 * 1024 * 1024) return { note: `${label}: file is larger than 20 MB, open it from the link.` };
+    const bytes = new Uint8Array(await r.arrayBuffer());
+    if (bytes.length > 20 * 1024 * 1024) return { note: `${label}: file is larger than 20 MB, open it from the link.` };
+    const cd = r.headers.get("content-disposition") || "";
+    const name = decodeURIComponent((cd.match(/filename\*=UTF-8''([^;]+)/i) || cd.match(/filename="?([^";]+)"?/i) || [, label])[1]);
+    return { name, type, bytes };
+  } catch (e) { return { note: `${label}: could not download (${(e as Error).message})` }; }
+}
+
 function asJson(t: string) {
   const fence = t.match(/```(?:json)?\s*([\s\S]*?)```/);
   const s = fence ? fence[1] : t.slice(Math.min(...["{", "["].map((c) => (t.indexOf(c) < 0 ? Infinity : t.indexOf(c)))));
@@ -53,6 +92,7 @@ Deno.serve(async (req) => {
     if (!prof?.active) return json({ error: "Account not active" }, 403);
     const role = prof.role as string;
     const { task, ...p } = await req.json();
+    try { const { data: rl } = await admin.from("preferences").select("value").eq("key", "rules").maybeSingle(); RULES = ((rl?.value as any)?.list || []).slice(-30).map((r: any) => `- ${r.action_for_agents || r.observed_rule}`).join("\n"); } catch { RULES = ""; }
 
     if (task === "parse") {
       const lang = LANG[p.lang] ?? "Urdu";
@@ -330,6 +370,69 @@ Company profile (the ONLY facts you may state about the company; never invent pr
 Purpose: introduce our stone / marble / granite / porcelain cladding and flooring work and ask if they have current or upcoming projects where we could quote (BOQ / drawings welcome). 90-140 words, specific to their role and city, plain and respectful, one clear question, no hype, no pressure, no fake urgency. ${p.kind === "follow-up" ? "One short gentle reminder only." : ""}
 Last line: "If you prefer not to receive emails from us, just reply 'no thanks' and we will not write again." (in ${lang}).
 Return JSON only: {"subject":"<short, specific, not salesy>","body":""}`, { max: 1200 })));
+    }
+
+    // ───────── Files shared as links in a query (Google Drive, Google Sheets, Dropbox) → downloaded and attached. ─────────
+    if (task === "attach_links") {
+      if (role !== "admin") return json({ error: "Only Super-Admin" }, 403);
+      const { data: q } = await admin.from("inquiries").select("body, attachments").eq("id", p.inquiry_id).single();
+      if (!q) return json({ error: "Query not found" }, 404);
+      let body = String(q.body || ""); const atts = [...(q.attachments || [])]; const notes: string[] = []; let added = 0;
+      for (const l of shareLinks(body + "\n" + String(p.text || ""))) {
+        const f = await fetchShared(l.url, l.label);
+        if ("note" in f) { notes.push(f.note); continue; }
+        const path = `${new Date().toISOString().slice(0, 10)}/${crypto.randomUUID()}-${f.name.replace(/[^\w.\-]+/g, "_")}`;
+        const up = await admin.storage.from("inbox").upload(path, f.bytes, { contentType: f.type });
+        if (up.error) { notes.push(`${f.name}: ${up.error.message}`); continue; }
+        atts.push({ path, name: f.name, type: f.type }); added++;
+        if (/\.(xlsx|xls|csv)$/i.test(f.name) || /spreadsheet|excel|csv/i.test(f.type)) {
+          try { const wb = XLSX.read(f.bytes, { type: "array" }); for (const sh of wb.SheetNames) body += `\n\n=== ${f.name} / ${sh} ===\n` + XLSX.utils.sheet_to_csv(wb.Sheets[sh], { blankrows: false }); } catch { /* keep the file */ }
+        }
+      }
+      if (notes.length) body += "\n\n" + notes.map((n) => `=== ${n} ===`).join("\n");
+      await admin.from("inquiries").update({ body: body.slice(0, 200000), attachments: atts }).eq("id", p.inquiry_id);
+      return json({ added, notes });
+    }
+
+    // ───────── Reply to a client query: the owner picks what to say, the AI writes it, he approves it into a Gmail draft. ─────────
+    if (task === "query_reply") {
+      if (role !== "admin") return json({ error: "Only Super-Admin" }, 403);
+      const { data: q } = await admin.from("inquiries").select("ref, subject, from_name, from_email, body, reading, deadline").eq("id", p.inquiry_id).single();
+      if (!q) return json({ error: "Query not found" }, 404);
+      const KINDS: Record<string, string> = {
+        received: "Thank them, confirm we received the enquiry and its files, and say when they can expect our quotation (use the date given by the owner, or say 'within the requested deadline').",
+        missing: "Thank them and politely ask for the missing documents / information listed below, explaining the price depends on them.",
+        rfi: "Ask the technical clarification questions listed below, numbered, before we can price accurately.",
+        quotation: "Send our quotation: say it is attached, give the total before VAT and with 15% VAT exactly as given below, validity and payment terms as given. Invite questions and a meeting.",
+        decline: "Politely decline this enquiry for the reason given, keep the door open for future projects.",
+        custom: "Write what the owner asks for below.",
+      };
+      const lang = p.lang === "ar" ? "Arabic" : "English";
+      return json(asJson(await claude(`Write an email reply in ${lang} from "${p.signature || "Al-Swati Contracting"}" to ${q.from_name || "the client"} about their enquiry "${q.subject || q.ref}" (our ref ${q.ref}).
+Purpose: ${KINDS[p.kind] || KINDS.custom}
+Details from the owner (use exactly, never change numbers): ${String(p.details || "-").slice(0, 4000)}
+Their email (for context only): """${String(q.body || "").slice(0, 3000)}"""
+Short, polite, professional Saudi business tone. No invented facts, prices, dates or promises.
+Return JSON only: {"subject":"<Re: ... >","body":"<email text>"}`, { max: 1500 })));
+    }
+
+    // ───────── Technical proposal: company profile + quotation + what was read from the specs → proposal sections. ─────────
+    if (task === "tech_proposal") {
+      if (role !== "admin") return json({ error: "Only Super-Admin" }, 403);
+      const { data: q } = await admin.from("quotes").select("title, client, lines, rfq").eq("id", p.quote_id).single();
+      if (!q) return json({ error: "Quotation not found" }, 404);
+      let reading: any = null;
+      if (q.rfq?.inquiry_id) { const { data: inq } = await admin.from("inquiries").select("reading").eq("id", q.rfq.inquiry_id).maybeSingle(); reading = inq?.reading?.a || null; }
+      const { data: prof } = await admin.from("preferences").select("value").eq("key", "company_profile").maybeSingle();
+      const lines = (q.lines || []).map((l: any, i: number) => ({ i: i + 1, desc: l.desc, qty: l.qty, unit: l.unit }));
+      return json(asJson(await claude(`Write the technical proposal (not the price) that a stone, marble, granite and porcelain cladding / flooring contractor in Saudi Arabia submits with its bid.
+Project: "${q.title}" for ${q.client || "the client"}.
+Scope (quotation lines, quantities as given): ${JSON.stringify(lines).slice(0, 15000)}
+Specification points read from the tender documents: ${JSON.stringify(reading?.specs || []).slice(0, 8000)}
+Owner's choices: fixing method = ${p.fixing || "as per specification"}; stone origin = ${p.origin || "as per specification"}; programme start = ${p.start || "on award"}; site team = ${p.team || "not stated"}; notes = ${p.notes || "-"}.
+Company profile (the ONLY facts you may state about the company; never invent projects, clients, years, certificates or staff numbers): ${JSON.stringify(prof?.value || {})}
+Write in ${p.lang === "ar" ? "Arabic" : "English"}. Practical, specific to this scope, standard good practice in Saudi Arabia (SBC, manufacturer instructions, consultant approval of samples and shop drawings). Where the spec is silent, write "to be confirmed with the consultant" instead of guessing. The programme must come from the quantities and a stated daily output assumption (say the assumption). Keep each section 100-250 words.
+Return JSON only: {"sections":[{"title":"1. Understanding of the project and scope","body":"<markdown: paragraphs and - bullets>"},{"title":"2. Materials and specifications","body":""},{"title":"3. Method statement","body":""},{"title":"4. Programme","body":""},{"title":"5. Quality assurance and control","body":""},{"title":"6. Health, safety and environment","body":""},{"title":"7. Submittals and approvals","body":""},{"title":"8. Assumptions and exclusions","body":""}],"open_points":["<what the owner must confirm before sending>"]}`, { max: 7000 })));
     }
 
     return json({ error: "Unknown task" }, 400);
