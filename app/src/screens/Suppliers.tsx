@@ -1,5 +1,5 @@
 // Supplier directory and price requests. The AI writes the message; you send it yourself from WhatsApp 1, WhatsApp 2 or email.
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import { Linking, View } from "react-native";
 import { useFlows } from "../components/Flows";
 import { useData } from "../lib/data";
@@ -13,6 +13,10 @@ const CATS = ["Marble", "Granite", "Porcelain", "Ceramic", "Civil", "Fixing", "O
 const coreName = (n: string) => norm(n).replace(/\b(est|establishment|co|company|trading|llc|ltd|factory|group|for|and)\b|مؤسسه|شركه|مصنع|للتجاره|التجاريه|مجموعه/g, " ").replace(/\s+/g, " ").trim();
 const sameName = (a: string, b: string) => { const x = coreName(a), y = coreName(b); return !!x && !!y && (x === y || x.includes(y) || y.includes(x)); };
 const guessCats = (desc: string) => { const n = norm(desc); return CATS.filter((c) => (c === "Marble" && /marble|رخام|crema|carrara/.test(n)) || (c === "Granite" && /granite|جرانيت|غرانيت/.test(n)) || (c === "Porcelain" && /porcelain|بورسلان/.test(n)) || (c === "Ceramic" && /ceramic|سيراميك/.test(n)) || (c === "Civil" && /cement|sand|اسمنت|رمل|screed/.test(n)) || (c === "Fixing" && /adhesive|grout|anchor|لاصق/.test(n))); };
+const digits = (s: any) => String(s || "").replace(/\D/g, "");
+/** Already in the list: same name and the same phone (or no phone on either). The database refuses such a copy too. */
+const twin = (list: any[], name: string, phone: any, id?: string) => list.find((x: any) => x.id !== id && norm(x.name) === norm(name) && digits(x.phone) === digits(phone));
+const dupMsg = (e: any) => (/suppliers_one_per_name_phone|duplicate key/i.test(String(e?.message || e)) ? "This supplier (same name and phone) is already in the list." : String(e?.message || e));
 const waNumber = (s: string) => { let n = String(s || "").replace(/\D/g, ""); if (n.startsWith("00")) n = n.slice(2); if (n.startsWith("05")) n = "966" + n.slice(1); return n; };
 
 export default function Suppliers() {
@@ -21,13 +25,16 @@ export default function Suppliers() {
   const [f, setF] = useState<any>(null), [err, setErr] = useState(""), [busy, setBusy] = useState(false), [q, setQ] = useState(""), [find, setFind] = useState(false);
   const reqs = d.supplier_requests || [];
   const list = (d.suppliers || []).filter((s: any) => !q || norm([s.name, s.city, ...(s.categories || [])].join(" ")).includes(norm(q)));
+  const saving = useRef(false); // a double tap saves once
   const save = async () => {
+    if (saving.current) return; saving.current = true;
     setErr(""); setBusy(true);
     try { const row = { name: String(f.name || "").trim(), city: f.city, cr_no: f.cr_no, cr_verified: !!f.cr_verified, phone: f.phone, whatsapp: f.whatsapp, email: f.email, categories: f.categories, lang: f.lang, notes: f.notes, website: f.website || null };
       if (!row.name) throw new Error("Name is required");
+      if (twin(d.suppliers || [], row.name, row.phone, f.id)) throw new Error(`${row.name} with this phone is already in the list: open it there and edit it.`);
       if (f.id) await update("suppliers", f.id, row); else { const r = await insert("suppliers", row); if (r?.queued) throw new Error("No internet: it will be saved when the phone is online."); }
       await reload(["suppliers"]); setF(null);
-    } catch (e: any) { setErr(e?.message || String(e)); } finally { setBusy(false); }
+    } catch (e: any) { setErr(dupMsg(e)); } finally { setBusy(false); saving.current = false; }
   };
   return (
     <Screen>
@@ -149,9 +156,12 @@ function FindSuppliers({ onClose }: { onClose: () => void }) {
     catch (e: any) { setErr(e.message); } finally { setBusy(false); }
   };
   const add = async (s: any) => {
+    if (added.includes(s.name)) return;
+    if (twin(d.suppliers || [], s.name, s.phone)) { setAdded([...added, s.name]); return; }
     const cats = (s.categories || []).filter((k: string) => CATS.includes(k));
-    await insert("suppliers", { name: s.name, city: s.city || city, phone: s.phone || null, whatsapp: s.whatsapp || null, email: s.email || null, website: s.website || null, cr_no: s.cr_no || null,
-      categories: cats.length ? cats : guessCats(m), lang: "ar", notes: [s.note, s.source_url && `Found at: ${s.source_url}`].filter(Boolean).join("\n"), source: "ai-search", approved: false });
+    try { await insert("suppliers", { name: s.name, city: s.city || city, phone: s.phone || null, whatsapp: s.whatsapp || null, email: s.email || null, website: s.website || null, cr_no: s.cr_no || null,
+      categories: cats.length ? cats : guessCats(m), lang: "ar", notes: [s.note, s.source_url && `Found at: ${s.source_url}`].filter(Boolean).join("\n"), source: "ai-search", approved: false }); }
+    catch (e: any) { if (!/already in the list/.test(dupMsg(e))) { setErr(dupMsg(e)); return; } }
     setAdded([...added, s.name]);
   };
   return (
