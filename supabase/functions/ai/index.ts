@@ -34,6 +34,8 @@ let TASK = ""; // which task is running, for the usage log
 const LOG = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 let USER_ID: string | null = null; // who is asking (for the daily AI limit)
 let RULES = ""; // filled per request from preferences "rules" (the owner's feedback, "Teach your AI")
+// Answers come straight away: hidden "thinking" used up the whole token budget and left the page assistant with an empty reply.
+let NO_THINK = true;
 async function claude(prompt: string, opts: { images?: Img[]; model?: string; max?: number; webSearch?: number } = {}) {
   const chosen = opts.model ?? MODEL;
   if (chosen.startsWith("gemini")) {
@@ -47,11 +49,13 @@ async function claude(prompt: string, opts: { images?: Img[]; model?: string; ma
   const r = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: { "x-api-key": KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-    body: JSON.stringify({ model: opts.model ?? MODEL, max_tokens: opts.max ?? 2000,
+    body: JSON.stringify({ model: opts.model ?? MODEL, max_tokens: opts.max ?? 2000, ...(NO_THINK ? { thinking: { type: "disabled" } } : {}),
       system: [{ type: "text", text: GUIDE + (RULES ? `\nThe owner's own rules (always follow):\n${RULES}` : ""), cache_control: { type: "ephemeral" } }],
       messages: [{ role: "user", content }],
       ...(opts.webSearch ? { tools: [{ type: "web_search_20250305", name: "web_search", max_uses: opts.webSearch, user_location: { type: "approximate", country: "SA" } }] } : {}) }),
   });
+  // A model that does not accept the thinking switch: send the same request again without it.
+  if (r.status === 400 && NO_THINK && /thinking/i.test(await r.clone().text())) { NO_THINK = false; return claude(prompt, opts); }
   if (!r.ok) throw new Error(`AI ${r.status}: ${(await r.text()).slice(0, 300)}`);
   const j = await r.json();
   // Usage log: every call's tokens are counted per task, so the owner sees where the AI money goes.
