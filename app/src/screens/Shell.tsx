@@ -8,6 +8,8 @@ import { useFlows } from "../components/Flows";
 import { useData } from "../lib/data";
 import { startTracking } from "../lib/location";
 import { supabase } from "../lib/supabase";
+import { useAutopilot } from "../lib/pipeline";
+import { priceHint } from "./Quotes";
 import Svg, { Path } from "react-native-svg";
 import { Btn, Card, DEEP, H2, Icon, Screen, T, Tile, useColors, useDir, useWide } from "../ui";
 import * as Abu from "./Abu";
@@ -75,6 +77,7 @@ const SUBS: Record<string, React.ComponentType<any>> = { rfis: RFIs, growth: Gro
 export default function Shell() {
   const { role, online, pending, failed, dropFailed, t } = useData(); const c = useColors(); const { row } = useDir();
   const { lang, profile } = useData();
+  useAutopilot(priceHint); // reads new client queries and drafts their quotations by itself
   const ABU_LABELS: Record<string, [string, string, string]> = { home: ["الرئيسية", "ہوم", "Home"], money: ["الحسابات", "حسابات", "Accounts"], vat: ["الضريبة", "VAT", "VAT"], suppliers: ["الموردون", "سپلائرز", "Suppliers"], quotes: ["العروض", "کوٹیشن", "Quotes"] };
   const tabs = role === "abu" ? TABS.abu.map((x) => ({ ...x, label: ABU_LABELS[x.key][lang === "ur" ? 1 : lang === "en" ? 2 : 0] })) : TABS[role];
   const [tab, setTab] = useState(tabs[0].key), [sub, setSub] = useState<string | null>(null);
