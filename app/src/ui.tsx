@@ -6,23 +6,30 @@ import { Check } from "./lib/checks";
 import { useData } from "./lib/data";
 import { signedUrl } from "./lib/files";
 
-const LIGHT = { bg: "#EAF2EE", surface: "#FFFFFF", sunk: "#E9ECE8", line: "#D6DCD7", ink: "#18211E", muted: "#4F5C57", accent: "#0E6B5C", accentInk: "#FFFFFF", accentSoft: "#E2F0EC", good: "#1E7A46", goodSoft: "#E3F3E8", warn: "#9A5B00", warnSoft: "#FBF0DC", bad: "#B42318", badSoft: "#FBE7E5" };
-const DARK = { bg: "#111715", surface: "#19211E", sunk: "#202A27", line: "#2E3A36", ink: "#E8EEEB", muted: "#A3B1AC", accent: "#3FB59C", accentInk: "#06120F", accentSoft: "#163A33", good: "#5CC98A", goodSoft: "#163323", warn: "#E3A84A", warnSoft: "#3A2C12", bad: "#F2877C", badSoft: "#3D1B18" };
+// Palette taken from the material itself: honed grey granite for the page, white for paper, verde-marble green for actions.
+const LIGHT = { bg: "#EEF0EE", surface: "#FFFFFF", sunk: "#F5F6F5", line: "#DCE0DD", ink: "#1A2320", muted: "#5D6965", accent: "#17594C", accentInk: "#FFFFFF", accentSoft: "#E6EFEC", good: "#2C7350", goodSoft: "#E6F1EA", warn: "#9A5E10", warnSoft: "#F8EEDD", bad: "#B23A2E", badSoft: "#F8E6E3" };
+const DARK = { bg: "#121816", surface: "#1A2220", sunk: "#202926", line: "#2C3733", ink: "#E6ECE9", muted: "#9DAAA5", accent: "#5FB8A2", accentInk: "#0B1613", accentSoft: "#17322B", good: "#6CC394", goodSoft: "#173024", warn: "#DDA552", warnSoft: "#35290F", bad: "#EE8A7E", badSoft: "#3A1C18" };
 export type Colors = typeof LIGHT;
-/** Deep green used for the hero banner, sidebar and splash (same in light and dark). */
-export const DEEP = { bg: "#0F3B31", bg2: "#155244", ink: "#F2FBF7", muted: "#A9CFC2", glow: "#3FB59C" };
+/** Verde-marble green-black for the sidebar and splash (same in light and dark). */
+export const DEEP = { bg: "#11261F", bg2: "#1A352C", ink: "#EEF3F0", muted: "#93A79F", glow: "#7CC4AF" };
 const web = Platform.OS === "web";
+// One type family for the whole app: IBM Plex Sans (Latin) + IBM Plex Sans Arabic, with tabular figures for money.
+if (web && typeof document !== "undefined" && !document.getElementById("al-swati-type")) {
+  const l = document.createElement("link"); l.id = "al-swati-type"; l.rel = "stylesheet";
+  l.href = "https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Sans+Arabic:wght@400;500;600&display=swap";
+  document.head.appendChild(l);
+  const st = document.createElement("style");
+  st.textContent = `*{font-family:"IBM Plex Sans","IBM Plex Sans Arabic",system-ui,-apple-system,"Segoe UI",sans-serif !important;font-variant-numeric:tabular-nums}`;
+  document.head.appendChild(st);
+}
 /** Laptop-size window: sidebar layout and wider grids. */
 export const useWide = () => useWindowDimensions().width >= 960;
-const lift = (hovered?: boolean, pressed?: boolean): any => web
-  ? { transform: [{ translateY: hovered && !pressed ? -3 : 0 }], boxShadow: hovered ? "0 10px 24px rgba(15,59,49,0.14)" : "0 1px 2px rgba(15,59,49,0.06)", transitionDuration: "180ms", transitionProperty: "transform, box-shadow", cursor: "pointer" }
-  : {};
+// Clickable surfaces only change their border on hover: no lifting, no shadows.
+const lift = (hovered?: boolean, _pressed?: boolean): any => web ? { cursor: "pointer", borderColor: hovered ? "#B9C3BE" : undefined } : {};
 
-/** Cards fade and slide in, one after another (delay = order × 60 ms). */
-export function Rise({ children, i = 0, style }: { children: React.ReactNode; i?: number; style?: any }) {
-  const v = useRef(new Animated.Value(0)).current;
-  useEffect(() => { Animated.timing(v, { toValue: 1, duration: 420, delay: Math.min(i, 12) * 60, easing: Easing.out(Easing.cubic), useNativeDriver: !web }).start(); }, []);
-  return <Animated.View style={[style, { opacity: v, transform: [{ translateY: v.interpolate({ inputRange: [0, 1], outputRange: [14, 0] }) }] }]}>{children}</Animated.View>;
+/** Layout wrapper (kept for older screens). Content appears at once: no entrance animation. */
+export function Rise({ children, style }: { children: React.ReactNode; i?: number; style?: any }) {
+  return <View style={style}>{children}</View>;
 }
 export const useColors = () => (useColorScheme() === "dark" ? DARK : LIGHT);
 
@@ -34,24 +41,26 @@ export function useDir() {
 
 export function Screen({ children, scroll = true }: { children: React.ReactNode; scroll?: boolean }) {
   const c = useColors();
+  const wide = useWide();
+  const inner: ViewStyle = { width: "100%", maxWidth: 1240, alignSelf: "center", padding: wide ? 32 : 16, paddingBottom: 120, gap: wide ? 18 : 14 };
   return (
     <SafeAreaView edges={["top"]} style={{ flex: 1, backgroundColor: c.bg }}>
-      {scroll ? <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 120, gap: 14 }} keyboardShouldPersistTaps="handled">{children}</ScrollView> : <View style={{ flex: 1, padding: 16, gap: 14 }}>{children}</View>}
+      {scroll ? <ScrollView contentContainerStyle={inner} keyboardShouldPersistTaps="handled">{children}</ScrollView> : <View style={[inner, { flex: 1 }]}>{children}</View>}
     </SafeAreaView>
   );
 }
 
 export function T({ children, size = 15, bold, muted, color, style, center, numberOfLines }: { children: React.ReactNode; size?: number; bold?: boolean; muted?: boolean; color?: string; style?: TextStyle; center?: boolean; numberOfLines?: number }) {
   const c = useColors(), { align, rtl } = useDir();
-  return <Text numberOfLines={numberOfLines} style={[{ fontSize: size, color: color ?? (muted ? c.muted : c.ink), fontWeight: bold ? "700" : "400", textAlign: center ? "center" : align, writingDirection: rtl ? "rtl" : "ltr", lineHeight: size * 1.4 }, style]}>{children}</Text>;
+  return <Text numberOfLines={numberOfLines} style={[{ fontSize: size, color: color ?? (muted ? c.muted : c.ink), fontWeight: bold ? "600" : "400", textAlign: center ? "center" : align, writingDirection: rtl ? "rtl" : "ltr", lineHeight: Math.round(size * 1.45) }, style]}>{children}</Text>;
 }
-export const H1 = ({ children }: { children: React.ReactNode }) => <T size={24} bold>{children}</T>;
-export const H2 = ({ children }: { children: React.ReactNode }) => <T size={18} bold>{children}</T>;
+export const H1 = ({ children }: { children: React.ReactNode }) => <T size={26} bold style={{ letterSpacing: -0.4, lineHeight: 32 }}>{children}</T>;
+export const H2 = ({ children }: { children: React.ReactNode }) => <T size={16} bold>{children}</T>;
 
 export function Card({ children, style, onPress }: { children: React.ReactNode; style?: ViewStyle; onPress?: () => void }) {
   const c = useColors();
-  const s: any[] = [{ backgroundColor: c.surface, borderColor: c.line, borderWidth: 1, borderRadius: 18, padding: 16, gap: 10 }, web && { boxShadow: "0 1px 2px rgba(15,59,49,0.06)" }, style];
-  return onPress ? <Pressable onPress={onPress} style={({ pressed, hovered }: any) => [...s, lift(hovered, pressed), pressed && { opacity: 0.8 }]}>{children}</Pressable> : <View style={s}>{children}</View>;
+  const s: any[] = [{ backgroundColor: c.surface, borderColor: c.line, borderWidth: 1, borderRadius: 10, padding: 16, gap: 10 }, style];
+  return onPress ? <Pressable onPress={onPress} style={({ pressed, hovered }: any) => [...s, lift(hovered, pressed), pressed && { backgroundColor: c.sunk }]}>{children}</Pressable> : <View style={s}>{children}</View>;
 }
 
 export function Row({ children, style, wrap }: { children: React.ReactNode; style?: ViewStyle; wrap?: boolean }) {
@@ -66,10 +75,10 @@ export function Btn({ title, onPress, kind = "default", disabled, busy, big, sty
   // Buttons take the width of their words (never a full-width bar); "big" ones are a little taller and at least 180 wide.
   return (
     <Pressable accessibilityRole="button" disabled={disabled || busy} onPress={onPress}
-      style={({ pressed, hovered }: any) => [{ alignSelf: "flex-start", minHeight: big ? 50 : 40, minWidth: big ? 180 : undefined, paddingHorizontal: big ? 22 : 14, borderRadius: 12, backgroundColor: bg, borderWidth: kind === "ghost" ? 0 : 1, borderColor: kind === "primary" ? c.accent : kind === "danger" ? c.bad : c.line, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 8, opacity: disabled ? 0.45 : pressed ? 0.75 : 1 },
-        web && !disabled ? { cursor: "pointer", transitionDuration: "150ms", transitionProperty: "transform, box-shadow", transform: [{ translateY: hovered && !pressed ? -1 : 0 }], boxShadow: hovered && kind !== "ghost" ? "0 4px 12px rgba(15,59,49,0.12)" : "none" } : null, style]}>
+      style={({ pressed, hovered }: any) => [{ alignSelf: "flex-start", minHeight: big ? 44 : 36, minWidth: big ? 160 : undefined, paddingHorizontal: big ? 18 : 12, borderRadius: 8, backgroundColor: bg, borderWidth: kind === "ghost" ? 0 : 1, borderColor: kind === "primary" ? c.accent : kind === "danger" ? "#E3B5AF" : c.line, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 7, opacity: disabled ? 0.45 : 1 },
+        web && !disabled ? { cursor: "pointer", backgroundColor: hovered || pressed ? (kind === "primary" ? "#124A3F" : kind === "ghost" ? c.accentSoft : c.sunk) : bg } : null, style]}>
       {busy ? <ActivityIndicator color={fg} /> : icon}
-      <Text style={{ color: fg, fontSize: big ? 17 : 15, fontWeight: "700" }}>{title}</Text>
+      <Text style={{ color: kind === "ghost" ? c.accent : fg, fontSize: big ? 15 : 14, fontWeight: "600" }}>{title}</Text>
     </Pressable>
   );
 }
@@ -78,10 +87,10 @@ export function Field({ label, value, onChange, numeric, multiline, placeholder,
   const c = useColors(), { align, rtl } = useDir();
   return (
     <View style={[{ gap: 4, flex: 1, minWidth: 120 }, style]}>
-      {label ? <T size={13} muted>{label}{required ? <Text style={{ color: c.bad, fontWeight: "800" }}> *</Text> : null}</T> : null}
-      <TextInput value={value == null ? "" : String(value)} onChangeText={onChange} placeholder={placeholder} placeholderTextColor={c.muted}
+      {label ? <T size={13} muted style={{ fontWeight: "500" }}>{label}{required ? <Text style={{ color: c.bad, fontWeight: "600" }}> *</Text> : null}</T> : null}
+      <TextInput value={value == null ? "" : String(value)} onChangeText={onChange} placeholder={placeholder} placeholderTextColor="#9AA4A0"
         keyboardType={numeric ? "decimal-pad" : "default"} multiline={multiline}
-        style={{ minHeight: multiline ? 110 : 48, borderWidth: 1, borderColor: c.line, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, backgroundColor: c.surface, color: c.ink, fontSize: 17, textAlign: numeric ? "left" : align, writingDirection: rtl && !numeric ? "rtl" : "ltr", textAlignVertical: multiline ? "top" : "center" }} />
+        style={{ minHeight: multiline ? 104 : 40, borderWidth: 1, borderColor: c.line, borderRadius: 8, paddingHorizontal: 11, paddingVertical: 8, backgroundColor: c.surface, color: c.ink, fontSize: 15, textAlign: numeric ? "left" : align, writingDirection: rtl && !numeric ? "rtl" : "ltr", textAlignVertical: multiline ? "top" : "center" }} />
     </View>
   );
 }
@@ -91,16 +100,16 @@ export function Select({ label, value, options, onChange, style }: { label?: str
   const cur = options.find((o) => o.value === value);
   return (
     <View style={[{ gap: 4, flex: 1, minWidth: 140 }, style]}>
-      {label ? <T size={13} muted>{label}</T> : null}
-      <Pressable onPress={() => setOpen(true)} style={{ minHeight: 48, borderWidth: 1, borderColor: c.line, borderRadius: 10, paddingHorizontal: 12, justifyContent: "center", backgroundColor: c.surface }}>
-        <T size={17} muted={!cur}>{cur ? cur.label : "—"}  ▾</T>
+      {label ? <T size={13} muted style={{ fontWeight: "500" }}>{label}</T> : null}
+      <Pressable onPress={() => setOpen(true)} style={({ hovered }: any) => ({ minHeight: 40, borderWidth: 1, borderColor: hovered ? "#B9C3BE" : c.line, borderRadius: 8, paddingHorizontal: 11, flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: c.surface, cursor: "pointer" } as any)}>
+        <T size={15} muted={!cur} style={{ flex: 1 }} numberOfLines={1}>{cur ? cur.label : "—"}</T><Text style={{ color: c.muted, fontSize: 11 }}>▼</Text>
       </Pressable>
       <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
         <Pressable style={{ flex: 1, backgroundColor: "rgba(0,0,0,.45)", justifyContent: "center", padding: 24 }} onPress={() => setOpen(false)}>
-          <View style={{ backgroundColor: c.surface, borderRadius: 16, maxHeight: "70%", overflow: "hidden" }}>
+          <View style={{ backgroundColor: c.surface, borderRadius: 10, maxHeight: "70%", width: "100%", maxWidth: 420, alignSelf: "center", overflow: "hidden" }}>
             <FlatList data={options} keyExtractor={(o, i) => String(o.value) + i} renderItem={({ item }) => (
-              <Pressable onPress={() => { onChange(item.value); setOpen(false); }} style={{ padding: 16, borderBottomWidth: 1, borderColor: c.line, backgroundColor: item.value === value ? c.accentSoft : c.surface }}>
-                <T size={17}>{item.label}</T>
+              <Pressable onPress={() => { onChange(item.value); setOpen(false); }} style={{ paddingVertical: 12, paddingHorizontal: 16, borderBottomWidth: 1, borderColor: c.line, backgroundColor: item.value === value ? c.accentSoft : c.surface }}>
+                <T size={15}>{item.label}</T>
               </Pressable>)} />
           </View>
         </Pressable>
@@ -112,7 +121,7 @@ export function Select({ label, value, options, onChange, style }: { label?: str
 export function Pill({ text, kind = "plain" }: { text: string; kind?: "plain" | "good" | "warn" | "bad" | "acc" }) {
   const c = useColors();
   const m = { plain: [c.sunk, c.muted], good: [c.goodSoft, c.good], warn: [c.warnSoft, c.warn], bad: [c.badSoft, c.bad], acc: [c.accentSoft, c.accent] }[kind];
-  return <View style={{ backgroundColor: m[0], borderRadius: 999, paddingHorizontal: 9, paddingVertical: 2, alignSelf: "flex-start" }}><Text style={{ color: m[1], fontSize: 12, fontWeight: "700" }}>{text}</Text></View>;
+  return <View style={{ backgroundColor: m[0], borderRadius: 5, paddingHorizontal: 7, paddingVertical: 2, alignSelf: "flex-start" }}><Text style={{ color: m[1], fontSize: 12, fontWeight: "500" }}>{text}</Text></View>;
 }
 
 export function Checks({ list, title }: { list: Check[]; title?: string }) {
@@ -123,7 +132,7 @@ export function Checks({ list, title }: { list: Check[]; title?: string }) {
       {list.length > 0 && !list.some((x) => x.s !== "good") ? <T size={13} color={c.good}>✓ {list.length} checks passed</T> : null}
       {Object.values(list.filter((x) => x.s !== "good").reduce((m: Record<string, Check & { n: number }>, x) => { const k = x.s + "|" + x.text; m[k] ? m[k].n++ : (m[k] = { ...x, n: 1 }); return m; }, {})).map((x, i) => {
         const [bg, fg, mark] = x.s === "bad" ? [c.badSoft, c.bad, "✕"] : x.s === "warn" ? [c.warnSoft, c.warn, "!"] : [c.goodSoft, c.good, "✓"];
-        return <View key={i} style={{ flexDirection: row, gap: 8, backgroundColor: bg, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 7 }}><Text style={{ color: fg, fontWeight: "800", width: 16 }}>{mark}</Text><T size={14} color={fg} style={{ flex: 1 }}>{x.text}{x.n > 1 ? `  ×${x.n}` : ""}</T></View>;
+        return <View key={i} style={{ flexDirection: row, gap: 8, backgroundColor: bg, borderRadius: 6, paddingHorizontal: 10, paddingVertical: 6 }}><Text style={{ color: fg, fontWeight: "600", width: 16 }}>{mark}</Text><T size={14} color={fg} style={{ flex: 1 }}>{x.text}{x.n > 1 ? `  ×${x.n}` : ""}</T></View>;
       })}
     </View>
   );
@@ -133,10 +142,10 @@ export function Sheet({ open, onClose, title, children }: { open: boolean; onClo
   const c = useColors(); const { t } = useData(); const wide = useWide();
   if (web && wide) return (
     <Modal visible={open} transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable onPress={onClose} style={{ flex: 1, backgroundColor: "rgba(10,30,25,0.45)", alignItems: "center", justifyContent: "center", padding: 24 }}>
-        <Pressable onPress={() => {}} style={{ width: "100%", maxWidth: 760, maxHeight: "92%", backgroundColor: c.bg, borderRadius: 24, overflow: "hidden", boxShadow: "0 24px 60px rgba(0,0,0,0.25)" } as any}>
-          <Row style={{ paddingHorizontal: 22, paddingVertical: 16, borderBottomWidth: 1, borderColor: c.line }}><View style={{ flex: 1 }}><H2>{title}</H2></View><Btn kind="ghost" title="✕" onPress={onClose} /></Row>
-          <ScrollView contentContainerStyle={{ padding: 22, gap: 14, paddingBottom: 30 }} keyboardShouldPersistTaps="handled">{children}</ScrollView>
+      <Pressable onPress={onClose} style={{ flex: 1, backgroundColor: "rgba(17,38,31,0.42)", alignItems: "center", justifyContent: "center", padding: 24 }}>
+        <Pressable onPress={() => {}} style={{ width: "100%", maxWidth: 760, maxHeight: "92%", backgroundColor: c.surface, borderRadius: 12, overflow: "hidden", boxShadow: "0 18px 48px rgba(17,38,31,0.22)" } as any}>
+          <Row style={{ paddingHorizontal: 24, paddingVertical: 14, borderBottomWidth: 1, borderColor: c.line }}><View style={{ flex: 1 }}><T size={18} bold>{title}</T></View><Btn kind="ghost" title="✕" onPress={onClose} /></Row>
+          <ScrollView contentContainerStyle={{ padding: 24, gap: 14, paddingBottom: 30 }} keyboardShouldPersistTaps="handled">{children}</ScrollView>
         </Pressable>
       </Pressable>
     </Modal>
@@ -154,11 +163,25 @@ export function Sheet({ open, onClose, title, children }: { open: boolean; onClo
 export function Kpi({ label, value, hero, onPress }: { label: string; value: string; hero?: boolean; onPress?: () => void }) {
   const c = useColors();
   return (
-    <Pressable onPress={onPress} style={({ hovered }: any) => [{ flexGrow: 1, flexBasis: 170, backgroundColor: hero ? c.accent : c.surface, borderColor: hero ? c.accent : c.line, borderWidth: 1, borderRadius: 18, padding: 16, gap: 6 }, lift(hovered)]}>
-      <T size={12} color={hero ? c.accentInk : c.muted}>{label}</T>
-      <Text style={{ fontSize: 24, fontWeight: "800", color: hero ? c.accentInk : c.ink, fontVariant: ["tabular-nums"] }}>{value}</Text>
-      {onPress ? <T size={12} color={hero ? c.accentInk : c.accent}>Details ›</T> : null}
+    <Pressable disabled={!onPress} onPress={onPress} style={({ hovered }: any) => [{ flexGrow: 1, flexBasis: 170, backgroundColor: c.surface, borderColor: c.line, borderWidth: 1, borderRadius: 10, paddingVertical: 14, paddingHorizontal: 16, gap: 4 }, onPress ? lift(hovered) : null, hero ? { borderTopWidth: 3, borderTopColor: c.accent } : null]}>
+      <T size={13} muted>{label}</T>
+      <Text style={{ fontSize: 22, fontWeight: "600", letterSpacing: -0.3, color: c.ink, fontVariant: ["tabular-nums"] }}>{value}</Text>
+      {onPress ? <T size={12} color={c.accent}>View details</T> : null}
     </Pressable>
+  );
+}
+
+/** Several figures in one bordered strip with dividers (instead of a row of separate cards). */
+export function StatStrip({ items }: { items: { label: string; value: string; onPress?: () => void; tone?: "bad" }[] }) {
+  const c = useColors(), wide = useWide();
+  return (
+    <View style={{ flexDirection: wide ? "row" : "column", backgroundColor: c.surface, borderWidth: 1, borderColor: c.line, borderRadius: 10, overflow: "hidden" }}>
+      {items.map((x, i) => (
+        <Pressable key={x.label} disabled={!x.onPress} onPress={x.onPress} style={({ hovered }: any) => ({ flex: 1, paddingVertical: 14, paddingHorizontal: 16, gap: 3, borderColor: c.line, borderLeftWidth: wide && i ? 1 : 0, borderTopWidth: !wide && i ? 1 : 0, backgroundColor: hovered && x.onPress ? c.sunk : c.surface, cursor: x.onPress ? "pointer" : "default" } as any)}>
+          <T size={13} muted>{x.label}</T>
+          <T size={20} bold style={{ letterSpacing: -0.3 }} color={x.tone === "bad" ? c.bad : c.ink}>{x.value}</T>
+        </Pressable>))}
+    </View>
   );
 }
 
@@ -168,10 +191,10 @@ export function Table({ cols, rows, numeric = [] }: { cols: string[]; rows: (str
   const W = (i: number) => (numeric.includes(i) ? 100 : 150);
   const cell = (v: any, i: number, head = false) => (
     <View key={i} style={{ width: W(i), paddingHorizontal: 8, paddingVertical: 8 }}>
-      {typeof v === "string" || typeof v === "number" ? <Text style={{ color: head ? c.muted : c.ink, fontSize: head ? 12 : 14, fontWeight: head ? "700" : "400", textAlign: numeric.includes(i) ? "right" : rtl ? "right" : "left", fontVariant: ["tabular-nums"] }}>{v}</Text> : v}
+      {typeof v === "string" || typeof v === "number" ? <Text style={{ color: head ? c.muted : c.ink, fontSize: head ? 12 : 14, fontWeight: head ? "600" : "400", textAlign: numeric.includes(i) ? "right" : rtl ? "right" : "left", fontVariant: ["tabular-nums"] }}>{v}</Text> : v}
     </View>);
   return (
-    <ScrollView horizontal style={{ borderWidth: 1, borderColor: c.line, borderRadius: 14, backgroundColor: c.surface }}>
+    <ScrollView horizontal style={{ borderWidth: 1, borderColor: c.line, borderRadius: 10, backgroundColor: c.surface }}>
       <View style={{ flexDirection: rtl ? "column" : "column" }}>
         <View style={{ flexDirection: rtl ? "row-reverse" : "row", backgroundColor: c.sunk }}>{cols.map((h, i) => cell(h, i, true))}</View>
         {rows.length ? rows.map((r, j) => <View key={j} style={{ flexDirection: rtl ? "row-reverse" : "row", borderTopWidth: 1, borderColor: c.line }}>{r.map((v, i) => cell(v, i))}</View>)
@@ -222,9 +245,9 @@ export function Icon({ name, size = 22, color }: { name: string; size?: number; 
 export function Tile({ icon, title, sub, onPress, accent }: { icon: string; title: string; sub?: string; onPress: () => void; accent?: boolean }) {
   const c = useColors(), { start } = useDir();
   return (
-    <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed, hovered }: any) => [{ flexGrow: 1, flexBasis: "45%", minHeight: 108, borderRadius: 20, padding: 16, gap: 8, justifyContent: "center", alignItems: start, backgroundColor: accent ? c.accent : c.surface, borderWidth: 1, borderColor: accent ? c.accent : c.line, opacity: pressed ? 0.85 : 1 }, lift(hovered, pressed)]}>
-      <Icon name={icon} size={28} color={accent ? c.accentInk : c.accent} />
-      <T size={18} bold color={accent ? c.accentInk : c.ink}>{title}</T>
+    <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed, hovered }: any) => [{ flexGrow: 1, flexBasis: "45%", minHeight: 96, borderRadius: 12, padding: 16, gap: 6, justifyContent: "center", alignItems: start, backgroundColor: accent ? c.accent : c.surface, borderWidth: 1, borderColor: accent ? c.accent : c.line, opacity: pressed ? 0.88 : 1 }, accent ? (web ? { cursor: "pointer" } : null) : lift(hovered, pressed)]}>
+      <Icon name={icon} size={24} color={accent ? c.accentInk : c.accent} />
+      <T size={17} bold color={accent ? c.accentInk : c.ink}>{title}</T>
       {sub ? <T size={13} color={accent ? c.accentInk : c.muted}>{sub}</T> : null}
     </Pressable>
   );
@@ -236,8 +259,7 @@ export const s = StyleSheet.create({ grow: { flex: 1 } });
 /** Simple bar chart: one bar per label, value written above; the highest bar is solid accent. */
 export function Bars({ data, unit = "", height = 140 }: { data: { label: string; value: number }[]; unit?: string; height?: number }) {
   const c = useColors(); const max = Math.max(1, ...data.map((x) => x.value));
-  const v = useRef(new Animated.Value(0)).current;
-  useEffect(() => { v.setValue(0); Animated.timing(v, { toValue: 1, duration: 700, easing: Easing.out(Easing.cubic), useNativeDriver: false }).start(); }, [JSON.stringify(data)]);
+
   return (
     <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 10, height: height + 40 }}>
       {data.map((x, i) => {
@@ -245,7 +267,7 @@ export function Bars({ data, unit = "", height = 140 }: { data: { label: string;
         return (
           <View key={i} style={{ flex: 1, alignItems: "center", gap: 4 }}>
             <Text style={{ fontSize: 11, color: c.muted, fontVariant: ["tabular-nums"] }}>{x.value ? Math.round(x.value) + unit : ""}</Text>
-            <Animated.View style={{ width: "70%", maxWidth: 34, height: v.interpolate({ inputRange: [0, 1], outputRange: [4, h] }), borderRadius: 12, backgroundColor: top ? c.accent : c.accentSoft, borderWidth: top ? 0 : 1, borderColor: c.line }} />
+            <View style={{ width: "62%", maxWidth: 30, height: h, borderTopLeftRadius: 3, borderTopRightRadius: 3, backgroundColor: top ? c.accent : "#C9D8D2" }} />
             <Text style={{ fontSize: 12, color: c.muted }}>{x.label}</Text>
           </View>
         );
@@ -262,15 +284,15 @@ export function MonthCal({ marks = {} }: { marks?: Record<string, number> }) {
   const key = (dd: number) => `${y}-${String(m + 1).padStart(2, "0")}-${String(dd).padStart(2, "0")}`;
   return (
     <View style={{ gap: 8 }}>
-      <T bold size={16}>{now.toLocaleString("en", { month: "long", year: "numeric" })}</T>
+      <T bold size={15}>{now.toLocaleString("en", { month: "long", year: "numeric" })}</T>
       <View style={{ flexDirection: "row", flexWrap: "wrap" }}>
         {["S", "M", "T", "W", "T", "F", "S"].map((w, i) => <View key={"w" + i} style={{ width: "14.28%", alignItems: "center", paddingVertical: 4 }}><Text style={{ fontSize: 11, color: c.muted }}>{w}</Text></View>)}
         {cells.map((dd, i) => {
           const isToday = dd === now.getDate(), n = dd ? marks[key(dd)] || 0 : 0;
           return (
             <View key={i} style={{ width: "14.28%", alignItems: "center", paddingVertical: 3 }}>
-              {dd ? <View style={{ width: 30, height: 30, borderRadius: 15, alignItems: "center", justifyContent: "center", backgroundColor: isToday ? c.accent : "transparent" }}>
-                <Text style={{ fontSize: 13, color: isToday ? c.accentInk : c.ink, fontWeight: isToday ? "800" : "500" }}>{dd}</Text>
+              {dd ? <View style={{ width: 30, height: 30, borderRadius: 6, alignItems: "center", justifyContent: "center", backgroundColor: isToday ? c.accent : "transparent" }}>
+                <Text style={{ fontSize: 13, color: isToday ? c.accentInk : c.ink, fontWeight: isToday ? "600" : "400" }}>{dd}</Text>
                 {n > 0 && !isToday && <View style={{ position: "absolute", bottom: 2, width: 5, height: 5, borderRadius: 3, backgroundColor: c.accent }} />}
               </View> : null}
             </View>
