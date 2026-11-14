@@ -158,12 +158,12 @@ function QuerySheet({ q, onClose }: { q: any; onClose: () => void }) {
   const [rfi, setRfi] = useState<any>(null), [reply, setReply] = useState<any>(null), [links, setLinks] = useState("");
   const r = q.reading;
   const hasPrice = (desc: string) => !!matchItems(desc, d.items || [])[0];
-  const gates = r ? rfqGates(q.body || "", r.a || {}, r.b || {}, hasPrice) : [];
+  const gates = r && !r.error ? rfqGates(q.body || "", r.a || {}, r.b || {}, hasPrice) : [];
   const red = gates.some((g) => g.s === "bad");
   const lines = (r?.a?.lines || []) as any[];
   const read = async () => { setBusy(true); setErr(""); try { await ai("rfq", { inquiry_id: q.id }); } catch (e: any) { setErr(e.message); } finally { setBusy(false); } };
   const makeQuote = async () => {
-    await quoteFromQuery(q, d, insert, update, priceHint);
+    try { await quoteFromQuery(q, d, insert, update, priceHint); } catch (e: any) { setErr(e.message); return; }
     setMade("Quotation made. Open Quotations to check the rates (some may be filled from earlier quotations).");
   };
   return (
@@ -181,7 +181,8 @@ function QuerySheet({ q, onClose }: { q: any; onClose: () => void }) {
       <Btn big kind="primary" icon={<Icon name="spark" color={c.accentInk} />} title={r ? "Read again and check" : "Read with AI and check"} busy={busy} onPress={read} />
       {busy && <T muted>Two AI readers are going through the BOQ, drawings and Excel separately. This takes about a minute.</T>}
       {err ? <T color={c.bad}>{err}</T> : null}
-      {r && <>
+      {r?.error ? <T color={c.bad}>The automatic reading did not work ({r.error}). Press "Read again and check".</T> : null}
+      {r && !r.error && <>
         <H2>Risk report</H2>
         {gates.map((g) => (
           <Card key={g.n} style={{ borderColor: g.s === "bad" ? c.bad : g.s === "warn" ? c.warn : c.line }}>
