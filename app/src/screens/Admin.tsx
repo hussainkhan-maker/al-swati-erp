@@ -128,7 +128,7 @@ export function Dashboard() {
         {main.map(([k, l, v], i) => (
           <Pressable key={k} onPress={() => setKd(k)} style={({ hovered }: any) => ({ flex: 1, paddingVertical: 16, paddingHorizontal: 18, gap: 4, borderColor: c.line, borderLeftWidth: wide && i ? 1 : 0, borderTopWidth: !wide && i ? 1 : 0, backgroundColor: hovered ? c.sunk : c.surface, cursor: "pointer" } as any)}>
             <T size={13} muted>{l}</T>
-            <T size={wide ? 22 : 20} bold style={{ letterSpacing: -0.3 }} color={k === "profit" && sum(L, "profit") < 0 ? c.bad : c.ink}>{v}</T>
+            <T size={wide ? 22 : 20} bold numberOfLines={1} style={{ letterSpacing: -0.3 }} color={k === "profit" && sum(L, "profit") < 0 ? c.bad : c.ink}>{String(v).replace(/ SAR$/, "")}<T size={13} muted> SAR</T></T>
           </Pressable>))}
       </View>
       <View style={{ flexDirection: "row", flexWrap: "wrap", borderTopWidth: 1, borderColor: c.line, backgroundColor: c.sunk }}>
@@ -225,34 +225,40 @@ export function Dashboard() {
 }
 
 export function Money() {
-  const { d, update } = useData(); const flows = useFlows();
+  const { d, update } = useData(); const flows = useFlows(); const c = useColors(), wide = useWide();
   const [cx, setCx] = useState<any>(null), [why, setWhy] = useState(""), [err, setErr] = useState("");
   const [filter, setFilter] = useState("all");
   const list = (d.txns || []).filter((x: any) => filter === "all" || x.type === filter);
   return (
     <Screen>
-      <H1>Money</H1>
-      <Row wrap>
-        <Btn kind="primary" icon={<Icon name="mic" color="#fff" />} title="Speak or type" onPress={() => flows("speak")} />
-        <Btn icon={<Icon name="receipt" />} title="Invoice" onPress={() => flows("purchase")} />
-        <Btn icon={<Icon name="doc" />} title="Statement" onPress={() => flows("statement")} />
-      </Row>
-      <T muted size={13}>Say “Received 115,000 for Malqa”, “Took a 50,000 loan for Narjis”, “Paid Uzair 2,000”. VAT and the project's fee are taken out by the database.</T>
-      <Select value={filter} onChange={setFilter} options={[{ value: "all", label: "All entries" }, ...Object.entries(TYPE).map(([k, v]) => ({ value: k, label: v }))]} />
-      {list.length ? list.map((x: any) => (
-        <Card key={x.id} style={x.status === "cancelled" ? { opacity: 0.5 } : undefined}>
-          <Row>
+      <View style={{ flexDirection: wide ? "row" : "column", alignItems: wide ? "flex-end" : "flex-start", gap: 12 }}>
+        <View style={{ flex: 1, gap: 2 }}><H1>Money</H1>
+          <T muted size={14}>Say “Received 115,000 for Malqa”, “Took a 50,000 loan for Narjis”, “Paid Uzair 2,000”. VAT and the project's fee are worked out for you.</T></View>
+        <Row wrap>
+          <Btn kind="primary" icon={<Icon name="mic" size={16} color={c.accentInk} />} title="Speak or type" onPress={() => flows("speak")} />
+          <Btn icon={<Icon name="receipt" size={16} />} title="Invoice" onPress={() => flows("purchase")} />
+          <Btn icon={<Icon name="doc" size={16} />} title="Statement" onPress={() => flows("statement")} />
+        </Row>
+      </View>
+      <Select value={filter} onChange={setFilter} style={{ maxWidth: 260 }} options={[{ value: "all", label: "All entries" }, ...Object.entries(TYPE).map(([k, v]) => ({ value: k, label: v }))]} />
+      {list.length ? <View style={{ backgroundColor: c.surface, borderWidth: 1, borderColor: c.line, borderRadius: 10, overflow: "hidden" }}>
+        {list.map((x: any, i: number) => { const off = x.status === "cancelled"; return (
+          <View key={x.id} style={{ flexDirection: "row", alignItems: "flex-start", gap: 14, paddingVertical: 12, paddingHorizontal: 16, borderTopWidth: i ? 1 : 0, borderColor: c.line, opacity: off ? 0.55 : 1 }}>
+            {wide ? <View style={{ width: 84 }}><T size={13} muted>{day(x.paid_on || x.created_at)}</T></View> : null}
             {x.receipt_path ? <Photo path={x.receipt_path} /> : null}
-            <View style={{ flex: 1, gap: 2 }}>
-              <Row wrap><Pill kind={x.type === "income" ? "good" : x.type === "loan" ? "acc" : "plain"} text={TYPE[x.type]} />{x.status === "cancelled" && <Pill kind="bad" text="Cancelled" />}{(x.flags || []).length > 0 && <Pill kind="warn" text={`${x.flags.length} warning`} />}</Row>
-              <T bold>{(x.split || []).length > 1 ? x.split.map((s: any) => `${pname(d, s.project_id)} ${s.pct}%`).join(" · ") : pname(d, x.project_id)}</T>
-              <T muted size={13}>{[x.supplier, x.description, x.sub_name, x.vat_company && `VAT → ${x.vat_company}`].filter(Boolean).join(" · ")} · {day(x.created_at)}</T>
-              {x.type === "income" && <T size={13} muted>VAT {money(x.vat)} · fee {x.fee_pct}% {money(x.fee)}{Number(x.loan) ? ` · loan −${money(x.loan)}` : ""} → in hand {money(x.net)}</T>}
+            <View style={{ flex: 1, gap: 3 }}>
+              <Row wrap style={{ gap: 6 }}><Pill kind={x.type === "income" ? "good" : x.type === "loan" ? "acc" : "plain"} text={TYPE[x.type]} />{off && <Pill kind="bad" text="Cancelled" />}{(x.flags || []).length > 0 && <Pill kind="warn" text={`${x.flags.length} warning`} />}
+                <T bold>{(x.split || []).length > 1 ? x.split.map((s: any) => `${pname(d, s.project_id)} ${s.pct}%`).join(", ") : pname(d, x.project_id)}</T></Row>
+              <T muted size={13}>{[x.supplier, x.description, x.sub_name, x.vat_company && `VAT to ${x.vat_company}`, !wide && day(x.created_at)].filter(Boolean).join(", ")}</T>
+              {x.type === "income" && <T size={13} muted>VAT {money(x.vat)}, fee {x.fee_pct}% {money(x.fee)}{Number(x.loan) ? `, loan −${money(x.loan)}` : ""}, in hand {money(x.net)}</T>}
+              {off && x.cancel_reason ? <T size={13} color={c.bad}>Reason: {x.cancel_reason}</T> : null}
             </View>
-            <T bold>{money(x.gross ?? x.total ?? x.amount)}</T>
-          </Row>
-          {x.status !== "cancelled" && <Btn kind="ghost" title="Cancel entry" onPress={() => { setCx(x); setWhy(""); setErr(""); }} />}
-        </Card>)) : <Empty text="No entries yet. Speak or type the first one." />}
+            <View style={{ alignItems: "flex-end", gap: 2 }}>
+              <T bold size={15} style={off ? { textDecorationLine: "line-through" } : undefined}>{money(x.gross ?? x.total ?? x.amount)}</T>
+              {!off && <Pressable onPress={() => { setCx(x); setWhy(""); setErr(""); }} style={{ cursor: "pointer" } as any}><T size={13} color={c.accent}>Cancel</T></Pressable>}
+            </View>
+          </View>); })}
+      </View> : <Empty text="No entries yet. Speak or type the first one." />}
       <Sheet open={!!cx} onClose={() => setCx(null)} title="Cancel this entry">
         <T muted>Money entries are never deleted. The entry stays, crossed out, with your reason in the audit log.</T>
         <Field label="Reason" value={why} onChange={setWhy} />
