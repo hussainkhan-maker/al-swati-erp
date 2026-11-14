@@ -12,6 +12,8 @@ const MODEL = Deno.env.get("AI_MODEL") ?? "claude-sonnet-5-5";
 const MODEL_STRONG = Deno.env.get("AI_MODEL_STRONG") ?? "claude-opus-5-5";
 // Token saver: short writing jobs (emails, follow-ups, rules, topic lists, the morning summary) use the small, cheap model.
 const MODEL_FAST = Deno.env.get("AI_MODEL_FAST") ?? "claude-haiku-5-5";
+// SEO (blog topics and posts): the free Gemini with Google Search when it is set up, else Claude; AI_MODEL_SEO can choose another.
+const SEO_MODEL = Deno.env.get("AI_MODEL_SEO") ?? (MODEL_FAST.startsWith("gemini") ? MODEL_FAST : MODEL);
 // Free AI: when GEMINI_API_KEY is set, every task whose model name starts with "gemini" runs on Google Gemini instead of Claude.
 // Turn it on with Supabase secrets, e.g. AI_MODEL_FAST=gemini-2.5-flash (short writing jobs) and, if you like the results, AI_MODEL=gemini-2.5-flash.
 // Keep AI_MODEL_STRONG on Claude for BOQ reading. If Gemini fails or its free daily limit runs out, the call falls back to Claude automatically.
@@ -36,11 +38,11 @@ let USER_ID: string | null = null; // who is asking (for the daily AI limit)
 let RULES = ""; // filled per request from preferences "rules" (the owner's feedback, "Teach your AI")
 // Answers come straight away: hidden "thinking" used up the whole token budget and left the page assistant with an empty reply.
 let NO_THINK = true;
-async function claude(prompt: string, opts: { images?: Img[]; model?: string; max?: number; webSearch?: number } = {}) {
+async function claude(prompt: string, opts: { images?: Img[]; model?: string; max?: number; webSearch?: number; fallback?: string } = {}) {
   const chosen = opts.model ?? MODEL;
   if (chosen.startsWith("gemini")) {
-    if (GEMINI_KEY && !opts.webSearch) { try { return await gemini(prompt, chosen, opts); } catch (e) { console.error("Gemini failed, using Claude:", e); } }
-    opts = { ...opts, model: opts.model === MODEL_FAST ? "claude-haiku-5-5" : CLAUDE_FALLBACK }; // fast jobs fall back to the cheap Claude model
+    if (GEMINI_KEY) { try { return await gemini(prompt, chosen, opts); } catch (e) { console.error("Gemini failed, using Claude:", e); } }
+    opts = { ...opts, model: opts.fallback ?? (opts.model === MODEL_FAST ? "claude-haiku-5-5" : CLAUDE_FALLBACK) }; // fast jobs fall back to the cheap Claude model
   }
   const content: unknown[] = (opts.images ?? []).map((i) => i.media_type === "application/pdf"
     ? { type: "document", source: { type: "base64", media_type: "application/pdf", data: i.data } }
@@ -64,18 +66,19 @@ async function claude(prompt: string, opts: { images?: Img[]; model?: string; ma
 }
 
 // Google Gemini (free tier) with the same company guide and rules; returns plain text like claude().
-async function gemini(prompt: string, model: string, opts: { images?: Img[]; max?: number }) {
+async function gemini(prompt: string, model: string, opts: { images?: Img[]; max?: number; webSearch?: number }) {
   const parts: unknown[] = (opts.images ?? []).map((i) => ({ inline_data: { mime_type: i.media_type, data: i.data } }));
   parts.push({ text: prompt });
   // Free Gemini is sometimes busy (503) or rate-limited (429): wait a moment and try again, up to 3 times, before falling back to Claude.
   let r: Response = new Response(null, { status: 599 });
   for (let attempt = 1; ; attempt++) {
   r = await fetch("https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent", {
-    method: "POST", signal: AbortSignal.timeout(12000), // never let a busy Gemini hold the page
+    method: "POST", signal: AbortSignal.timeout(opts.webSearch || (opts.max ?? 0) > 3000 ? 90000 : 12000), // never let a busy Gemini hold the page (long writing with search gets more time)
     headers: { "x-goog-api-key": GEMINI_KEY, "content-type": "application/json" },
     body: JSON.stringify({
       system_instruction: { parts: [{ text: GUIDE + (RULES ? "\nThe owner's own rules (always follow):\n" + RULES : "") }] },
       contents: [{ role: "user", parts }],
+      ...(opts.webSearch ? { tools: [{ google_search: {} }] } : {}), // Google's own search, like Claude's web search
       generationConfig: { maxOutputTokens: Math.max(opts.max ?? 2000, 8192) },
     }),
   });
@@ -499,7 +502,7 @@ Return JSON only: {"answers":[{"q":"<question>","answer":"<short>","clear":true|
       return json(asJson(await claude(`Company profile (use only this about the company): ${JSON.stringify(p.profile || {})}
 Already written posts: ${JSON.stringify(p.done || []).slice(0, 4000)}
 Suggest 14 blog topics that people in Saudi Arabia actually search for when they need a stone, marble, granite or porcelain cladding / flooring contractor (owners, developers, project managers, consultants) in ${(p.cities || ["Riyadh", "Dammam", "Al-Hassa"]).join(", ")}. Mix English and Arabic topics. Practical and useful (choosing stone for Riyadh heat, dry-fix vs wet-fix cladding, maintenance, cost factors, approvals and samples), never clickbait, not already written.
-Return JSON only: {"topics":[{"title":"","lang":"en|ar","keyword":"<main search phrase>","why":"<one line>"}]}`, { max: 2500, webSearch: 3, model: MODEL_FAST })));
+Return JSON only: {"topics":[{"title":"","lang":"en|ar","keyword":"<main search phrase>","why":"<one line>"}]}`, { max: 2500, webSearch: 3, model: SEO_MODEL })));
     }
     if (task === "blog") {
       if (role !== "admin") return json({ error: "Only Super-Admin" }, 403);
@@ -507,7 +510,7 @@ Return JSON only: {"topics":[{"title":"","lang":"en|ar","keyword":"<main search 
       return json(asJson(await claude(`Write a helpful blog post in ${lang} for the website of this company. Company profile (the ONLY facts you may state about the company; never invent projects, clients, years, numbers, certificates, awards or prices): ${JSON.stringify(p.profile || {})}
 Topic: "${p.topic}". Main search phrase: "${p.keyword || p.topic}".
 Rules: 700-1000 words, clear headings (##), short paragraphs, practical advice for Saudi conditions (heat, sand, Saudi Building Code where relevant - only say what you are sure of; if you mention a standard or figure, check it with search). Use the search phrase naturally in the title, the first paragraph and one heading; no keyword stuffing. End with a short, honest call to contact the company using the phone/email in the profile (if given). Plain, human tone; no hype words like "best", "No. 1", "leading".
-Return JSON only: {"title":"<max 60 chars>","slug":"<latin lowercase words with dashes>","meta_description":"<max 155 chars>","keywords":["",""],"body":"<markdown>"}`, { max: 5000, webSearch: 3 })));
+Return JSON only: {"title":"<max 60 chars>","slug":"<latin lowercase words with dashes>","meta_description":"<max 155 chars>","keywords":["",""],"body":"<markdown>"}`, { max: 5000, webSearch: 3, model: SEO_MODEL, fallback: MODEL })));
     }
 
     // ───────── Outreach: one personal email at a time to someone the owner knows; he reads, edits and sends it himself. ─────────
