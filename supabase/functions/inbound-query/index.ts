@@ -5,6 +5,33 @@ import * as XLSX from "npm:xlsx@0.18.5";
 
 const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "content-type, x-intake-secret" };
 const b64ToBytes = (b: string) => Uint8Array.from(atob(b), (c) => c.charCodeAt(0));
+const sha256 = async (s: string) => [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s)))].map((b) => b.toString(16).padStart(2, "0")).join("");
+
+/** Public share links (Google Drive, Dropbox, OneDrive, WeTransfer-style direct links) → direct download URLs. */
+export function shareLinks(text: string): { url: string; label: string }[] {
+  const out: { url: string; label: string }[] = [], seen = new Set<string>();
+  const add = (url: string, label: string) => { if (!seen.has(url)) { seen.add(url); out.push({ url, label }); } };
+  for (const m of text.matchAll(/https?:\/\/drive\.google\.com\/(?:file\/d\/|open\?id=|uc\?(?:export=download&)?id=)([\w-]{20,})/g)) add(`https://drive.google.com/uc?export=download&id=${m[1]}`, `drive-${m[1].slice(0, 8)}`);
+  for (const m of text.matchAll(/https?:\/\/docs\.google\.com\/spreadsheets\/d\/([\w-]{20,})/g)) add(`https://docs.google.com/spreadsheets/d/${m[1]}/export?format=xlsx`, `sheet-${m[1].slice(0, 8)}.xlsx`);
+  for (const m of text.matchAll(/https?:\/\/(?:www\.)?dropbox\.com\/[^\s"'<>)]+/g)) add(m[0].replace(/([?&])dl=0/, "$1dl=1") + (/[?&]dl=/.test(m[0]) ? "" : (m[0].includes("?") ? "&" : "?") + "dl=1"), "dropbox");
+  return out.slice(0, 8);
+}
+/** Download one shared file (max 20 MB). Folders and private links are skipped with a note. */
+export async function fetchShared(url: string, label: string): Promise<{ name: string; type: string; bytes: Uint8Array } | { note: string }> {
+  try {
+    const r = await fetch(url, { redirect: "follow" });
+    if (!r.ok) return { note: `${label}: link not public or not found (${r.status})` };
+    const type = r.headers.get("content-type") || "application/octet-stream";
+    if (/text\/html/i.test(type)) return { note: `${label}: this is a folder or a private file. Ask the client to share each file with "Anyone with the link".` };
+    const len = Number(r.headers.get("content-length") || 0);
+    if (len > 20 * 1024 * 1024) return { note: `${label}: file is larger than 20 MB, open it from the link.` };
+    const bytes = new Uint8Array(await r.arrayBuffer());
+    if (bytes.length > 20 * 1024 * 1024) return { note: `${label}: file is larger than 20 MB, open it from the link.` };
+    const cd = r.headers.get("content-disposition") || "";
+    const name = decodeURIComponent((cd.match(/filename\*=UTF-8''([^;]+)/i) || cd.match(/filename="?([^";]+)"?/i) || [, label])[1]);
+    return { name, type, bytes };
+  } catch (e) { return { note: `${label}: could not download (${(e as Error).message})` }; }
+}
 
 /** Drawing takeoff agent: closed polylines in a DXF, area summed per layer, in m² (uses the drawing's $INSUNITS). */
 export function dxfTakeoff(src: string) {
@@ -34,10 +61,26 @@ export function dxfTakeoff(src: string) {
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   const json = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { ...cors, "content-type": "application/json" } });
-  if (req.headers.get("x-intake-secret") !== Deno.env.get("INTAKE_SECRET")) return json({ error: "Not allowed" }, 401);
   try {
     const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+    // The Gmail script proves itself with the link code made in the app (only its fingerprint is stored), or the old INTAKE_SECRET.
+    const code = req.headers.get("x-intake-secret") || "";
+    const env = Deno.env.get("INTAKE_SECRET");
+    const { data: link } = await admin.from("preferences").select("value").eq("key", "gmail_link").maybeSingle();
+    const ok = code.length >= 24 && ((env && code === env) || ((link?.value as any)?.hash && (await sha256(code)) === (link?.value as any).hash));
+    if (!ok) return json({ error: "Not allowed" }, 401);
     const p = await req.json(); // {source, from_name, from_email, subject, body, message_id, deadline?, attachments:[{name, type, base64}]}
+    await admin.from("preferences").upsert({ key: "gmail_seen", value: { at: new Date().toISOString(), action: p.action || "query" }, updated_at: new Date().toISOString() });
+
+    // Replies the owner approved in the app: the script turns them into Gmail drafts, then reports back.
+    if (p.action === "outbox") {
+      const { data } = await admin.from("email_outbox").select("id, gmail_id, to_email, subject, body").eq("status", "Pending").order("created_at").limit(20);
+      return json({ items: data || [] });
+    }
+    if (p.action === "drafted") {
+      await admin.from("email_outbox").update(p.ok ? { status: "Drafted", drafted_at: new Date().toISOString(), error: null } : { status: "Failed", error: String(p.error || "unknown").slice(0, 500) }).eq("id", p.id);
+      return json({ ok: true });
+    }
     const dedupe = p.message_id || `${(p.from_email || "").toLowerCase()}|${(p.subject || "").toLowerCase().replace(/^(re|fw|fwd):\s*/g, "").trim()}`;
     const { data: dup } = await admin.from("inquiries").select("id, ref").eq("dedupe_key", dedupe).maybeSingle();
     if (dup) return json({ duplicate: true, ref: dup.ref });
@@ -61,6 +104,18 @@ Deno.serve(async (req) => {
           for (const sh of wb.SheetNames) body += `\n\n=== ${a.name} / ${sh} ===\n` + XLSX.utils.sheet_to_csv(wb.Sheets[sh], { blankrows: false });
         } catch { body += `\n\n(${a.name} could not be read as a spreadsheet)`; }
       }
+    }
+    // Files shared as links (Google Drive, Google Sheets, Dropbox) are downloaded and read like attachments.
+    for (const l of shareLinks(body)) {
+      const f = await fetchShared(l.url, l.label);
+      if ("note" in f) { body += `\n\n=== ${f.note} ===`; continue; }
+      const path = `${new Date().toISOString().slice(0, 10)}/${crypto.randomUUID()}-${f.name.replace(/[^\w.\-]+/g, "_")}`;
+      await admin.storage.from("inbox").upload(path, f.bytes, { contentType: f.type });
+      atts.push({ path, name: f.name, type: f.type });
+      if (/\.(xlsx|xls|csv)$/i.test(f.name) || /spreadsheet|excel|csv/i.test(f.type)) {
+        try { const wb = XLSX.read(f.bytes, { type: "array" }); for (const sh of wb.SheetNames) body += `\n\n=== ${f.name} / ${sh} ===\n` + XLSX.utils.sheet_to_csv(wb.Sheets[sh], { blankrows: false }); } catch { /* keep the file */ }
+      }
+      if (/\.dxf$/i.test(f.name)) body += `\n\n=== DXF takeoff: ${f.name} ===\n${dxfTakeoff(new TextDecoder().decode(f.bytes)) || "No closed shapes found."}`;
     }
     const { data, error } = await admin.from("inquiries").insert({
       source: p.source || "email", from_name: p.from_name, from_email: p.from_email, subject: p.subject,
