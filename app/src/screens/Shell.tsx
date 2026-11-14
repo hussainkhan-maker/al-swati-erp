@@ -14,7 +14,9 @@ import * as Admin from "./Admin";
 import Agents from "./Agents";
 import * as Eng from "./Engineer";
 import Prices from "./Prices";
+import Growth from "./Growth";
 import Queries from "./Queries";
+import RFIs from "./RFIs";
 import Quotes from "./Quotes";
 import * as Sup from "./Supervisor";
 import Suppliers from "./Suppliers";
@@ -26,6 +28,8 @@ function MoreAdmin({ go }: { go: (k: string) => void }) {
       <H2>More</H2>
       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12 }}>
         <Tile icon="folder" title="Projects" sub="Company, fee, sites, subcontractors" onPress={() => go("projects")} />
+        <Tile icon="inbox" title="RFIs" sub="Questions to consultants, follow-ups" onPress={() => go("rfis")} />
+        <Tile icon="spark" title="Growth" sub="Blog for Google, outreach emails" onPress={() => go("growth")} />
         <Tile icon="truck" title="Suppliers" sub="Directory and price requests" onPress={() => go("suppliers")} />
         <Tile icon="tag" title="Materials & prices" sub="Invoices, Abu's rates, AI estimates" onPress={() => go("prices")} />
         <Tile icon="spark" title="AI agents" sub="What each agent checked" onPress={() => go("agents")} />
@@ -63,9 +67,9 @@ const TABS: Record<string, TabDef[]> = {
     { key: "report", label: "رپورٹ", icon: "doc", C: Sup.Report },
   ],
 };
-const SUB_LABEL: Record<string, string> = { projects: "Projects", suppliers: "Suppliers", prices: "Prices", agents: "AI agents", people: "People", team: "Team on site", audit: "Audit log" };
-const SUB_ICON: Record<string, string> = { projects: "folder", suppliers: "truck", prices: "tag", agents: "spark", people: "people", team: "pin", audit: "log" };
-const SUBS: Record<string, React.ComponentType<any>> = { projects: Admin.Projects, suppliers: Suppliers, prices: Prices, agents: Agents, people: Admin.People, team: Admin.Team, audit: Admin.Audit };
+const SUB_LABEL: Record<string, string> = { rfis: "RFIs", growth: "Growth", projects: "Projects", suppliers: "Suppliers", prices: "Prices", agents: "AI agents", people: "People", team: "Team on site", audit: "Audit log" };
+const SUB_ICON: Record<string, string> = { rfis: "inbox", growth: "spark", projects: "folder", suppliers: "truck", prices: "tag", agents: "spark", people: "people", team: "pin", audit: "log" };
+const SUBS: Record<string, React.ComponentType<any>> = { rfis: RFIs, growth: Growth, projects: Admin.Projects, suppliers: Suppliers, prices: Prices, agents: Agents, people: Admin.People, team: Admin.Team, audit: Admin.Audit };
 
 export default function Shell() {
   const { role, online, pending, failed, dropFailed, t } = useData(); const c = useColors(); const { row } = useDir();
@@ -141,7 +145,7 @@ export default function Shell() {
   const S_ = (k: string) => ({ key: k, label: SUB_LABEL[k], icon: SUB_ICON[k], isSub: true });
   // Admin sidebar order: what is used most first; the list of all entries near the end.
   const navItems = role === "admin"
-    ? [T_("home"), S_("projects"), T_("queries"), T_("quotes"), S_("suppliers"), S_("prices"), S_("agents"), S_("people"), S_("team"), T_("money"), S_("audit")]
+    ? [T_("home"), S_("projects"), T_("queries"), T_("quotes"), S_("rfis"), S_("suppliers"), S_("prices"), S_("agents"), S_("growth"), S_("people"), S_("team"), T_("money"), S_("audit")]
     : tabs.map((x) => ({ key: x.key, label: x.label, icon: x.icon, isSub: false }));
   const sidebar = wide && (
     <View style={{ width: 236, margin: 12, marginRight: 0, borderRadius: 24, backgroundColor: DEEP.bg, padding: 16, gap: 4 }}>
