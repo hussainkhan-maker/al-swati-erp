@@ -44,7 +44,8 @@ const READS: Record<Role, Q[]> = {
     Tbl("suppliers"), Tbl("supplier_requests"), View("preferences")],
   // Engineers: project names, m² progress and drawings only (no rates, prices, quotations or staff phone numbers).
   engineer: [Rpc("projects", "eng_projects"), Rpc("progress", "eng_progress"), Tbl("documents"), Rpc("sub_names", "sub_names")],
-  supervisor: [Tbl("projects"), Tbl("txns"), Tbl("documents"), Rpc("sub_names", "sub_names"), Rpc("progress", "sup_progress"), View("preferences")],
+  // Supervisors: project name and company only (no service fee, client or prices).
+  supervisor: [Rpc("projects", "sup_projects"), Tbl("txns"), Tbl("documents"), Rpc("sub_names", "sub_names"), Rpc("progress", "sup_progress"), View("preferences")],
 };
 // which base-table change refreshes which keys
 const DERIVED: Record<string, string[]> = {
