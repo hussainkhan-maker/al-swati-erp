@@ -235,7 +235,7 @@ export function Kpi({ label, value, hero, onPress }: { label: string; value: str
 export function StatStrip({ items }: { items: { label: string; value: string; onPress?: () => void; tone?: "bad" }[] }) {
   const c = useColors(), wide = useWide();
   // On a laptop: up to 4 per row; more items wrap into a second row (3 per row), so figures never get cut off.
-  const per = !wide ? 1 : items.length > 4 ? 3 : items.length;
+  const per = !wide ? 1 : items.length <= 4 ? items.length : items.length === 6 || items.length === 5 ? 3 : 4;
   return (
     <View style={[{ backgroundColor: c.surface, borderWidth: 1, borderColor: c.line, borderRadius: 12, overflow: "hidden" }, ELEV]}>
       <View style={{ flexDirection: "row", flexWrap: "wrap", marginRight: -1, marginBottom: -1 }}>
