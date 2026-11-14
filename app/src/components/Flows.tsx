@@ -342,7 +342,7 @@ function AskSheet({ init, onClose }: { init?: any; onClose: () => void }) {
   const ask = async (asked?: string) => {
     const qq = (asked ?? q).trim(); if (!qq) return; if (asked) setQ(asked); setBusy(true); setA(""); setFree(false);
     // 1) Token saver: simple money / m² questions are answered from the app's own numbers, with no AI call.
-    if (!page) {
+    if (!quick.includes(qq)) {
       const local = localAnswer(d, qq, lang);
       if (local) { setA(local.text); setFree(true); setBusy(false); if (role !== "admin") Speech.speak(local.text, { language: speechLang(lang) }); return; }
     }
