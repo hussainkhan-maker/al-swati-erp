@@ -74,7 +74,7 @@ const SUBS: Record<string, React.ComponentType<any>> = { rfis: RFIs, growth: Gro
 
 export default function Shell() {
   const { role, online, pending, failed, dropFailed, t } = useData(); const c = useColors(); const { row } = useDir();
-  const { lang } = useData();
+  const { lang, profile } = useData();
   const ABU_LABELS: Record<string, [string, string, string]> = { home: ["الرئيسية", "ہوم", "Home"], money: ["الحسابات", "حسابات", "Accounts"], vat: ["الضريبة", "VAT", "VAT"], suppliers: ["الموردون", "سپلائرز", "Suppliers"], quotes: ["العروض", "کوٹیشن", "Quotes"] };
   const tabs = role === "abu" ? TABS.abu.map((x) => ({ ...x, label: ABU_LABELS[x.key][lang === "ur" ? 1 : lang === "en" ? 2 : 0] })) : TABS[role];
   const [tab, setTab] = useState(tabs[0].key), [sub, setSub] = useState<string | null>(null);
@@ -150,6 +150,20 @@ export default function Shell() {
     ? [["", [T_("home")]], ["Sales", [T_("queries"), T_("quotes"), S_("rfis"), S_("growth")]], ["Site", [S_("projects"), S_("team")]],
        ["Buying", [S_("suppliers"), S_("prices")]], ["Money", [T_("money")]], ["Company", [S_("people"), S_("agents"), S_("audit")]]]
     : [["", tabs.map((x) => ({ key: x.key, label: x.label, icon: x.icon, isSub: false }))]];
+  const initials = String(profile?.name || "AS").split(/\s+/).map((w: string) => w[0]).join("").slice(0, 2).toUpperCase();
+  const pageLabel = sub ? SUB_LABEL[sub] || sub : cur.label;
+  const pageGroup = groups.find(([, items]) => items.some((x: any) => x.key === (sub || cur.key)))?.[0] || "";
+  // Laptop top bar: where you are on the left, the AI helper on the right.
+  const topbar = wide && (
+    <View style={{ height: 60, flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 32, backgroundColor: c.surface, borderBottomWidth: 1, borderColor: c.line }}>
+      <View style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: 8 }}>
+        {pageGroup ? <><Text style={{ color: c.muted, fontSize: 14 }}>{pageGroup}</Text><Text style={{ color: c.line, fontSize: 14 }}>/</Text></> : null}
+        <Text style={{ color: c.ink, fontSize: 14, fontWeight: "600" }}>{pageLabel}</Text>
+      </View>
+      <Text style={{ color: c.muted, fontSize: 13 }}>{new Date().toLocaleDateString("en", { weekday: "short", day: "numeric", month: "short" })}</Text>
+      <Btn icon={<Icon name="spark" size={16} color={c.accent} />} title="Ask AI" onPress={() => flows("ask", { page: pageLabel })} />
+    </View>
+  );
   const sidebar = wide && (
     <View style={{ width: 232, backgroundColor: DEEP.bg, paddingVertical: 18, paddingHorizontal: 12, overflow: "hidden" }}>
       <Veins />
@@ -165,7 +179,7 @@ export default function Shell() {
               const on = x.isSub ? sub === x.key : !sub && cur.key === x.key;
               return (
                 <Pressable key={x.key} onPress={() => { if (x.isSub) setSub(x.key); else { setSub(null); setTab(x.key); } }}
-                  style={({ hovered }: any) => ({ flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 8, paddingHorizontal: 10, borderRadius: 6, backgroundColor: on ? "rgba(255,255,255,0.12)" : hovered ? "rgba(255,255,255,0.06)" : "transparent", cursor: "pointer" } as any)}>
+                  style={({ hovered }: any) => ({ flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 8, paddingHorizontal: 10, borderRadius: 6, backgroundColor: on ? "rgba(255,255,255,0.10)" : hovered ? "rgba(255,255,255,0.05)" : "transparent", borderLeftWidth: 3, borderLeftColor: on ? DEEP.glow : "transparent", cursor: "pointer" } as any)}>
                   <Icon name={x.icon} size={17} color={on ? DEEP.ink : DEEP.muted} />
                   <Text style={{ color: on ? "#FFFFFF" : DEEP.ink, opacity: on ? 1 : 0.86, fontSize: 14, fontWeight: on ? "600" : "400" }}>{x.label}</Text>
                 </Pressable>
@@ -174,7 +188,11 @@ export default function Shell() {
           </View>
         ))}
       </ScrollView>
-      <Pressable onPress={() => supabase.auth.signOut()} style={({ hovered }: any) => ({ paddingVertical: 8, paddingHorizontal: 10, borderRadius: 6, backgroundColor: hovered ? "rgba(255,255,255,0.06)" : "transparent", cursor: "pointer" } as any)}><Text style={{ color: DEEP.muted, fontSize: 13 }}>Sign out</Text></Pressable>
+      <View style={{ borderTopWidth: 1, borderColor: "rgba(255,255,255,0.10)", paddingTop: 12, paddingHorizontal: 8, flexDirection: "row", alignItems: "center", gap: 10 }}>
+        <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: DEEP.bg2, alignItems: "center", justifyContent: "center" }}><Text style={{ color: DEEP.glow, fontSize: 13, fontWeight: "600" }}>{initials}</Text></View>
+        <View style={{ flex: 1 }}><Text numberOfLines={1} style={{ color: DEEP.ink, fontSize: 13, fontWeight: "600" }}>{profile?.name || "Signed in"}</Text>
+          <Pressable onPress={() => supabase.auth.signOut()} style={{ cursor: "pointer" } as any}><Text style={{ color: DEEP.muted, fontSize: 12 }}>Sign out</Text></Pressable></View>
+      </View>
     </View>
   );
   return (
@@ -193,12 +211,13 @@ export default function Shell() {
           </SafeAreaView>
         )}
         {sub && !wide && <SafeAreaView edges={["top"]}><Pressable onPress={() => setSub(null)} style={{ padding: 14, flexDirection: row }}><Text style={{ color: c.accent, fontSize: 17, fontWeight: "700" }}>‹ Back</Text></Pressable></SafeAreaView>}
+        {topbar}
         <Body go={(k: string) => (SUBS[k] ? setSub(k) : setTab(k))} />
-        {/* AI helper on every page: knows the page, suggests the next step and what to correct. */}
-        <Pressable accessibilityRole="button" accessibilityLabel="AI helper" onPress={() => flows("ask", { page: sub ? (SUB_LABEL[sub] || sub) : cur.label })}
+        {/* AI helper on every page (phone): knows the page, suggests the next step and what to correct. On the laptop it sits in the top bar. */}
+        {!wide && <Pressable accessibilityRole="button" accessibilityLabel="AI helper" onPress={() => flows("ask", { page: sub ? (SUB_LABEL[sub] || sub) : cur.label })}
           style={{ position: "absolute", bottom: 20, [row === "row-reverse" ? "left" : "right"]: 20, height: 44, paddingHorizontal: 16, borderRadius: 22, flexDirection: "row", gap: 8, backgroundColor: c.accent, alignItems: "center", justifyContent: "center", elevation: 4, shadowColor: "#11261F", shadowOpacity: 0.22, shadowRadius: 8, shadowOffset: { width: 0, height: 3 } }}>
-          <Icon name="spark" size={18} color={c.accentInk} />{wide ? <Text style={{ color: c.accentInk, fontSize: 14, fontWeight: "600" }}>Ask AI</Text> : null}
-        </Pressable>
+          <Icon name="spark" size={18} color={c.accentInk} />
+        </Pressable>}
       </View>
       {!wide && <SafeAreaView edges={["bottom"]} style={{ backgroundColor: c.surface, borderTopWidth: 1, borderColor: c.line }}>
         <View style={{ flexDirection: row, justifyContent: "space-around", paddingVertical: 6 }}>
