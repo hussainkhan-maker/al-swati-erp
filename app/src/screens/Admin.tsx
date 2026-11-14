@@ -25,10 +25,12 @@ export function clientAccount(d: any, pid: string) {
   const released = inc.filter(isRelease).reduce((s2: number, x: any) => s2 + base(x), 0);
   const m2 = (d.project_ledger || []).find((l: any) => l.project_id === pid)?.installed || 0;
   const covered = r < 1 ? normal / (1 - r) : normal;          // work value those payments paid for (incl. retention)
-  const retHeld = Math.max(0, covered * r - released);          // retention the client is still keeping
   const workValue = Number(m2) * rate;                          // m² done × client rate (before VAT)
+  // Retention is only kept on work actually done: an advance payment for work not done yet is the client's credit, not a debt.
+  const retHeld = Math.max(0, (rate ? Math.min(covered, workValue) : covered) * r - released);
   const unpaidWork = rate ? Math.max(0, workValue - covered) : 0;
-  return { r: r * 100, rate, m2: Number(m2), received: normal + released, covered, retHeld, workValue, unpaidWork, owes: unpaidWork + retHeld };
+  const credit = rate ? Math.max(0, covered - workValue) : 0;   // paid in advance
+  return { r: r * 100, rate, m2: Number(m2), received: normal + released, covered, retHeld, workValue, unpaidWork, credit, owes: unpaidWork + retHeld };
 }
 const TYPE_ICON: Record<string, string> = { income: "cash", loan: "pct", purchase: "receipt", expense: "tag", subpay: "people", progress: "ruler" };
 
