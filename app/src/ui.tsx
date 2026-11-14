@@ -234,13 +234,17 @@ export function Kpi({ label, value, hero, onPress }: { label: string; value: str
 /** Several figures in one bordered strip with dividers (instead of a row of separate cards). */
 export function StatStrip({ items }: { items: { label: string; value: string; onPress?: () => void; tone?: "bad" }[] }) {
   const c = useColors(), wide = useWide();
+  // On a laptop: up to 4 per row; more items wrap into a second row (3 per row), so figures never get cut off.
+  const per = !wide ? 1 : items.length > 4 ? 3 : items.length;
   return (
-    <View style={[{ flexDirection: wide ? "row" : "column", backgroundColor: c.surface, borderWidth: 1, borderColor: c.line, borderRadius: 12, overflow: "hidden" }, ELEV]}>
-      {items.map((x, i) => (
-        <Pressable key={x.label} disabled={!x.onPress} onPress={x.onPress} style={({ hovered }: any) => ({ flex: 1, paddingVertical: 14, paddingHorizontal: 16, gap: 3, borderColor: c.line, borderLeftWidth: wide && i ? 1 : 0, borderTopWidth: !wide && i ? 1 : 0, backgroundColor: hovered && x.onPress ? c.sunk : c.surface, cursor: x.onPress ? "pointer" : "default" } as any)}>
-          <T size={13} muted>{x.label}</T>
-          <Text numberOfLines={1} style={{ fontSize: 20, fontWeight: "600", letterSpacing: -0.3, color: x.tone === "bad" ? c.bad : c.ink, fontVariant: ["tabular-nums"] }}>{String(x.value).replace(/ SAR$/, "")}{/ SAR$/.test(String(x.value)) ? <Text style={{ fontSize: 12, fontWeight: "500", color: c.muted }}> SAR</Text> : null}</Text>
-        </Pressable>))}
+    <View style={[{ backgroundColor: c.surface, borderWidth: 1, borderColor: c.line, borderRadius: 12, overflow: "hidden" }, ELEV]}>
+      <View style={{ flexDirection: "row", flexWrap: "wrap", marginRight: -1, marginBottom: -1 }}>
+        {items.map((x) => (
+          <Pressable key={x.label} disabled={!x.onPress} onPress={x.onPress} style={({ hovered }: any) => ({ width: `${100 / per}%`, paddingVertical: 14, paddingHorizontal: 16, gap: 3, borderColor: c.line, borderRightWidth: 1, borderBottomWidth: 1, backgroundColor: hovered && x.onPress ? c.sunk : c.surface, cursor: x.onPress ? "pointer" : "default" } as any)}>
+            <T size={13} muted numberOfLines={1}>{x.label}</T>
+            <Text numberOfLines={1} style={{ fontSize: 20, fontWeight: "600", letterSpacing: -0.3, color: x.tone === "bad" ? c.bad : c.ink, fontVariant: ["tabular-nums"] }}>{String(x.value).replace(/ SAR$/, "")}{/ SAR$/.test(String(x.value)) ? <Text style={{ fontSize: 12, fontWeight: "500", color: c.muted }}> SAR</Text> : null}</Text>
+          </Pressable>))}
+      </View>
     </View>
   );
 }
