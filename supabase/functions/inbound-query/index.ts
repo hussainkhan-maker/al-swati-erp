@@ -113,9 +113,9 @@ async function intake(admin: Admin, p: { source?: string; from_name?: string; fr
 }
 
 // ───────────────────────── Outlook (Microsoft 365) ─────────────────────────
-// The owner links his mailbox once with Microsoft's own sign-in page ("Sign in with Microsoft"; the code sign-in at
-// microsoft.com/devicelogin is blocked by the company's Microsoft security rules). Only a renewable sign-in token is kept,
-// in mail_link, which no app user can read.
+// The owner links his mailbox once with Microsoft's own sign-in page ("Sign in with Microsoft", PKCE; the code sign-in at
+// microsoft.com/devicelogin is blocked by the company's Microsoft security rules). Microsoft sends him back to the app,
+// which passes the one-time code here. Only a renewable sign-in token is kept, in mail_link, which no app user can read.
 // Every pull: new inbox emails are sorted by the small AI model (client query or not); queries come in with their
 // files and get the category "AL-Swati ERP" in Outlook. Approved replies become Outlook drafts. Nothing is ever sent.
 const MS_TENANT = Deno.env.get("MS_TENANT_ID") ?? "4de3cbcc-9e57-44c0-b1be-baf371e49098";
@@ -125,23 +125,23 @@ const MS_LOGIN = `https://login.microsoftonline.com/${MS_TENANT}/oauth2/v2.0`;
 const GRAPH = "https://graph.microsoft.com/v1.0";
 const CATEGORY = "AL-Swati ERP";
 const form = (o: Record<string, string>) => new URLSearchParams(o).toString();
-const REDIRECT = `${Deno.env.get("SUPABASE_URL")}/functions/v1/inbound-query`; // Microsoft sends the owner back here after sign-in
 const APP_URL = Deno.env.get("APP_URL") ?? "https://hussainkhan-maker.github.io/al-swati-erp/";
+const REDIRECT = APP_URL; // Microsoft sends the owner back to the app, which hands the one-time code to this function
 const b64url = (b: Uint8Array) => btoa(String.fromCharCode(...b)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 const randomText = (n: number) => b64url(crypto.getRandomValues(new Uint8Array(n)));
 
-/** Microsoft sent the owner back with a one-time code: swap it (with the PKCE secret made at the start) for the sign-in token. */
-async function finishSignIn(admin: Admin, url: URL) {
-  const back = (q: string) => new Response(null, { status: 302, headers: { Location: `${APP_URL}?outlook=${q}` } });
+/** The owner came back from Microsoft with a one-time code: swap it (with the PKCE secret made at the start) for the sign-in token. */
+async function finishSignIn(admin: Admin, p: { code?: string; state?: string; error?: string; error_description?: string }) {
   const L = await link(admin);
   let pending: any = null; try { pending = JSON.parse(L?.device_code || "null"); } catch { /* none */ }
-  if (url.searchParams.get("error")) { await saveLink(admin, { device_code: null, last_error: (url.searchParams.get("error_description") || "Sign-in was cancelled.").split("\r\n")[0].slice(0, 300) }); return back("error"); }
-  if (!pending?.state || pending.state !== url.searchParams.get("state") || !L?.device_expires || Date.parse(L.device_expires) < Date.now()) return back("expired");
-  const t = await msToken({ grant_type: "authorization_code", code: url.searchParams.get("code") || "", redirect_uri: REDIRECT, code_verifier: pending.verifier, scope: MS_SCOPE });
-  if (!t.refresh_token) { await saveLink(admin, { device_code: null, last_error: String(t.error_description || t.error || "Sign-in did not finish.").split("\r\n")[0].slice(0, 300) }); return back("error"); }
+  if (!pending?.state || pending.state !== p.state) return { error: "This sign-in is old. Press Sign in with Microsoft again." };
+  if (p.error) { const m = String(p.error_description || "Sign-in was cancelled.").split("\r\n")[0].slice(0, 300); await saveLink(admin, { device_code: null, last_error: m }); return { error: m }; }
+  if (!L?.device_expires || Date.parse(L.device_expires) < Date.now()) return { error: "The sign-in took too long. Press Sign in with Microsoft again." };
+  const t = await msToken({ grant_type: "authorization_code", code: p.code || "", redirect_uri: REDIRECT, code_verifier: pending.verifier, scope: MS_SCOPE });
+  if (!t.refresh_token) { const m = String(t.error_description || t.error || "Sign-in did not finish.").split("\r\n")[0].slice(0, 300); await saveLink(admin, { device_code: null, last_error: m }); return { error: m }; }
   const me = await graph(t.access_token, "/me?$select=mail,userPrincipalName");
   await saveLink(admin, { refresh_token: t.refresh_token, account: me?.mail || me?.userPrincipalName || null, device_code: null, device_expires: null, connected_at: new Date().toISOString(), last_error: null });
-  return back("connected");
+  return { done: true, account: me?.mail || me?.userPrincipalName };
 }
 
 async function msToken(body: Record<string, string>) {
@@ -266,12 +266,6 @@ async function isAdmin(admin: Admin, req: Request) {
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
-  if (req.method === "GET") { // only Microsoft's sign-in comes here (a browser redirect with ?code=…&state=…)
-    const url = new URL(req.url);
-    if (!url.searchParams.get("state")) return new Response("AL-Swati ERP", { status: 200 });
-    try { return await finishSignIn(createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!), url); }
-    catch { return new Response(null, { status: 302, headers: { Location: `${APP_URL}?outlook=error` } }); }
-  }
   const json = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { ...cors, "content-type": "application/json" } });
   try {
     const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
@@ -294,6 +288,7 @@ Deno.serve(async (req) => {
         const q = form({ client_id: MS_CLIENT, response_type: "code", redirect_uri: REDIRECT, response_mode: "query", scope: MS_SCOPE, state, code_challenge: challenge, code_challenge_method: "S256", prompt: "select_account" });
         return json({ url: `${MS_LOGIN}/authorize?${q}` });
       }
+      if (p.action === "outlook_finish") return json(await finishSignIn(admin, p));
       if (p.action === "outlook_disconnect") { await saveLink(admin, { refresh_token: null, device_code: null, account: null, last_error: null }); return json({ ok: true }); }
       return json({ error: "Unknown action" }, 400);
     }
