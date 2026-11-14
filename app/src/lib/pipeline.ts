@@ -11,6 +11,10 @@ const isM2 = (u: any) => /^(sqm|m2|m²|م2|م²|متر مربع)$/i.test(String(
 
 /** Draft quotation from a read query. `hint` gives the price memory for a line (rate we quoted before). */
 export async function quoteFromQuery(q: any, d: any, insert: any, update: any, hint?: (d: any, desc: string) => any) {
+  // Claim the query first: if the server autopilot (or a second click) already made its quotation, stop here.
+  const { data: claim, error: ce } = await supabase.from("inquiries").update({ status: "Priced" }).eq("id", q.id).is("quote_id", null).in("status", ["New", "Under Review", "RFI Sent"]).select("id");
+  if (ce) throw new Error(ce.message);
+  if (!claim?.length) throw new Error("This query already has a quotation (open Quotations).");
   const src = (q.reading?.a?.lines || []) as any[];
   const lines = src.map((l) => {
     const h = hint ? hint(d, l.desc) : null;
@@ -30,13 +34,19 @@ export async function quoteFromQuery(q: any, d: any, insert: any, update: any, h
 /** Client approved the quotation: open the project with its scope and client rate, mark the query Won. */
 export async function projectFromQuote(q: any, d: any, reload: (k?: string[]) => Promise<void>) {
   if (q.project_id) return q.project_id;
+  // Claim the quotation first, so a double click or two screens never open two projects.
+  const { data: claim, error: ce } = await supabase.from("quotes").update({ status: "Approved" }).eq("id", q.id).is("project_id", null).neq("status", "Approved").select("id");
+  if (ce) throw new Error(ce.message);
+  if (!claim?.length) throw new Error("This quotation already has a project (open Projects).");
   const m2 = (q.lines || []).filter((l: any) => isM2(l.unit) && Number(l.rate) > 0 && Number(l.qty) > 0);
   const qty = m2.reduce((t: number, l: any) => t + Number(l.qty), 0);
   const rate = qty ? Math.round((m2.reduce((t: number, l: any) => t + Number(l.qty) * Number(l.rate), 0) / qty) * 100) / 100 : 0;
   const { data, error } = await supabase.from("projects").insert({ name: q.title, client: q.client, company: "", fee_pct: 0, quote_id: q.id, scope: q.lines }).select().single();
-  if (error) throw new Error(error.message);
+  if (error) { await supabase.from("quotes").update({ status: q.status }).eq("id", q.id); throw new Error(error.message); }
   if (rate) {
-    const all = { ...((d.preferences || []).find((p: any) => p.key === "project_terms")?.value || {}), [data.id]: { rate } };
+    // Read the terms fresh from the database, so terms saved for other projects a moment ago are kept.
+    const { data: pt } = await supabase.from("preferences").select("value").eq("key", "project_terms").maybeSingle();
+    const all = { ...((pt?.value as any) || {}), [data.id]: { rate } };
     await supabase.from("preferences").upsert({ key: "project_terms", value: all, updated_at: new Date().toISOString() });
   }
   const { error: e2 } = await supabase.from("quotes").update({ status: "Approved", project_id: data.id, history: [...(q.history || []), `${stamp(Date.now())} client approved; project opened`] }).eq("id", q.id);
