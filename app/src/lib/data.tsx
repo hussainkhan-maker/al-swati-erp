@@ -5,7 +5,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 import { Platform } from "react-native";
 import { uid as genId } from "./fmt";
 
-const ID_TABLES = ["txns", "progress"];
+const ID_TABLES = ["txns", "progress", "suppliers"]; // these get their id on the phone, so a retry never saves twice
 const uuid4 = () => {
   const b = new Uint8Array(16);
   if (typeof crypto !== "undefined" && (crypto as any).getRandomValues) (crypto as any).getRandomValues(b); else for (let i = 0; i < 16; i++) b[i] = Math.floor(Math.random() * 256);
