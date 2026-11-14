@@ -10,6 +10,8 @@ import { ai, API_URL, PUBLIC_ANON_KEY, supabase } from "../lib/supabase";
 import { Btn, Card, Empty, Field, H1, H2, Icon, Pill, Row, Screen, Select, Sheet, T, Table, useColors } from "../ui";
 import { RfiEditor } from "./RFIs";
 import { RequestPrices } from "./Suppliers";
+import { projectFromQuote, quoteFromQuery } from "../lib/pipeline";
+import { priceHint } from "./Quotes";
 
 const LINK_RE = /https?:\/\/(drive\.google\.com|docs\.google\.com\/spreadsheets|(www\.)?dropbox\.com)\/\S+/i;
 
@@ -151,7 +153,7 @@ export default function Queries() {
 }
 
 function QuerySheet({ q, onClose }: { q: any; onClose: () => void }) {
-  const { d, insert, update } = useData(); const c = useColors();
+  const { d, insert, update, reload } = useData(); const c = useColors();
   const [busy, setBusy] = useState(false), [err, setErr] = useState(""), [ask, setAsk] = useState<any>(null), [made, setMade] = useState("");
   const [rfi, setRfi] = useState<any>(null), [reply, setReply] = useState<any>(null), [links, setLinks] = useState("");
   const r = q.reading;
@@ -161,13 +163,17 @@ function QuerySheet({ q, onClose }: { q: any; onClose: () => void }) {
   const lines = (r?.a?.lines || []) as any[];
   const read = async () => { setBusy(true); setErr(""); try { await ai("rfq", { inquiry_id: q.id }); } catch (e: any) { setErr(e.message); } finally { setBusy(false); } };
   const makeQuote = async () => {
-    const res = await insert("quotes", { title: q.subject || q.ref, client: q.from_name, owner: "admin", lines: lines.map((l) => ({ desc: (l.ref ? l.ref + " · " : "") + l.desc, qty: num(l.qty) || 0, unit: l.unit, rate: null })), history: [`${stamp(Date.now())} made from ${q.ref}`], rfq: { inquiry_id: q.id, ref: q.ref } });
-    await update("inquiries", q.id, { status: "Priced", quote_id: res.data?.id || null });
-    setMade("Quotation made. Open the Quotations tab to fill the rates.");
+    await quoteFromQuery(q, d, insert, update, priceHint);
+    setMade("Quotation made. Open Quotations to check the rates (some may be filled from earlier quotations).");
   };
   return (
     <Sheet open onClose={onClose} title={`${q.ref} · ${q.subject || ""}`}>
-      <Row wrap><Select label="Status" value={q.status} onChange={(v) => update("inquiries", q.id, { status: v })} options={STATUSES.map((s) => ({ value: s, label: s }))} />
+      <Row wrap><Select label="Status" value={q.status} onChange={async (v) => {
+        await update("inquiries", q.id, { status: v });
+        // Marked Won here: the quotation is approved and the project opens by itself.
+        const qt = (d.quotes || []).find((x: any) => x.id === q.quote_id);
+        if (v === "Won" && qt && !qt.project_id) { try { await projectFromQuote(qt, d, reload); setMade("Won: the project is open under Projects."); } catch (e: any) { setErr(e.message); } }
+      }} options={STATUSES.map((s) => ({ value: s, label: s }))} />
         <Field label="Deadline (YYYY-MM-DD)" value={q.deadline || ""} onChange={(v) => /^\d{4}-\d{2}-\d{2}$/.test(v) && update("inquiries", q.id, { deadline: v })} /></Row>
       <Card><T muted size={13}>{q.from_name} {q.from_email ? `<${q.from_email}>` : ""}</T><T numberOfLines={12}>{q.body}</T></Card>
       {LINK_RE.test(q.body || "") && <Btn icon={<Icon name="folder" />} title={links || "Download the linked files (Drive / Dropbox)"} onPress={async () => { setLinks("Downloading…"); try { const r = await ai("attach_links", { inquiry_id: q.id }); setLinks(`${r.added} file(s) added${r.notes?.length ? " · " + r.notes.join(" · ") : ""}`); } catch (e: any) { setLinks(e.message); } }} />}
