@@ -6,7 +6,7 @@ import { active, pname, useData } from "../lib/data";
 import { day, money, num, SAR, stamp } from "../lib/fmt";
 import { pricesFor } from "../lib/match";
 import { ai, supabase } from "../lib/supabase";
-import { Bars, Btn, Card, Checks, DEEP, ELEV, Empty, Marble, StatStrip, Field, H1, H2, Icon, Kpi, MonthCal, Photo, Pill, Rise, Row, Screen, Select, Sheet, T, Table, Tile, useColors, useWide } from "../ui";
+import { Bars, Btn, Card, Checks, CountUp, DEEP, ELEV, Empty, Marble, SectionHead, Segmented, StatStrip, Field, H1, H2, Icon, Kpi, MonthCal, Photo, Pill, Rise, Row, Screen, Select, Sheet, T, Table, Tile, useColors, useWide } from "../ui";
 
 const sum = (a: any[], k: string) => a.reduce((s, x) => s + (Number(x[k]) || 0), 0);
 const TYPE: Record<string, string> = { income: "Income", loan: "Loan", purchase: "Purchase", expense: "Expense", subpay: "Sub payment" };
@@ -72,7 +72,7 @@ function VarianceCard({ x, done }: { x: any; done: number }) {
   );
 }
 
-export function Dashboard() {
+export function Dashboard({ go }: { go?: (k: string) => void } = {}) {
   const { d, profile, reload } = useData(); const flows = useFlows(); const c = useColors(); const wide = useWide();
   const L = d.project_ledger || [], rep = (d.agent_reports || [])[0];
   // Morning briefing: made the first time Super-Admin opens the app each day (no schedule or secret key needed).
@@ -130,7 +130,7 @@ export function Dashboard() {
         {main.map(([k, l, v], i) => (
           <Pressable key={k} onPress={() => setKd(k)} style={({ hovered }: any) => ({ flex: 1, paddingVertical: wide ? 4 : 14, paddingHorizontal: 20, gap: 6, borderColor: "rgba(255,255,255,0.12)", borderLeftWidth: wide && i ? 1 : 0, borderTopWidth: !wide && i ? 1 : 0, opacity: hovered ? 0.85 : 1, cursor: "pointer" } as any)}>
             <T size={13} color={DEEP.muted}>{l}</T>
-            <T size={wide ? 24 : 22} bold numberOfLines={1} style={{ letterSpacing: -0.5 }} color={k === "profit" && sum(L, "profit") < 0 ? "#F2A497" : "#FFFFFF"}>{money(Math.round(Number(String(v).replace(/[^\d.-]/g, "")) || 0))}<T size={13} color={DEEP.muted}> SAR</T></T>
+            <View style={{ flexDirection: "row", alignItems: "baseline", gap: 5 }}><CountUp value={Number(String(v).replace(/[^\d.-]/g, "")) || 0} size={wide ? 26 : 22} color={k === "profit" && sum(L, "profit") < 0 ? "#F2A497" : "#FFFFFF"} style={{ letterSpacing: -0.6 }} /><T size={13} color={DEEP.muted}>SAR</T></View>
           </Pressable>))}
       </View>
       <View style={{ flexDirection: "row", flexWrap: "wrap", borderTopWidth: 1, borderColor: "rgba(255,255,255,0.10)", backgroundColor: "rgba(0,0,0,0.14)", paddingHorizontal: wide ? 8 : 0 }}>
@@ -142,24 +142,23 @@ export function Dashboard() {
     </View>
   );
   const chartCard = (
-    <Rise i={7}><Card>
-      <Row><View style={{ flex: 1 }}><H2>This week</H2></View>
-        {([["m2", "m² done"], ["in", "Money in"], ["out", "Paid out"]] as const).map(([k, l]) => <Btn key={k} kind={chart === k ? "primary" : "default"} title={l} onPress={() => setChart(k)} />)}
-      </Row>
+    <Rise i={3}><Card style={{ gap: 14 }}>
+      <SectionHead title="This week" sub={chart === "m2" ? "Square metres installed each day" : chart === "in" ? "Money received each day (SAR)" : "Money paid out each day (SAR)"}
+        right={<Segmented value={chart} options={[["m2", "m²"], ["in", "In"], ["out", "Out"]]} onChange={(k) => setChart(k as any)} />} />
       <Bars data={series} unit={chart === "m2" ? "" : ""} />
     </Card></Rise>
   );
   const recentCard = (
-    <Rise i={8}><Card>
-      <H2>Recent activity</H2>
+    <Rise i={4}><Card style={{ gap: 4 }}>
+      <SectionHead title="Recent activity" action={go ? "All entries" : undefined} onAction={() => go?.("money")} />
       {recent.length ? recent.map((x: any) => (
-        <Row key={x.kind + x.id}>
-          <View style={{ width: 32, height: 32, borderRadius: 6, backgroundColor: c.accentSoft, alignItems: "center", justifyContent: "center" }}><Icon name={TYPE_ICON[x.kind] || "doc"} size={16} color={c.accent} /></View>
+        <Row key={x.kind + x.id} style={{ paddingVertical: 8, borderTopWidth: 1, borderColor: c.line }}>
+          <View style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: x.kind === "income" ? c.goodSoft : c.sunk, alignItems: "center", justifyContent: "center" }}><Icon name={TYPE_ICON[x.kind] || "doc"} size={16} color={x.kind === "income" ? c.good : c.muted} /></View>
           <View style={{ flex: 1 }}>
             <T bold>{x.kind === "progress" ? `${x.sub_name} · ${money(x.qty)} ${x.unit || "m²"}` : `${TYPE[x.kind]}${x.sub_name ? " · " + x.sub_name : x.supplier ? " · " + x.supplier : ""}`}</T>
             <T muted size={13}>{pname(d, x.project_id)} · {dkey(x)}{x.method ? " · " + x.method : ""}</T>
           </View>
-          {x.kind !== "progress" && <T bold>{money(x.gross ?? x.total ?? x.amount)}</T>}
+          {x.kind !== "progress" && <T bold color={x.kind === "income" ? c.good : c.ink}>{x.kind === "income" ? "+" : "−"}{money(x.gross ?? x.total ?? x.amount)}</T>}
         </Row>)) : <T muted>Nothing yet. Your entries will show here.</T>}
     </Card></Rise>
   );
@@ -179,26 +178,26 @@ export function Dashboard() {
     return out;
   }, [d.txns]);
   const side = <>
-    <Rise i={3}><Card><MonthCal marks={marks} /><T size={12} muted>A dot = a payment or work entry that day.</T></Card></Rise>
-    <Rise i={5}><Card>
-      <Row><Icon name="spark" color={c.accent} /><H2>Main agent · today</H2></Row>
+    <Rise i={2}><Card><MonthCal marks={marks} /><T size={12} muted>A dot marks a day with a payment or work entry.</T></Card></Rise>
+    <Rise i={3}><Card>
+      <SectionHead title="Today's briefing" sub="From the main agent" />
       {rep ? <>
         <T size={15}>{rep.summary}</T>
         <Checks list={(rep.items || []).slice(0, 6).map((i: any) => ({ s: i.level === "bad" ? "bad" : "warn", text: i.text }))} />
         <T size={12} muted>{stamp(rep.created_at)}</T>
       </> : <T muted>{brief === "busy" ? "The main agent is checking everything…" : "No report yet."}</T>}
-      <Row><Btn kind="ghost" icon={<Icon name="spark" />} title={brief === "busy" ? "Checking…" : "Check again now"} busy={brief === "busy"} onPress={() => makeBrief(true)} />{brief && brief !== "busy" ? <T size={12} muted style={{ flex: 1 }}>{brief}</T> : null}</Row>
+      <Row><Btn kind="ghost" icon={<Icon name="spark" size={16} color={c.accent} />} title={brief === "busy" ? "Checking…" : "Check again"} busy={brief === "busy"} onPress={() => makeBrief(true)} />{brief && brief !== "busy" ? <T size={12} muted style={{ flex: 1 }}>{brief}</T> : null}</Row>
       {newQ > 0 && <Pill kind="warn" text={`${newQ} new client queries`} />}
       {rises.map((r, i) => <T key={i} size={13} color={c.bad}>▲ {r}</T>)}
       {(() => { const wait = (d.quotes || []).filter((q: any) => q.status === "Draft" && !q.rfq?.lock && (q.lines || []).length && (q.lines || []).every((l: any) => Number(l.rate) > 0)); return wait.length ? <Pill kind="bad" text={`${wait.length} quotation(s) waiting for your Approve & Lock`} /> : null; })()}
     </Card></Rise>
   </>;
-  const table = <>
-    <H2>Projects</H2>
+  const table = <Rise i={5} style={{ gap: 10 }}>
+    <SectionHead title="Projects" action={go ? "Open projects" : undefined} onAction={() => go?.("projects")} />
     <Table cols={["Project", "Company", "Fee %", "m² done", "In hand", "Costs", "Sub work", "Loan open", "Profit est."]} numeric={[2, 3, 4, 5, 6, 7, 8]}
       rows={L.map((l: any) => [l.name, l.company || "—", String(l.fee_pct), money(l.installed), money(l.net), money(l.cost), money(l.sub_work), money(l.loan_balance), money(l.profit)])} />
     <T size={12} muted>Profit estimate = cash in hand + loans already deducted − costs (ex VAT) − subcontract work done (meters × rate). Calculated by the database.</T>
-  </>;
+  </Rise>;
   // Details behind each money box (opens on click).
   const KD: Record<string, [string, () => React.ReactNode]> = {
     net: ["Cash in hand, by project", () => <Table cols={["Project", "Received (gross)", "VAT", "Fee", "Loan cut", "In hand"]} numeric={[1, 2, 3, 4, 5]} rows={L.map((l: any) => [l.name, money(l.gross), money(l.vat), money(l.fee), money(l.loan_deducted), money(l.net)])} />],
@@ -218,10 +217,10 @@ export function Dashboard() {
       <Sheet open={!!kd} onClose={() => setKd(null)} title={kd ? KD[kd][0] : ""}>{kd ? KD[kd][1]() : null}</Sheet>
       {wide ? (
         <View style={{ flexDirection: "row", gap: 18, alignItems: "flex-start" }}>
-          <View style={{ flex: 2.2, gap: 16 }}>{hero}{kpis}<View style={{ flexDirection: "row", gap: 16, alignItems: "flex-start" }}><View style={{ flex: 1.3 }}>{chartCard}</View><View style={{ flex: 1 }}>{recentCard}</View></View>{table}</View>
+          <View style={{ flex: 2.2, gap: 16 }}><Rise i={0}>{hero}</Rise><Rise i={1}>{kpis}</Rise><View style={{ flexDirection: "row", gap: 16, alignItems: "flex-start" }}><View style={{ flex: 1.3 }}>{chartCard}</View><View style={{ flex: 1 }}>{recentCard}</View></View>{table}</View>
           <View style={{ flex: 1, gap: 16, minWidth: 300 }}>{side}</View>
         </View>
-      ) : <>{hero}{kpis}{chartCard}{side}{recentCard}{table}</>}
+      ) : <><Rise i={0}>{hero}</Rise><Rise i={1}>{kpis}</Rise>{chartCard}{side}{recentCard}{table}</>}
     </Screen>
   );
 }
