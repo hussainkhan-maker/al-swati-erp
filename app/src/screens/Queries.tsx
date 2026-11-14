@@ -74,10 +74,10 @@ async function mail(action: string, extra: Record<string, unknown> = {}) {
   if (data?.error) throw new Error(data.error);
   return data;
 }
-export function OutlookLink() {
+export function OutlookLink({ onLinked }: { onLinked?: (linked: boolean) => void } = {}) {
   const { reload } = useData(); const c = useColors();
   const [st, setSt] = useState<any>(null), [waiting, setWaiting] = useState(false), [msg, setMsg] = useState(""), [busy, setBusy] = useState("");
-  const load = () => mail("outlook_status").then((x) => { setSt(x); return x; }).catch((e) => { setMsg(e.message); return null; });
+  const load = () => mail("outlook_status").then((x) => { setSt(x); onLinked?.(!!x?.linked); return x; }).catch((e) => { setMsg(e.message); return null; });
   // Back from Microsoft's sign-in page (…?code=…&state=…): hand the one-time code to the server, then look at the inbox.
   useEffect(() => {
     const u = Platform.OS === "web" ? new URLSearchParams(globalThis.location?.search || "") : null;
@@ -174,12 +174,14 @@ const STATUSES = ["New", "Under Review", "RFI Sent", "Priced", "Sent", "Won", "L
 export default function Queries() {
   const { d, insert, update } = useData(); const c = useColors();
   const [open, setOpen] = useState<any>(null), [add, setAdd] = useState<any>(null), [filter, setFilter] = useState("open");
+  const [ol, setOl] = useState(false); // Outlook linked
   const list = (d.inquiries || []).filter((q: any) => filter === "all" || (filter === "open" ? !["Sent", "Won", "Lost"].includes(q.status) : q.status === filter));
   return (
     <Screen>
       <Row><View style={{ flex: 1 }}><H1>Client queries</H1></View><Btn icon={<Icon name="plus" />} title="Paste one" onPress={() => setAdd({ subject: "", from_name: "", body: "" })} /></Row>
-      <OutlookLink />
-      <GmailLink />
+      <OutlookLink onLinked={setOl} />
+      {/* Gmail is only for a Gmail inbox: hidden once Outlook is linked, unless a Gmail script is really running. */}
+      {!ol || (d.preferences || []).some((p: any) => p.key === "gmail_seen") ? <GmailLink /> : null}
       <Select value={filter} onChange={setFilter} options={[{ value: "open", label: "Open" }, { value: "all", label: "All" }, ...STATUSES.map((s) => ({ value: s, label: s }))]} />
       {list.length ? list.map((q: any) => {
         const due = q.deadline ? Math.ceil((Date.parse(q.deadline) - Date.now()) / 864e5) : null;
@@ -189,7 +191,7 @@ export default function Queries() {
               <Pill kind={q.status === "New" ? "warn" : q.status === "Won" ? "good" : q.status === "Lost" ? "bad" : "acc"} text={q.status} /></Row>
             {due != null && !["Sent", "Won", "Lost"].includes(q.status) && <Pill kind={due <= 2 ? "bad" : "plain"} text={`Due in ${due} day(s)`} />}
           </Card>);
-      }) : <Empty text="No queries here. New ones appear as soon as they reach Gmail." />}
+      }) : <Empty text={ol ? "No queries here. New client emails in your Outlook come in by themselves (checked every 30 minutes)." : "No queries here. Link your email above, or press Paste one."} />}
       {open && <QuerySheet q={(d.inquiries || []).find((x: any) => x.id === open.id) || open} onClose={() => setOpen(null)} />}
       <Sheet open={!!add} onClose={() => setAdd(null)} title="Paste a query">
         {add && <>
