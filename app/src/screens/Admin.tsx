@@ -6,7 +6,7 @@ import { active, pname, useData } from "../lib/data";
 import { day, money, num, SAR, stamp } from "../lib/fmt";
 import { pricesFor } from "../lib/match";
 import { ai, supabase } from "../lib/supabase";
-import { Bars, Btn, Card, Checks, DEEP, Empty, Field, H1, H2, Icon, Kpi, MonthCal, Photo, Pill, Rise, Row, Screen, Select, Sheet, T, Table, Tile, useColors, useWide } from "../ui";
+import { Bars, Btn, Card, Checks, Empty, StatStrip, Field, H1, H2, Icon, Kpi, MonthCal, Photo, Pill, Rise, Row, Screen, Select, Sheet, T, Table, Tile, useColors, useWide } from "../ui";
 
 const sum = (a: any[], k: string) => a.reduce((s, x) => s + (Number(x[k]) || 0), 0);
 const TYPE: Record<string, string> = { income: "Income", loan: "Loan", purchase: "Purchase", expense: "Expense", subpay: "Sub payment" };
@@ -103,28 +103,40 @@ export function Dashboard() {
   const totalM2 = sum(pr, "qty");
   const hour = new Date().getHours(), greet = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
 
+  // Page header: date, title and the three things done most often. No banner: the numbers below are the point.
   const hero = (
-    <Rise i={0}>
-      <View style={{ backgroundColor: DEEP.bg, borderRadius: 24, padding: wide ? 28 : 20, gap: 14, overflow: "hidden" }}>
-        <View style={{ position: "absolute", right: -60, top: -60, width: 220, height: 220, borderRadius: 110, backgroundColor: DEEP.bg2 }} />
-        <View style={{ position: "absolute", right: 60, bottom: -90, width: 180, height: 180, borderRadius: 90, backgroundColor: DEEP.bg2, opacity: 0.6 }} />
-        <T size={13} color={DEEP.muted}>{new Date().toLocaleDateString("en", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}</T>
-        <T size={wide ? 30 : 24} bold color={DEEP.ink}>{greet}, {profile.name}</T>
-        <T size={15} color={DEEP.muted}>Stone · Marble · Granite · Porcelain — {L.length} projects, {money(totalM2)} m² done in total.</T>
-        <Row wrap>
-          <Btn kind="primary" icon={<Icon name="mic" color={c.accentInk} />} title="New entry" onPress={() => flows("speak")} />
-          <Btn icon={<Icon name="receipt" />} title="Purchase invoice" onPress={() => flows("purchase")} />
-          <Btn icon={<Icon name="doc" />} title="Statement PDF" onPress={() => flows("statement")} />
-          <Btn icon={<Icon name="spark" />} title="Ask your AI" onPress={() => flows("ask")} />
-        </Row>
+    <View style={{ flexDirection: wide ? "row" : "column", alignItems: wide ? "flex-end" : "flex-start", gap: 12, paddingBottom: 4 }}>
+      <View style={{ flex: 1, gap: 2 }}>
+        <T size={13} muted>{new Date().toLocaleDateString("en", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}</T>
+        <H1>{greet}, {profile.name}</H1>
+        <T size={14} muted>{L.length} projects running, {money(totalM2)} m² installed so far.</T>
       </View>
-    </Rise>
+      <Row wrap>
+        <Btn kind="primary" icon={<Icon name="plus" size={16} color={c.accentInk} />} title="New entry" onPress={() => flows("speak")} />
+        <Btn icon={<Icon name="receipt" size={16} />} title="Purchase invoice" onPress={() => flows("purchase")} />
+        <Btn icon={<Icon name="doc" size={16} />} title="Statement" onPress={() => flows("statement")} />
+      </Row>
+    </View>
   );
+  // Money at a glance: four main figures in one strip, three smaller ones under it. Each opens its breakdown.
+  const main: [string, string, string][] = [["net", "Cash in hand from clients", SAR(sum(L, "net"))], ["owes", "Clients still owe (ex VAT)", SAR((d.projects || []).reduce((s2: number, p: any) => s2 + clientAccount(d, p.id).owes, 0))],
+    ["cost", "Costs (ex VAT)", SAR(sum(L, "cost"))], ["profit", "Profit estimate", SAR(sum(L, "profit"))]];
+  const minor: [string, string, string][] = [["sub_work", "Subcontract work", SAR(sum(L, "sub_work"))], ["loan_balance", "Company loans open", SAR(sum(L, "loan_balance"))], ["vat", "Purchase VAT to recover", SAR(vat)]];
   const kpis = (
-    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12 }}>
-      {[["net", "Cash in hand from clients", SAR(sum(L, "net")), true], ["owes", "Client still owes (ex VAT)", SAR((d.projects || []).reduce((s2: number, p: any) => s2 + clientAccount(d, p.id).owes, 0))], ["cost", "Costs (ex VAT)", SAR(sum(L, "cost"))], ["sub_work", "Subcontract work", SAR(sum(L, "sub_work"))],
-        ["profit", "Profit (estimate)", SAR(sum(L, "profit"))], ["loan_balance", "Company loans open", SAR(sum(L, "loan_balance"))], ["vat", "Purchase VAT to recover", SAR(vat)]]
-        .map(([k, l, v, h]: any, i) => <Rise key={l} i={i + 1} style={{ flexGrow: 1, flexBasis: wide ? 200 : 150 }}><Kpi hero={h} label={l} value={v} onPress={() => setKd(k)} /></Rise>)}
+    <View style={{ backgroundColor: c.surface, borderWidth: 1, borderColor: c.line, borderRadius: 10, overflow: "hidden" }}>
+      <View style={{ flexDirection: wide ? "row" : "column" }}>
+        {main.map(([k, l, v], i) => (
+          <Pressable key={k} onPress={() => setKd(k)} style={({ hovered }: any) => ({ flex: 1, paddingVertical: 16, paddingHorizontal: 18, gap: 4, borderColor: c.line, borderLeftWidth: wide && i ? 1 : 0, borderTopWidth: !wide && i ? 1 : 0, backgroundColor: hovered ? c.sunk : c.surface, cursor: "pointer" } as any)}>
+            <T size={13} muted>{l}</T>
+            <T size={wide ? 22 : 20} bold style={{ letterSpacing: -0.3 }} color={k === "profit" && sum(L, "profit") < 0 ? c.bad : c.ink}>{v}</T>
+          </Pressable>))}
+      </View>
+      <View style={{ flexDirection: "row", flexWrap: "wrap", borderTopWidth: 1, borderColor: c.line, backgroundColor: c.sunk }}>
+        {minor.map(([k, l, v]) => (
+          <Pressable key={k} onPress={() => setKd(k)} style={({ hovered }: any) => ({ flexGrow: 1, flexDirection: "row", gap: 8, alignItems: "baseline", paddingVertical: 10, paddingHorizontal: 18, cursor: "pointer", opacity: hovered ? 0.75 : 1 } as any)}>
+            <T size={13} muted>{l}</T><T size={14} bold>{v}</T>
+          </Pressable>))}
+      </View>
     </View>
   );
   const chartCard = (
@@ -140,7 +152,7 @@ export function Dashboard() {
       <H2>Recent activity</H2>
       {recent.length ? recent.map((x: any) => (
         <Row key={x.kind + x.id}>
-          <View style={{ width: 38, height: 38, borderRadius: 12, backgroundColor: c.accentSoft, alignItems: "center", justifyContent: "center" }}><Icon name={TYPE_ICON[x.kind] || "doc"} size={20} color={c.accent} /></View>
+          <View style={{ width: 32, height: 32, borderRadius: 6, backgroundColor: c.accentSoft, alignItems: "center", justifyContent: "center" }}><Icon name={TYPE_ICON[x.kind] || "doc"} size={16} color={c.accent} /></View>
           <View style={{ flex: 1 }}>
             <T bold>{x.kind === "progress" ? `${x.sub_name} · ${money(x.qty)} ${x.unit || "m²"}` : `${TYPE[x.kind]}${x.sub_name ? " · " + x.sub_name : x.supplier ? " · " + x.supplier : ""}`}</T>
             <T muted size={13}>{pname(d, x.project_id)} · {dkey(x)}{x.method ? " · " + x.method : ""}</T>
@@ -345,15 +357,13 @@ export function Projects() {
   const list = (
     <View style={{ gap: 10 }}>
       <Row><View style={{ flex: 1 }}><H1>Projects</H1></View><Btn kind="primary" icon={<Icon name="plus" color="#fff" />} title="New" onPress={() => setP({ name: "", client: "", company: "", fee_pct: "", members: [], subs: [], ret: "", rate: "" })} /></Row>
-      {projects.map((x: any, i: number) => { const a = clientAccount(d, x.id), on = cur?.id === x.id && wide; return (
-        <Rise key={x.id} i={i}><Card onPress={() => { setSel(x.id); setHf(""); }} style={on ? { borderColor: c.accent, borderWidth: 2 } : undefined}>
-          <Row>
-            <View style={{ width: 42, height: 42, borderRadius: 14, backgroundColor: on ? c.accent : c.accentSoft, alignItems: "center", justifyContent: "center" }}><Icon name="folder" color={on ? c.accentInk : c.accent} /></View>
-            <View style={{ flex: 1 }}><T bold size={17}>{x.name}</T><T muted size={13}>{[x.client, x.company].filter(Boolean).join(" · ") || "—"}</T></View>
-            <View style={{ alignItems: "flex-end" }}><T bold>{money(a.m2)} m²</T><T muted size={12}>owes {money(a.owes)}</T></View>
-          </Row>
-        </Card></Rise>); })}
-      {!projects.length && <Empty text="No projects yet. Tap New." />}
+      {projects.length ? <View style={{ backgroundColor: c.surface, borderWidth: 1, borderColor: c.line, borderRadius: 10, overflow: "hidden" }}>
+        {projects.map((x: any, i: number) => { const a = clientAccount(d, x.id), on = cur?.id === x.id && wide; return (
+          <Pressable key={x.id} onPress={() => { setSel(x.id); setHf(""); }} style={({ hovered }: any) => ({ flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 12, paddingHorizontal: 14, borderTopWidth: i ? 1 : 0, borderColor: c.line, borderLeftWidth: 3, borderLeftColor: on ? c.accent : "transparent", backgroundColor: on ? c.accentSoft : hovered ? c.sunk : c.surface, cursor: "pointer" } as any)}>
+            <View style={{ flex: 1 }}><T bold>{x.name}</T><T muted size={13}>{[x.client, x.company].filter(Boolean).join(", ") || "No client set"}</T></View>
+            <View style={{ alignItems: "flex-end" }}><T bold size={14}>{money(a.m2)} m²</T><T muted size={12}>owes {money(a.owes)}</T></View>
+          </Pressable>); })}
+      </View> : <Empty text="No projects yet. Press New to add the first one." />}
     </View>
   );
 
@@ -363,26 +373,22 @@ export function Projects() {
     return (
       <View style={{ gap: 14 }}>
         {!wide && <Btn kind="ghost" title="‹ All projects" onPress={() => setSel(null)} />}
-        <Rise i={0}><View style={{ backgroundColor: DEEP.bg, borderRadius: 22, padding: 20, gap: 8, overflow: "hidden" }}>
-          <View style={{ position: "absolute", right: -50, top: -50, width: 180, height: 180, borderRadius: 90, backgroundColor: DEEP.bg2 }} />
-          <Row><View style={{ flex: 1 }}><T size={24} bold color={DEEP.ink}>{x.name}</T>
-            <T size={13} color={DEEP.muted}>{[x.client, x.company, `fee ${x.fee_pct}%`, a.r ? `retention ${money(a.r)}%` : null, a.rate ? `client rate ${money(a.rate)}/m²` : null].filter(Boolean).join(" · ")}</T>
-            {(pc.pm_name || pc.cm_name) ? <T size={13} color={DEEP.muted}>{[pc.pm_name && `PM ${pc.pm_name} ${pc.pm_phone || ""}`, pc.cm_name && `CM ${pc.cm_name} ${pc.cm_phone || ""}`].filter(Boolean).join(" · ")}</T> : null}</View>
-            <Btn title="Edit" icon={<Icon name="doc" />} onPress={() => openProject(x)} />
+        <View style={{ gap: 10 }}>
+          <Row style={{ alignItems: "flex-start" }}><View style={{ flex: 1, gap: 2 }}><H1>{x.name}</H1>
+            <T size={14} muted>{[x.client, x.company, `service fee ${x.fee_pct}%`, a.r ? `retention ${money(a.r)}%` : null, a.rate ? `client rate ${money(a.rate)} SAR/m²` : null].filter(Boolean).join(", ")}</T>
+            {(pc.pm_name || pc.cm_name) ? <T size={13} muted>{[pc.pm_name && `Project manager ${pc.pm_name} ${pc.pm_phone || ""}`, pc.cm_name && `Construction manager ${pc.cm_name} ${pc.cm_phone || ""}`].filter(Boolean).join("; ")}</T> : null}</View>
+            <Btn title="Edit project" onPress={() => openProject(x)} />
           </Row>
           <Row wrap>
-            <Btn kind="primary" icon={<Icon name="cash" color={c.accentInk} />} title="Payment received" onPress={() => flows("speak", { intent: "income", project_id: x.id })} />
-            <Btn icon={<Icon name="people" />} title="Pay subcontractor" onPress={() => flows("speak", { intent: "subpay", project_id: x.id, sub_name: subs.length === 1 ? subs[0].name : "" })} />
-            <Btn icon={<Icon name="ruler" />} title="Work done (m²)" onPress={() => flows("speak", { intent: "progress", project_id: x.id })} />
-            <Btn icon={<Icon name="receipt" />} title="Expense / purchase" onPress={() => flows("speak", { intent: "expense", project_id: x.id })} />
-            <Btn icon={<Icon name="doc" />} title="Statement" onPress={() => flows("statement", { kind: "project", target: x.name, project_id: x.id })} />
+            <Btn kind="primary" icon={<Icon name="cash" size={16} color={c.accentInk} />} title="Payment received" onPress={() => flows("speak", { intent: "income", project_id: x.id })} />
+            <Btn icon={<Icon name="people" size={16} />} title="Pay subcontractor" onPress={() => flows("speak", { intent: "subpay", project_id: x.id, sub_name: subs.length === 1 ? subs[0].name : "" })} />
+            <Btn icon={<Icon name="ruler" size={16} />} title="Work done (m²)" onPress={() => flows("speak", { intent: "progress", project_id: x.id })} />
+            <Btn icon={<Icon name="receipt" size={16} />} title="Expense / purchase" onPress={() => flows("speak", { intent: "expense", project_id: x.id })} />
+            <Btn icon={<Icon name="doc" size={16} />} title="Statement" onPress={() => flows("statement", { kind: "project", target: x.name, project_id: x.id })} />
           </Row>
-        </View></Rise>
-
-        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12 }}>
-          {[["Total m² done", money(a.m2) + " m²", true], ["Client still owes", SAR(a.owes)], ["Received from client", SAR(a.received)], ["Retention kept by client", SAR(a.retHeld)]]
-            .map(([l, v, h]: any, i) => <Rise key={l} i={i + 1} style={{ flexGrow: 1, flexBasis: 160 }}><Kpi hero={h} label={l} value={v} /></Rise>)}
         </View>
+
+        <StatStrip items={[{ label: "Installed", value: money(a.m2) + " m²" }, { label: "Client still owes", value: SAR(a.owes) }, { label: "Received from client", value: SAR(a.received) }, { label: "Retention kept by client", value: SAR(a.retHeld) }]} />
         {!a.rate && <T muted size={13}>Add the client rate per m² (Edit) to see the work value and what is still to come.</T>}
         <VarianceCard x={x} done={a.m2} />
 
