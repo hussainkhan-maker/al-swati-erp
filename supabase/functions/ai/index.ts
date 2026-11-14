@@ -222,6 +222,116 @@ QUESTION: ${String(p.question).slice(0, 1000)}`);
     if (task === "match") {
       return json(asJson(await claude(`A user of a stone & flooring price list searches: "${p.query}". Items: ${JSON.stringify(p.items).slice(0, 40000)}. Return JSON only: {"ids":["<best matching item ids, best first, max 8>"],"why":"<short>"}`)));
     }
+    // ───────── Morning briefing (main agent). Runs when Super-Admin opens the app: once a day, no secret key needed. ─────────
+    if (task === "briefing") {
+      if (role !== "admin") return json({ error: "Only Super-Admin" }, 403);
+      const riyadhDay = (t: string | number | Date) => new Date(new Date(t).getTime() + 3 * 3600e3).toISOString().slice(0, 10);
+      const { data: last } = await admin.from("agent_reports").select("created_at").eq("for_role", "admin").order("created_at", { ascending: false }).limit(1);
+      const lastAt = last?.[0]?.created_at;
+      if (lastAt && riyadhDay(lastAt) === riyadhDay(Date.now()) && !(p.force && Date.now() - Date.parse(lastAt) > 30 * 60e3)) return json({ skipped: true, at: lastAt });
+      const items: { level: "bad" | "warn"; text: string }[] = [];
+      const since = new Date(Date.now() - 2 * 864e5).toISOString();
+      const [{ data: ledger }, { data: subs }, { data: quotes }, { data: inq }, { data: reqs }, { data: txns }, { data: prog }, { data: rfis }, { data: outr }, { data: posts }] = await Promise.all([
+        admin.from("project_ledger").select("*"),
+        admin.from("subcontractors").select("name, rate"),
+        admin.from("quotes").select("title, status, lines, updated_at, rfq"),
+        admin.from("inquiries").select("ref, subject, status, deadline, created_at"),
+        admin.from("supplier_requests").select("status, sent_at, suppliers(name)").eq("status", "Sent"),
+        admin.from("txns").select("type, flags, created_at, amount, total, gross").gte("created_at", since).eq("status", "active"),
+        admin.from("progress").select("sub_name, flags, created_at").gte("created_at", since).eq("status", "active"),
+        admin.from("rfis").select("ref, subject, status, due_date, sent_at, follow_ups, to_name"),
+        admin.from("outreach_contacts").select("name, company, status, last_contact, emails"),
+        admin.from("blog_posts").select("title, status, created_at, published_at").order("created_at", { ascending: false }).limit(5),
+      ]);
+      (ledger || []).forEach((l: any) => { if (Number(l.profit) < 0 && Number(l.gross) > 0) items.push({ level: "bad", text: `${l.name}: loss ${l.profit} SAR` }); if (Number(l.sub_due) > 0) items.push({ level: "warn", text: `${l.name}: subcontractors are owed ${l.sub_due} SAR` }); });
+      (subs || []).filter((x: any) => !(Number(x.rate) > 0)).forEach((x: any) => items.push({ level: "bad", text: `Subcontractor ${x.name} has no rate` }));
+      (quotes || []).filter((q: any) => ["Draft", "Abu Review"].includes(q.status)).forEach((q: any) => { const n = (q.lines || []).filter((l: any) => !(Number(l.rate) > 0)).length; if (n) items.push({ level: "warn", text: `Quotation "${q.title}": ${n} line(s) without a rate` }); });
+      (quotes || []).filter((q: any) => q.status === "Draft" && !q.rfq?.lock && (q.lines || []).length && (q.lines || []).every((l: any) => Number(l.rate) > 0)).forEach((q: any) => { const days = Math.floor((Date.now() - Date.parse(q.updated_at)) / 864e5); items.push({ level: days >= 2 ? "bad" : "warn", text: `Quotation "${q.title}" waits for your Approve & Lock${days ? ` since ${days} day(s)` : ""}` }); });
+      (inq || []).forEach((q: any) => {
+        if (q.status === "New") items.push({ level: "warn", text: `Query ${q.ref} "${q.subject}" not reviewed yet` });
+        if (q.deadline && !["Sent", "Won", "Lost"].includes(q.status)) { const d = Math.ceil((Date.parse(q.deadline) - Date.now()) / 864e5); if (d <= 2) items.push({ level: "bad", text: `Query ${q.ref} is due in ${d} day(s)` }); }
+      });
+      (reqs || []).forEach((r: any) => { if (r.sent_at && Date.now() - Date.parse(r.sent_at) > 2 * 864e5) items.push({ level: "warn", text: `${r.suppliers?.name ?? "Supplier"} has not replied for 2 days` }); });
+      (txns || []).forEach((x: any) => (x.flags || []).forEach((f: string) => items.push({ level: "warn", text: `${x.type} ${x.amount ?? x.total ?? x.gross}: ${f}` })));
+      (prog || []).forEach((x: any) => (x.flags || []).forEach((f: string) => items.push({ level: "warn", text: `Progress ${x.sub_name}: ${f}` })));
+      (rfis || []).forEach((r: any) => {
+        if (r.status === "Draft") items.push({ level: "warn", text: `${r.ref} "${r.subject}" is written but not sent` });
+        if (r.status === "Sent" && r.due_date && Date.parse(r.due_date) < Date.now()) items.push({ level: "bad", text: `${r.ref} to ${r.to_name || "consultant"}: no answer, due ${r.due_date} - send a follow-up` });
+        if (r.status === "Answered") items.push({ level: "warn", text: `${r.ref} answered - apply it to the quotation` });
+      });
+      (outr || []).forEach((o: any) => { if (o.status === "Emailed" && o.last_contact && Date.now() - Date.parse(o.last_contact) > 7 * 864e5 && (o.emails || []).length < 3) items.push({ level: "warn", text: `Outreach: ${o.name}${o.company ? ` (${o.company})` : ""} has not replied for 7 days - one polite follow-up` }); });
+      if (!(posts || []).some((x: any) => Date.now() - Date.parse(x.created_at) < 36 * 3600e3)) items.push({ level: "warn", text: "No blog post written since yesterday - write today's post (SEO)" });
+      let summary = items.length ? `${items.filter((i) => i.level === "bad").length} urgent, ${items.filter((i) => i.level === "warn").length} to check.` : "Sab theek hai. Koi khula masla nahi.";
+      try {
+        summary = (await claude(`You are the main agent of a stone and flooring contractor's ERP in Saudi Arabia. Write the owner's morning briefing in simple Roman Urdu, numbers as digits, exactly these 5 lines:
+Projects: <which projects need attention>
+Alerts: <data errors or anomalies caught, or "Koi nahi">
+Procurement: <supplier/price/RFI item to act on, one sentence>
+Paisa: <money impact in SAR from the items>
+Agla kaam: <the one button or approval the owner should do next>
+Use only these items, never invent: ${JSON.stringify(items.slice(0, 80))}`, { max: 600 })).trim() || summary;
+      } catch { /* keep the plain summary */ }
+      await admin.from("agent_reports").insert({ for_role: "admin", summary, items });
+      return json({ ok: true, items: items.length });
+    }
+
+    // ───────── RFI: one formal letter from the open questions; follow-ups; reading the consultant's answer. ─────────
+    if (task === "rfi_letter") {
+      if (role !== "admin") return json({ error: "Only Super-Admin" }, 403);
+      const lang = p.lang === "ar" ? "Arabic" : "English";
+      return json(asJson(await claude(`Write a formal Request for Information (RFI) email in ${lang} from "${p.signature || "Al-Swati Contracting"}" (stone, marble, granite and porcelain cladding and flooring contractor, Saudi Arabia) to ${p.to_name || "the consultant"} about the project / tender "${p.project || ""}". Reference: ${p.ref || ""}.
+Questions (keep every one, number them, keep BOQ item / drawing references exactly as given, do not add new questions, do not answer them): ${JSON.stringify(p.questions).slice(0, 12000)}
+Ask for a reply by ${p.due || "the date stated"} because the price depends on it. Polite, short, professional Saudi business tone. No invented facts.
+Return JSON only: {"subject":"<${p.ref || "RFI"} - short subject>","body":"<full email text>"}`, { max: 2500 })));
+    }
+    if (task === "rfi_followup") {
+      if (role !== "admin") return json({ error: "Only Super-Admin" }, 403);
+      const lang = p.lang === "ar" ? "Arabic" : "English";
+      return json(asJson(await claude(`Write a short, polite follow-up email in ${lang} from "${p.signature || "Al-Swati Contracting"}" to ${p.to_name || "the consultant"} about RFI ${p.ref} "${p.subject}" sent on ${p.sent_on}, which has no answer yet. This is follow-up number ${p.n || 1}. Remind them the quotation is waiting for these answers; list the open questions briefly: ${JSON.stringify(p.questions).slice(0, 6000)}. Not pushy. No invented facts.
+Return JSON only: {"subject":"","body":""}`, { max: 1200 })));
+    }
+    if (task === "rfi_apply") {
+      // Reads the consultant's answer and proposes exact changes to the quotation lines. Nothing is changed until the owner applies it.
+      if (role !== "admin") return json({ error: "Only Super-Admin" }, 403);
+      return json(asJson(await claude(`A stone and flooring contractor in Saudi Arabia sent this RFI: ${JSON.stringify(p.questions).slice(0, 8000)}
+The consultant answered: """${String(p.answer || "").slice(0, 12000)}"""
+Current quotation lines (index i): ${JSON.stringify(p.lines).slice(0, 20000)}
+For each question say what the answer is. Then propose ONLY the changes the answer clearly requires: a new quantity, a new description (material, finish, size, thickness), a line to add, or a line to remove. If the answer is unclear or does not answer a question, say so and propose no change for it. Never change a rate or cost: prices are re-checked by the owner. Material changes that need new supplier prices go in "supplier_items".
+Return JSON only: {"answers":[{"q":"<question>","answer":"<short>","clear":true|false}],
+"changes":[{"op":"edit|add|remove","i":<line index or null for add>,"desc":"<new description or null>","qty":<new qty or null>,"unit":"<unit or null>","why":"<which answer>"}],
+"supplier_items":[{"desc":"","qty":<n|null>,"unit":""}],"still_open":["<question still not answered>"],"summary_ur":"<2 short lines in simple Roman Urdu>"}`, { model: MODEL_STRONG, max: 4000 })));
+    }
+
+    // ───────── SEO: topics and blog posts for the company website. Facts only from the company profile; no invented projects. ─────────
+    if (task === "seo_topics") {
+      if (role !== "admin") return json({ error: "Only Super-Admin" }, 403);
+      return json(asJson(await claude(`Company profile (use only this about the company): ${JSON.stringify(p.profile || {})}
+Already written posts: ${JSON.stringify(p.done || []).slice(0, 4000)}
+Suggest 14 blog topics that people in Saudi Arabia actually search for when they need a stone, marble, granite or porcelain cladding / flooring contractor (owners, developers, project managers, consultants) in ${(p.cities || ["Riyadh", "Dammam", "Al-Hassa"]).join(", ")}. Mix English and Arabic topics. Practical and useful (choosing stone for Riyadh heat, dry-fix vs wet-fix cladding, maintenance, cost factors, approvals and samples), never clickbait, not already written.
+Return JSON only: {"topics":[{"title":"","lang":"en|ar","keyword":"<main search phrase>","why":"<one line>"}]}`, { max: 2500, webSearch: 3 })));
+    }
+    if (task === "blog") {
+      if (role !== "admin") return json({ error: "Only Super-Admin" }, 403);
+      const lang = p.lang === "ar" ? "Arabic" : "English";
+      return json(asJson(await claude(`Write a helpful blog post in ${lang} for the website of this company. Company profile (the ONLY facts you may state about the company; never invent projects, clients, years, numbers, certificates, awards or prices): ${JSON.stringify(p.profile || {})}
+Topic: "${p.topic}". Main search phrase: "${p.keyword || p.topic}".
+Rules: 700-1000 words, clear headings (##), short paragraphs, practical advice for Saudi conditions (heat, sand, Saudi Building Code where relevant - only say what you are sure of; if you mention a standard or figure, check it with search). Use the search phrase naturally in the title, the first paragraph and one heading; no keyword stuffing. End with a short, honest call to contact the company using the phone/email in the profile (if given). Plain, human tone; no hype words like "best", "No. 1", "leading".
+Return JSON only: {"title":"<max 60 chars>","slug":"<latin lowercase words with dashes>","meta_description":"<max 155 chars>","keywords":["",""],"body":"<markdown>"}`, { max: 5000, webSearch: 3 })));
+    }
+
+    // ───────── Outreach: one personal email at a time to someone the owner knows; he reads, edits and sends it himself. ─────────
+    if (task === "outreach_email") {
+      if (role !== "admin") return json({ error: "Only Super-Admin" }, 403);
+      const c = p.contact || {};
+      const lang = p.lang === "ar" ? "Arabic" : "English";
+      return json(asJson(await claude(`Write a short personal ${p.kind === "follow-up" ? "follow-up " : ""}email in ${lang} from ${p.signature || "the owner of Al-Swati Contracting"} to ${c.name}${c.role ? `, ${c.role}` : ""}${c.company ? ` at ${c.company}` : ""}${c.city ? ` in ${c.city}` : ""}.
+How we know them: ${c.source || "not stated"}. Notes: ${c.notes || "-"}. ${p.kind === "follow-up" ? `Earlier email(s): ${JSON.stringify((c.emails || []).slice(-2)).slice(0, 3000)}` : ""}
+Company profile (the ONLY facts you may state about the company; never invent projects, clients, numbers or claims): ${JSON.stringify(p.profile || {})}
+Purpose: introduce our stone / marble / granite / porcelain cladding and flooring work and ask if they have current or upcoming projects where we could quote (BOQ / drawings welcome). 90-140 words, specific to their role and city, plain and respectful, one clear question, no hype, no pressure, no fake urgency. ${p.kind === "follow-up" ? "One short gentle reminder only." : ""}
+Last line: "If you prefer not to receive emails from us, just reply 'no thanks' and we will not write again." (in ${lang}).
+Return JSON only: {"subject":"<short, specific, not salesy>","body":""}`, { max: 1200 })));
+    }
+
     return json({ error: "Unknown task" }, 400);
   } catch (e) {
     return json({ error: String((e as Error).message ?? e) }, 500);
