@@ -7,7 +7,7 @@ import { useData } from "./lib/data";
 import { signedUrl } from "./lib/files";
 
 // Palette taken from the material itself: honed grey granite for the page, white for paper, verde-marble green for actions.
-const LIGHT = { bg: "#EEF0EE", surface: "#FFFFFF", sunk: "#F5F6F5", line: "#DCE0DD", ink: "#1A2320", muted: "#5D6965", accent: "#17594C", accentInk: "#FFFFFF", accentSoft: "#E6EFEC", good: "#2C7350", goodSoft: "#E6F1EA", warn: "#9A5E10", warnSoft: "#F8EEDD", bad: "#B23A2E", badSoft: "#F8E6E3" };
+const LIGHT = { bg: "#EBEEEC", surface: "#FFFFFF", sunk: "#F4F6F5", line: "#E0E5E2", ink: "#1A2320", muted: "#5D6965", accent: "#17594C", accentInk: "#FFFFFF", accentSoft: "#E6EFEC", good: "#2C7350", goodSoft: "#E6F1EA", warn: "#9A5E10", warnSoft: "#F8EEDD", bad: "#B23A2E", badSoft: "#F8E6E3" };
 const DARK = { bg: "#121816", surface: "#1A2220", sunk: "#202926", line: "#2C3733", ink: "#E6ECE9", muted: "#9DAAA5", accent: "#5FB8A2", accentInk: "#0B1613", accentSoft: "#17322B", good: "#6CC394", goodSoft: "#173024", warn: "#DDA552", warnSoft: "#35290F", bad: "#EE8A7E", badSoft: "#3A1C18" };
 export type Colors = typeof LIGHT;
 /** Verde-marble green-black for the sidebar and splash (same in light and dark). */
@@ -39,10 +39,24 @@ export function useDir() {
   return { rtl, row: (rtl ? "row-reverse" : "row") as ViewStyle["flexDirection"], align: (rtl ? "right" : "left") as TextStyle["textAlign"], start: (rtl ? "flex-end" : "flex-start") as ViewStyle["alignItems"] };
 }
 
+/** Soft depth for raised surfaces (cards, strips, tables): a hairline plus a wide, faint shadow. */
+export const ELEV: any = web ? { boxShadow: "0 1px 2px rgba(17,38,31,0.05), 0 6px 18px rgba(17,38,31,0.05)" } : { elevation: 1, shadowColor: "#11261F", shadowOpacity: 0.06, shadowRadius: 6, shadowOffset: { width: 0, height: 2 } };
+
+/** Faint marble veins (white lines) laid over a dark verde surface. */
+export function Marble({ w = 1200, h = 400, o = 1 }: { w?: number; h?: number; o?: number }) {
+  const paths = ["M-40 60 C 120 120, 260 40, 420 110 S 720 220, 900 150 S 1180 60, 1280 140", "M-20 300 C 160 240, 300 330, 520 270 S 820 180, 1000 260 S 1200 340, 1300 300",
+    "M600 -20 C 640 80, 560 160, 650 240 S 760 380, 700 460", "M180 -10 C 210 90, 160 170, 240 250 S 300 380, 260 440"];
+  return (
+    <Svg width="100%" height="100%" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="xMidYMid slice" style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }} pointerEvents="none">
+      {paths.map((d, i) => <Path key={i} d={d} stroke="#FFFFFF" strokeOpacity={(i % 2 ? 0.05 : 0.08) * o} strokeWidth={i % 2 ? 1 : 1.5} fill="none" />)}
+    </Svg>
+  );
+}
+
 export function Screen({ children, scroll = true }: { children: React.ReactNode; scroll?: boolean }) {
   const c = useColors();
   const wide = useWide();
-  const inner: ViewStyle = { width: "100%", maxWidth: 1240, alignSelf: "center", padding: wide ? 32 : 16, paddingBottom: 120, gap: wide ? 18 : 14 };
+  const inner: ViewStyle = { width: "100%", maxWidth: 1240, alignSelf: "center", padding: wide ? 32 : 16, paddingTop: wide ? 28 : 16, paddingBottom: 120, gap: wide ? 20 : 14 };
   return (
     <SafeAreaView edges={["top"]} style={{ flex: 1, backgroundColor: c.bg }}>
       {scroll ? <ScrollView contentContainerStyle={inner} keyboardShouldPersistTaps="handled">{children}</ScrollView> : <View style={[inner, { flex: 1 }]}>{children}</View>}
@@ -54,12 +68,12 @@ export function T({ children, size = 15, bold, muted, color, style, center, numb
   const c = useColors(), { align, rtl } = useDir();
   return <Text numberOfLines={numberOfLines} style={[{ fontSize: size, color: color ?? (muted ? c.muted : c.ink), fontWeight: bold ? "600" : "400", textAlign: center ? "center" : align, writingDirection: rtl ? "rtl" : "ltr", lineHeight: Math.round(size * 1.45) }, style]}>{children}</Text>;
 }
-export const H1 = ({ children }: { children: React.ReactNode }) => <T size={26} bold style={{ letterSpacing: -0.4, lineHeight: 32 }}>{children}</T>;
-export const H2 = ({ children }: { children: React.ReactNode }) => <T size={16} bold>{children}</T>;
+export const H1 = ({ children }: { children: React.ReactNode }) => <T size={28} bold style={{ letterSpacing: -0.6, lineHeight: 34 }}>{children}</T>;
+export const H2 = ({ children }: { children: React.ReactNode }) => <T size={17} bold style={{ letterSpacing: -0.2 }}>{children}</T>;
 
 export function Card({ children, style, onPress }: { children: React.ReactNode; style?: ViewStyle; onPress?: () => void }) {
   const c = useColors();
-  const s: any[] = [{ backgroundColor: c.surface, borderColor: c.line, borderWidth: 1, borderRadius: 10, padding: 16, gap: 10 }, style];
+  const s: any[] = [{ backgroundColor: c.surface, borderColor: c.line, borderWidth: 1, borderRadius: 12, padding: 18, gap: 10 }, ELEV, style];
   return onPress ? <Pressable onPress={onPress} style={({ pressed, hovered }: any) => [...s, lift(hovered, pressed), pressed && { backgroundColor: c.sunk }]}>{children}</Pressable> : <View style={s}>{children}</View>;
 }
 
@@ -175,7 +189,7 @@ export function Kpi({ label, value, hero, onPress }: { label: string; value: str
 export function StatStrip({ items }: { items: { label: string; value: string; onPress?: () => void; tone?: "bad" }[] }) {
   const c = useColors(), wide = useWide();
   return (
-    <View style={{ flexDirection: wide ? "row" : "column", backgroundColor: c.surface, borderWidth: 1, borderColor: c.line, borderRadius: 10, overflow: "hidden" }}>
+    <View style={[{ flexDirection: wide ? "row" : "column", backgroundColor: c.surface, borderWidth: 1, borderColor: c.line, borderRadius: 12, overflow: "hidden" }, ELEV]}>
       {items.map((x, i) => (
         <Pressable key={x.label} disabled={!x.onPress} onPress={x.onPress} style={({ hovered }: any) => ({ flex: 1, paddingVertical: 14, paddingHorizontal: 16, gap: 3, borderColor: c.line, borderLeftWidth: wide && i ? 1 : 0, borderTopWidth: !wide && i ? 1 : 0, backgroundColor: hovered && x.onPress ? c.sunk : c.surface, cursor: x.onPress ? "pointer" : "default" } as any)}>
           <T size={13} muted>{x.label}</T>
@@ -194,7 +208,7 @@ export function Table({ cols, rows, numeric = [] }: { cols: string[]; rows: (str
       {typeof v === "string" || typeof v === "number" ? <Text style={{ color: head ? c.muted : c.ink, fontSize: head ? 12 : 14, fontWeight: head ? "600" : "400", textAlign: numeric.includes(i) ? "right" : rtl ? "right" : "left", fontVariant: ["tabular-nums"] }}>{v}</Text> : v}
     </View>);
   return (
-    <ScrollView horizontal style={{ borderWidth: 1, borderColor: c.line, borderRadius: 10, backgroundColor: c.surface }}>
+    <ScrollView horizontal style={[{ borderWidth: 1, borderColor: c.line, borderRadius: 12, backgroundColor: c.surface }, ELEV]}>
       <View style={{ flexDirection: rtl ? "column" : "column" }}>
         <View style={{ flexDirection: rtl ? "row-reverse" : "row", backgroundColor: c.sunk }}>{cols.map((h, i) => cell(h, i, true))}</View>
         {rows.length ? rows.map((r, j) => <View key={j} style={{ flexDirection: rtl ? "row-reverse" : "row", borderTopWidth: 1, borderColor: c.line }}>{r.map((v, i) => cell(v, i))}</View>)
