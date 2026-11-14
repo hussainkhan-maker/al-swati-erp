@@ -281,7 +281,7 @@ export function Projects() {
   const historyOf = (pid: string, sub: string) => [
     ...active(d.txns).filter((t: any) => t.project_id === pid || (t.split || []).some((q: any) => q.project_id === pid)).map((t: any) => ({ ...t, kind: t.type })),
     ...active(d.progress).filter((r: any) => r.project_id === pid).map((r: any) => ({ ...r, kind: "progress" })),
-  ].filter((x: any) => !sub || String(x.sub_name || "").toLowerCase() === sub.toLowerCase())
+  ].filter((x: any) => !sub || (sub === "__exp" ? ["expense", "purchase"].includes(x.kind) : String(x.sub_name || "").toLowerCase() === sub.toLowerCase()))
    .sort((a: any, b: any) => (dkey(b) + b.created_at).localeCompare(dkey(a) + a.created_at));
   const membersOf = (pid: string) => (d.project_members || []).filter((m: any) => m.project_id === pid).map((m: any) => m.user_id);
   const L = (pid: string) => (d.project_ledger || []).find((l: any) => l.project_id === pid) || {};
@@ -414,6 +414,7 @@ export function Projects() {
         </View>
 
         <StatStrip items={[{ label: "Installed", value: money(a.m2) + " m²" }, { label: "Client still owes", value: SAR(a.owes) }, { label: "Received from client", value: SAR(a.received) },
+          { label: "Expenses and purchases (ex VAT)", value: SAR(Number(L(x.id).cost) || 0), onPress: () => setHf("__exp") },
           { label: "Pay subcontractors now", value: SAR(subNums(x.id).reduce((t, r) => t + Math.max(0, r.now), 0)), tone: subNums(x.id).some((r) => r.now > 0.5) ? "bad" : undefined },
           { label: "Retention we keep from subs", value: SAR(subNums(x.id).reduce((t, r) => t + r.held, 0)) }, { label: "Retention kept by client", value: SAR(a.retHeld) }]} />
         {!a.rate && <T muted size={13}>Add the client rate per m² (Edit) to see the work value and what is still to come.</T>}
@@ -446,8 +447,9 @@ export function Projects() {
 
         <Rise i={6}><Card style={{ padding: 0, gap: 0, overflow: "hidden" }}>
           <View style={{ padding: 18, paddingBottom: 12, gap: 8 }}>
-            <SectionHead title="History" sub="Everything on this project, newest first. Click a line for the full details." right={subs.length ? <Select value={hf} onChange={setHf} style={{ width: 210 }} options={[{ value: "", label: "Everyone" }, ...subs.map((q: any) => ({ value: q.name, label: q.name }))]} /> : undefined} />
-            {hf ? <T size={13} color={c.accent}>{hf}: {money(sum(rows.filter((r: any) => r.kind === "progress"), "qty"))} m² done, paid {money(sum(rows.filter((r: any) => r.kind === "subpay"), "amount"))} SAR</T> : null}
+            <SectionHead title="History" sub="Everything on this project, newest first. Click a line for the full details." right={<Select value={hf} onChange={setHf} style={{ width: 210 }} options={[{ value: "", label: "Everything" }, { value: "__exp", label: "Expenses and purchases" }, ...subs.map((q: any) => ({ value: q.name, label: q.name }))]} />} />
+            {hf === "__exp" ? <T size={13} color={c.accent}>{rows.length} expense and purchase entries, {money(rows.reduce((t: number, r: any) => t + (Number(r.total ?? r.amount) || 0), 0))} SAR with VAT</T>
+              : hf ? <T size={13} color={c.accent}>{hf}: {money(sum(rows.filter((r: any) => r.kind === "progress"), "qty"))} m² done, paid {money(sum(rows.filter((r: any) => r.kind === "subpay"), "amount"))} SAR</T> : null}
           </View>
           {rows.length ? rows.map((r: any, i: number) => { const inc = r.kind === "income", prog = r.kind === "progress"; return (
             <Pressable key={r.kind + r.id} onPress={() => setDet(r)} style={({ hovered }: any) => ({ flexDirection: "row", alignItems: "center", gap: 14, paddingVertical: 10, paddingHorizontal: 18, borderTopWidth: 1, borderColor: c.line, backgroundColor: hovered ? c.sunk : c.surface, cursor: "pointer" } as any)}>
