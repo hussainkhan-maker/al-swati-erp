@@ -443,7 +443,7 @@ export function Projects() {
             <Pressable key={r.kind + r.id} onPress={() => setDet(r)} style={({ hovered }: any) => ({ flexDirection: "row", alignItems: "center", gap: 14, paddingVertical: 10, paddingHorizontal: 18, borderTopWidth: 1, borderColor: c.line, backgroundColor: hovered ? c.sunk : c.surface, cursor: "pointer" } as any)}>
               {wide ? <View style={{ width: 88 }}><T size={13} muted>{dkey(r)}</T></View> : null}
               <View style={{ width: 96 }}><Pill kind={inc ? "good" : prog ? "acc" : "plain"} text={prog ? "Work done" : TYPE[r.kind]} /></View>
-              <View style={{ flex: 1 }}><T size={14} bold>{r.sub_name || r.supplier || r.description || "—"}</T>
+              <View style={{ flex: 1 }}><T size={14} bold>{r.sub_name || r.supplier || (inc ? "Payment from the client" : r.description) || "—"}</T>
                 <T muted size={12}>{[!wide && dkey(r), r.method, r.invoice_no && "Invoice " + r.invoice_no, Number(r.vat_amount) > 0 && `VAT ${money(r.vat_amount)} to ${r.vat_company || "?"}`].filter(Boolean).join(", ")}</T></View>
               <T bold size={14} color={inc ? c.good : c.ink}>{prog ? `${money(r.qty)} m²` : `${inc ? "+" : "−"}${money(r.gross ?? r.total ?? r.amount)}`}</T>
             </Pressable>); }) : <View style={{ paddingHorizontal: 18, paddingBottom: 18 }}><T muted>Nothing yet.</T></View>}
