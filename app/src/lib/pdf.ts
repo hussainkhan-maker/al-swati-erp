@@ -7,6 +7,7 @@ import { Check } from "./checks";
 import { active, pname } from "./data";
 import { ARABIC_DIGITS, day, money, norm, num, r2, stamp } from "./fmt";
 import { Lang } from "./i18n";
+import { invoicesOf, waitText } from "./invoices";
 
 export type Doc = { title: string; cols: string[]; rows: any[][]; sum: [string, string][]; numCols: number[]; check?: { col: number; total: number } };
 const esc = (v: any) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
@@ -73,6 +74,28 @@ export function buildStatement(d: Record<string, any[]>, role: string, lang: Lan
     txns.filter((x) => x.type === "purchase").forEach((x) => (x.lines || []).filter((l: any) => norm(l.name).includes(norm(target))).forEach((l: any) => rows.push([day(x.created_at), pname(d, x.project_id), x.supplier || "", l.name, Number(l.qty) || 0, Number(l.total) || 0])));
     const tot = r2(rows.reduce((s, r) => s + r[5], 0));
     return { title: H("Material statement", "كشف المواد", "میٹیریل کا حساب") + " · " + target, cols: [H("Date", "التاريخ", "تاریخ"), H("Project", "المشروع", "پروجیکٹ"), H("Supplier", "المورد", "سپلائر"), H("Item", "المادة", "آئٹم"), H("Qty", "الكمية", "مقدار"), H("Total", "الإجمالي", "کل")], rows, numCols: [4, 5], sum: [[H("Total", "الإجمالي", "کل"), money(tot)]], check: { col: 5, total: tot } };
+  }
+  if (kind === "company") {
+    // The project's company (e.g. Hindcco): every invoice it raised, every payment against it (with VAT, fee and loan cut),
+    // and the money it lent us. Used to match accounts with the company line by line.
+    const C = (d.projects || []).find((p) => p.id === target) || (target ? (d.projects || []).find((p) => norm(p.name).includes(norm(target))) : null);
+    if (!C) return null;
+    const co = C.company || H("the company", "الشركة", "کمپنی"), mine = active(d.txns).filter((x) => x.project_id === C.id);
+    const inv = invoicesOf(d, C.id);
+    const rows: any[][] = [
+      ...inv.map((v: any) => [String(v.issued_on).slice(0, 10), H("Invoice", "فاتورة", "انوائس") + (v.note ? " · " + v.note : ""), v.invoice_no, Number(v.amount) || 0, 0, 0, 0]),
+      ...mine.filter((x) => x.type === "income").map((x) => [dd(x), H("Payment", "دفعة", "ادائیگی") + ` · VAT ${money(x.vat)} · ${H("fee", "رسوم", "فیس")} ${money(x.fee)} · ${H("in hand", "الصافي", "ہاتھ میں")} ${money(x.net)}` + (x.description ? " · " + x.description : ""), x.invoice_no || "—", 0, Number(x.gross) || 0, 0, Number(x.loan) || 0]),
+      ...mine.filter((x) => x.type === "loan").map((x) => [dd(x), H("Loan from", "قرض من", "قرض از") + " " + co + (x.description ? " · " + x.description : ""), "", 0, 0, Number(x.amount) || 0, 0]),
+    ].sort((a, b) => (a[0] < b[0] ? -1 : 1));
+    const S = (i: number) => r2(rows.reduce((s2, rr) => s2 + (Number(rr[i]) || 0), 0));
+    const open = inv.filter((v: any) => v.left > 0.5), left = r2(open.reduce((s2: number, v: any) => s2 + v.left, 0));
+    return { title: H("Company statement", "كشف حساب الشركة", "کمپنی کا حساب") + " · " + co + " · " + C.name,
+      cols: [H("Date", "التاريخ", "تاریخ"), H("Entry", "البند", "اندراج"), H("Invoice", "الفاتورة", "انوائس"), H("Invoiced", "المفوتر", "انوائس رقم"), H("Received", "المستلم", "وصولی"), H("Loan given", "قرض", "قرض دیا"), H("Loan cut", "خصم القرض", "قرض کٹوتی")],
+      rows, numCols: [3, 4, 5, 6],
+      sum: [[H("Invoiced", "المفوتر", "کل انوائس"), money(S(3))], [H("Received (gross)", "المستلم", "کل وصولی"), money(S(4))], [H("Still to come on invoices", "المتبقي على الفواتير", "انوائسز پر باقی"), money(left)],
+        ...open.map((v: any) => [`${H("Invoice", "فاتورة", "انوائس")} ${v.invoice_no}`, `${money(v.left)} · ${waitText(v)}`] as [string, string]),
+        [H("Loan taken", "القرض المستلم", "لیا ہوا قرض"), money(S(5))], [H("Loan cut back", "المخصوم من القرض", "کٹا ہوا قرض"), money(S(6))], [H("Loan still open", "القرض المتبقي", "باقی قرض"), money(r2(S(5) - S(6)))]],
+      check: { col: 4, total: S(4) } };
   }
   // project
   const P = (d.projects || []).find((p) => p.id === target) || (target ? (d.projects || []).find((p) => norm(p.name).includes(norm(target))) : null);
