@@ -1,5 +1,5 @@
 # Autopilot on the server, every 30 minutes, with nobody's app open:
-# the AI reads new client queries and turns clean ones into draft quotations.
+# the linked Outlook inbox is read for client queries, and the AI turns clean queries into draft quotations.
 # It uses only the public (anon) key that the app itself ships with; the function does nothing unless work is waiting.
 name: Autopilot (server)
 on:
@@ -14,6 +14,11 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v5
+      - name: Read new Outlook emails (client queries) and put approved replies in Outlook Drafts
+        run: |
+          URL=$(grep -oE 'https://[a-z0-9]+\.supabase\.co' app/src/config.ts | head -1)
+          KEY=$(grep -oE 'SUPABASE_ANON_KEY = "[^"]+"' app/src/config.ts | cut -d'"' -f2)
+          curl -sS -m 200 -X POST "$URL/functions/v1/inbound-query" -H "Authorization: Bearer $KEY" -H "apikey: $KEY" -H "content-type: application/json" -d '{"action":"outlook_pull"}' || true
       - name: Read new queries and draft quotations
         run: |
           URL=$(grep -oE 'https://[a-z0-9]+\.supabase\.co' app/src/config.ts | head -1)
