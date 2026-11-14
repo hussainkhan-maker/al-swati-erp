@@ -455,7 +455,8 @@ export function Projects() {
           <View style={{ padding: 18, paddingBottom: 12 }}><SectionHead title="Invoices" sub={(() => { const open = invoicesOf(d, x.id).filter((v: any) => v.left > 0.5); return open.length
               ? `${money(open.reduce((s2: number, v: any) => s2 + v.left, 0))} SAR still to come from ${x.company || "the company"}, oldest invoice waiting ${Math.max(...open.map((v: any) => v.age))} days. Click an invoice to add a date they promise.`
               : `Invoices ${x.company || "the company"} raised for our work: what was paid and what is still to come`; })()}
-            right={<Btn icon={<Icon name="plus" size={16} />} title="Add invoice" onPress={() => { setInvErr(""); setInvDel(false); setInv({ project_id: x.id, invoice_no: "", amount: "", issued_on: new Date().toISOString().slice(0, 10), due_on: "", note: "" }); }} />} /></View>
+            right={<Row wrap style={{ gap: 6 }}><Btn kind="ghost" icon={<Icon name="doc" size={16} />} title={`${x.company || "Company"} statement`} onPress={() => flows("statement", { kind: "company", target: x.name })} />
+              <Btn icon={<Icon name="plus" size={16} />} title="Add invoice" onPress={() => { setInvErr(""); setInvDel(false); setInv({ project_id: x.id, invoice_no: "", amount: "", issued_on: new Date().toISOString().slice(0, 10), due_on: "", note: "" }); }} /></Row>} /></View>
           {invoicesOf(d, x.id).length ? invoicesOf(d, x.id).map((v: any) => { const [lab, kind] = STATE_LABEL[v.state as keyof typeof STATE_LABEL]; return (
             <Pressable key={v.id} onPress={() => { setInvErr(""); setInvDel(false); setInv({ ...v, amount: String(v.amount), due_on: v.due_on || "", note: v.note || "" }); }} style={({ hovered }: any) => ({ flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 11, paddingHorizontal: 18, borderTopWidth: 1, borderColor: c.line, backgroundColor: hovered ? c.sunk : c.surface, cursor: "pointer" } as any)}>
               <View style={{ flex: 1.4 }}><T bold size={14}>Invoice {v.invoice_no}</T><T size={12} color={v.state === "late" || v.state === "missed" ? c.bad : v.state === "slow" ? c.warn : c.muted}>{day(v.issued_on)}, {waitText(v).toLowerCase()}{v.note ? ", " + v.note : ""}</T></View>
@@ -727,12 +728,42 @@ export function Team() {
   );
 }
 
+/** Weekly backup of all data (server side): when the last one was made, a copy in Outlook, download, back up now. */
+function BackupCard() {
+  const { d, reload } = useData(); const c = useColors();
+  const list = (((d.preferences || []).find((p: any) => p.key === "backups")?.value || {}).list || []) as any[];
+  const [busy, setBusy] = useState(""), [msg, setMsg] = useState("");
+  const call = async (body: any) => {
+    const { data, error } = await supabase.functions.invoke("inbound-query", { body });
+    if (error) { let m = error.message; try { const j = await (error as any).context?.json?.(); if (j?.error) m = j.error; } catch { /* keep */ } throw new Error(m); }
+    if (data?.error) throw new Error(data.error);
+    return data;
+  };
+  const now = async () => { setBusy("now"); setMsg(""); try { const r = await call({ action: "backup" }); await reload(["preferences"]); setMsg(`Backed up ${money(r.rows)} rows${r.outlook ? ", and a copy is in your Outlook folder \"AL-Swati backups\"" : ""}.`); } catch (e: any) { setMsg(e.message); } finally { setBusy(""); } };
+  const get = async (path: string) => { setBusy(path); setMsg(""); try { const r = await call({ action: "backup_link", path }); Linking.openURL(r.url); } catch (e: any) { setMsg(e.message); } finally { setBusy(""); } };
+  const last = list[0], age = last ? Math.floor((Date.now() - Date.parse(last.at)) / 864e5) : null;
+  return (
+    <Card>
+      <SectionHead title="Backups" sub="Every week the server saves a copy of all data (projects, money, work, invoices, quotations, queries, suppliers, prices). A copy also goes to your Outlook folder “AL-Swati backups”." />
+      {last ? <T size={14}>Last backup: {stamp(last.at)} ({age === 0 ? "today" : `${age} day${age === 1 ? "" : "s"} ago`}), {money(last.rows)} rows{last.outlook ? ", copy in Outlook" : ""}.</T> : <T muted>No backup yet. The first one is made within 30 minutes, or press Back up now.</T>}
+      {list.slice(0, 5).map((b: any) => (
+        <Row key={b.path} style={{ paddingVertical: 6, borderTopWidth: 1, borderColor: c.line, alignItems: "center" }}>
+          <View style={{ flex: 1 }}><T size={14}>{stamp(b.at)}</T><T size={12} muted>{money(b.rows)} rows · {Math.max(1, Math.round((b.size || 0) / 1024))} KB{b.outlook ? " · in Outlook" : ""}</T></View>
+          <Btn kind="ghost" title="Download" busy={busy === b.path} onPress={() => get(b.path)} />
+        </Row>))}
+      <Row wrap><Btn kind="primary" title="Back up now" busy={busy === "now"} onPress={now} /></Row>
+      {msg ? <T size={13} color={/^Backed up/.test(msg) ? c.good : c.bad}>{msg}</T> : null}
+    </Card>
+  );
+}
+
 export function Audit() {
-  const { d } = useData();
+  const { d, role } = useData();
   const who = (id: string) => (d.profiles || []).find((p: any) => p.id === id)?.name || "system";
   const what = (a: any) => { const n = a.new || a.old || {}; return [a.table_name, a.op.toLowerCase(), n.name || n.title || n.type || n.sub_name || "", n.gross ?? n.total ?? n.amount ?? n.qty ?? "", a.op === "UPDATE" && n.status === "cancelled" ? `cancelled: ${n.cancel_reason}` : ""].filter(Boolean).join(" · "); };
   return (
     <Screen>
+      {role === "admin" ? <BackupCard /> : null}
       <H1>Audit log</H1>
       <T muted size={13}>Every save, change and cancel, with who did it. Nobody can edit this list.</T>
       {(d.audit_log || []).map((a: any) => <Card key={a.id}><T size={13} muted>{stamp(a.at)} · {who(a.user_id)}</T><T>{what(a)}</T></Card>)}
