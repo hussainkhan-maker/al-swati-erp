@@ -5,7 +5,7 @@ import { useFlows } from "../components/Flows";
 import { active, pname, useData } from "../lib/data";
 import { day, money, num, SAR, stamp } from "../lib/fmt";
 import { pricesFor } from "../lib/match";
-import { invoicesOf, STATE_LABEL } from "../lib/invoices";
+import { invoicesOf, STATE_LABEL, waitText } from "../lib/invoices";
 import { ai, supabase } from "../lib/supabase";
 import { Bars, Btn, Card, Checks, CountUp, DEEP, ELEV, Empty, Marble, SectionHead, Segmented, StatStrip, Field, H1, H2, Icon, Kpi, MonthCal, Photo, Pill, Rise, Row, Screen, Select, Sheet, T, Table, Tile, useColors, useWide } from "../ui";
 
@@ -180,7 +180,7 @@ export function Dashboard({ go }: { go?: (k: string) => void } = {}) {
     }
     return out;
   }, [d.txns]);
-  const waiting = invoicesOf(d).filter((v: any) => v.left > 0.5);
+  const waiting = invoicesOf(d).filter((v: any) => v.left > 0.5).sort((a: any, b: any) => b.age - a.age); // longest wait first
   const side = <>
     <Rise i={2}><Card><MonthCal marks={marks} /><T size={12} muted>A dot marks a day with a payment or work entry.</T></Card></Rise>
     <Rise i={3}><Card>
@@ -196,12 +196,12 @@ export function Dashboard({ go }: { go?: (k: string) => void } = {}) {
       {(() => { const wait = (d.quotes || []).filter((q: any) => q.status === "Draft" && !q.rfq?.lock && (q.lines || []).length && (q.lines || []).every((l: any) => Number(l.rate) > 0)); return wait.length ? <Pill kind="bad" text={`${wait.length} quotation(s) waiting for your Approve & Lock`} /> : null; })()}
     </Card></Rise>
     {waiting.length ? <Rise i={4}><Card style={{ gap: 6 }}>
-      <SectionHead title="Waiting for payment" sub="Invoices not fully paid yet" />
+      <SectionHead title="Waiting for payment" sub={`${money(waiting.reduce((s2: number, v: any) => s2 + v.left, 0))} SAR on ${waiting.length} invoice${waiting.length === 1 ? "" : "s"}, longest wait first`} />
       {waiting.slice(0, 6).map((v: any) => (
         <Row key={v.id} style={{ paddingVertical: 6, borderTopWidth: 1, borderColor: c.line }}>
           <View style={{ flex: 1 }}><T bold size={14}>{pname(d, v.project_id)}, invoice {v.invoice_no}</T>
-            <T size={12} color={v.state === "late" ? c.bad : c.muted}>{v.state === "late" ? `Late: promised ${day(v.due_on)}` : v.due_on ? `Promised ${day(v.due_on)}` : "No date given"}{v.paid > 0 ? `, ${money(v.paid)} received` : ""}</T></View>
-          <T bold color={v.state === "late" ? c.bad : c.warn}>{money(v.left)}</T>
+            <T size={12} color={v.state === "late" || v.state === "missed" ? c.bad : v.state === "slow" ? c.warn : c.muted}>{waitText(v)}{v.paid > 0 ? `, ${money(v.paid)} received` : ""}</T></View>
+          <T bold color={v.state === "late" || v.state === "missed" ? c.bad : c.warn}>{money(v.left)}</T>
         </Row>))}
     </Card></Rise> : null}
   </>;
@@ -288,14 +288,22 @@ export function Projects() {
   const [p, setP] = useState<any>(null), [s, setS] = useState<any>(null), [err, setErr] = useState(""), [busy, setBusy] = useState(false);
   const [det, setDet] = useState<any>(null); // one entry opened for full details
   const [rel, setRel] = useState<any>(null); // retention release for one subcontractor
-  const [inv, setInv] = useState<any>(null), [invErr, setInvErr] = useState(""); // new company invoice
+  const [inv, setInv] = useState<any>(null), [invErr, setInvErr] = useState(""), [invDel, setInvDel] = useState(false); // company invoice being added or changed
   const isDate = (s: any) => /^\d{4}-\d{2}-\d{2}$/.test(String(s || "").trim());
   const saveInv = async () => {
     setInvErr("");
-    const { error } = await supabase.from("company_invoices").insert({ project_id: inv.project_id, invoice_no: String(inv.invoice_no).trim(), amount: num(inv.amount),
-      issued_on: isDate(inv.issued_on) ? inv.issued_on.trim() : new Date().toISOString().slice(0, 10), due_on: isDate(inv.due_on) ? inv.due_on.trim() : null, note: inv.note || null });
+    if (String(inv.due_on || "").trim() && !isDate(inv.due_on)) { setInvErr("Write the promised date like 2026-11-21."); return; }
+    const row = { amount: num(inv.amount), issued_on: isDate(inv.issued_on) ? inv.issued_on.trim() : new Date().toISOString().slice(0, 10), due_on: isDate(inv.due_on) ? inv.due_on.trim() : null, note: inv.note || null };
+    const { error } = inv.id ? await supabase.from("company_invoices").update(row).eq("id", inv.id)
+      : await supabase.from("company_invoices").insert({ ...row, project_id: inv.project_id, invoice_no: String(inv.invoice_no).trim() });
     if (error) { setInvErr(/duplicate|unique/i.test(error.message) ? "This invoice number is already saved for this project." : error.message); return; }
     setInv(null); await reload(["company_invoices"]);
+  };
+  const cancelInv = async () => { // an invoice entered by mistake; payments already linked to it stay in the money records
+    if (!invDel) { setInvDel(true); return; }
+    const { error } = await supabase.from("company_invoices").update({ status: "cancelled" }).eq("id", inv.id);
+    if (error) { setInvErr(error.message); return; }
+    setInv(null); setInvDel(false); await reload(["company_invoices"]);
   };
   const [hist, setHist] = useState<Record<string, string | null>>({}); // project id → "" (all) or a subcontractor name; missing = closed
   const staff = (d.profiles || []).filter((x: any) => ["supervisor", "engineer"].includes(x.role));
@@ -444,17 +452,19 @@ export function Projects() {
         <VarianceCard x={x} done={a.m2} />
 
         <Rise i={5}><Card style={{ padding: 0, gap: 0, overflow: "hidden" }}>
-          <View style={{ padding: 18, paddingBottom: 12 }}><SectionHead title="Invoices" sub={`Invoices ${x.company || "the company"} raised for our work: what was paid and what is still to come`}
-            right={<Btn icon={<Icon name="plus" size={16} />} title="Add invoice" onPress={() => { setInvErr(""); setInv({ project_id: x.id, invoice_no: "", amount: "", issued_on: new Date().toISOString().slice(0, 10), due_on: "", note: "" }); }} />} /></View>
+          <View style={{ padding: 18, paddingBottom: 12 }}><SectionHead title="Invoices" sub={(() => { const open = invoicesOf(d, x.id).filter((v: any) => v.left > 0.5); return open.length
+              ? `${money(open.reduce((s2: number, v: any) => s2 + v.left, 0))} SAR still to come from ${x.company || "the company"}, oldest invoice waiting ${Math.max(...open.map((v: any) => v.age))} days. Click an invoice to add a date they promise.`
+              : `Invoices ${x.company || "the company"} raised for our work: what was paid and what is still to come`; })()}
+            right={<Btn icon={<Icon name="plus" size={16} />} title="Add invoice" onPress={() => { setInvErr(""); setInvDel(false); setInv({ project_id: x.id, invoice_no: "", amount: "", issued_on: new Date().toISOString().slice(0, 10), due_on: "", note: "" }); }} />} /></View>
           {invoicesOf(d, x.id).length ? invoicesOf(d, x.id).map((v: any) => { const [lab, kind] = STATE_LABEL[v.state as keyof typeof STATE_LABEL]; return (
-            <View key={v.id} style={{ flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 11, paddingHorizontal: 18, borderTopWidth: 1, borderColor: c.line }}>
-              <View style={{ flex: 1.4 }}><T bold size={14}>Invoice {v.invoice_no}</T><T size={12} muted>{day(v.issued_on)}{v.note ? ", " + v.note : ""}</T></View>
+            <Pressable key={v.id} onPress={() => { setInvErr(""); setInvDel(false); setInv({ ...v, amount: String(v.amount), due_on: v.due_on || "", note: v.note || "" }); }} style={({ hovered }: any) => ({ flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 11, paddingHorizontal: 18, borderTopWidth: 1, borderColor: c.line, backgroundColor: hovered ? c.sunk : c.surface, cursor: "pointer" } as any)}>
+              <View style={{ flex: 1.4 }}><T bold size={14}>Invoice {v.invoice_no}</T><T size={12} color={v.state === "late" || v.state === "missed" ? c.bad : v.state === "slow" ? c.warn : c.muted}>{day(v.issued_on)}, {waitText(v).toLowerCase()}{v.note ? ", " + v.note : ""}</T></View>
               {wide ? <View style={{ flex: 1, alignItems: "flex-end" }}><T size={12} muted>Amount</T><T size={14}>{money(v.amount)}</T></View> : null}
               <View style={{ flex: 1, alignItems: "flex-end" }}><T size={12} muted>Received</T><T size={14} color={c.good}>{money(v.paid)}</T></View>
-              <View style={{ flex: 1, alignItems: "flex-end" }}><T size={12} muted>Still to come</T><T size={14} bold color={v.state === "late" ? c.bad : v.left > 0.5 ? c.warn : c.good}>{money(v.left)}</T></View>
-              <View style={{ width: 110, alignItems: "flex-end", gap: 3 }}><Pill kind={kind} text={lab} />{v.due_on && v.left > 0.5 ? <T size={11} muted>promised {day(v.due_on)}</T> : null}</View>
+              <View style={{ flex: 1, alignItems: "flex-end" }}><T size={12} muted>Still to come</T><T size={14} bold color={v.state === "late" || v.state === "missed" ? c.bad : v.left > 0.5 ? c.warn : c.good}>{money(v.left)}</T></View>
+              <View style={{ width: 120, alignItems: "flex-end" }}><Pill kind={kind} text={lab} /></View>
               <View style={{ width: 150, alignItems: "flex-end" }}>{v.left > 0.5 ? <Btn kind="ghost" title="Payment received" onPress={() => flows("speak", { intent: "income", project_id: x.id, amount: String(v.left), invoice_no: v.invoice_no })} /> : <T size={12} muted>Settled</T>}</View>
-            </View>); }) : <View style={{ paddingHorizontal: 18, paddingBottom: 18 }}><T muted>No invoices yet. Add each invoice {x.company || "the company"} raises, then pick it when the payment comes (part payments add up).</T></View>}
+            </Pressable>); }) : <View style={{ paddingHorizontal: 18, paddingBottom: 18 }}><T muted>No invoices yet. Add each invoice {x.company || "the company"} raises, then pick it when the payment comes (part payments add up).</T></View>}
         </Card></Rise>
 
         {/* Money the company lent us to run the work, and what it has cut back from its payments. */}
@@ -531,18 +541,20 @@ export function Projects() {
         </View>
       ) : (cur ? detail : list)}
 
-      <Sheet open={!!inv} onClose={() => setInv(null)} title="Add invoice">
+      <Sheet open={!!inv} onClose={() => setInv(null)} title={inv?.id ? `Invoice ${inv.invoice_no}` : "Add invoice"}>
         {inv && <>
-          <Field required label="Invoice number" value={inv.invoice_no} onChange={(v) => setInv({ ...inv, invoice_no: v })} />
-          <Field required label="Amount on the invoice (SAR, with VAT)" value={inv.amount} numeric onChange={(v) => setInv({ ...inv, amount: v })} />
+          {inv.id ? <T muted size={13}>{waitText(inv)}{inv.paid > 0 ? `, ${money(inv.paid)} received so far` : ""}.</T>
+            : <Field required label="Invoice number" value={inv.invoice_no} onChange={(v) => setInv({ ...inv, invoice_no: v })} />}
           <Row wrap>
+            <Field required label="Amount on the invoice (SAR, with VAT)" value={inv.amount} numeric onChange={(v) => setInv({ ...inv, amount: v })} />
             <Field label="Invoice date (YYYY-MM-DD)" value={inv.issued_on} onChange={(v) => setInv({ ...inv, issued_on: v })} />
-            <Field label="Payment promised by (YYYY-MM-DD)" value={inv.due_on} onChange={(v) => setInv({ ...inv, due_on: v })} />
           </Row>
-          <Field label="Note (e.g. half now, half next week)" value={inv.note} onChange={(v) => setInv({ ...inv, note: v })} />
+          {inv.id ? <Field label="Date they promised to pay (YYYY-MM-DD, if they gave one)" value={inv.due_on} onChange={(v) => setInv({ ...inv, due_on: v })} placeholder="e.g. 2026-11-21" /> : null}
+          <Field label={inv.id ? "Note (e.g. they said the rest next week)" : "Note (optional)"} value={inv.note} onChange={(v) => setInv({ ...inv, note: v })} />
           {invErr ? <T color={c.bad}>{invErr}</T> : null}
-          <Btn big kind="primary" title="Save invoice" disabled={!String(inv.invoice_no).trim() || !(num(inv.amount) > 0)} onPress={saveInv} />
-          <T size={12} muted>When money comes, press "Payment received" on the invoice (or pick the invoice in the payment form). If they pay in parts, each part adds up; what is still to come shows here and on Home.</T>
+          <Btn big kind="primary" title={inv.id ? "Save changes" : "Save invoice"} disabled={!String(inv.invoice_no).trim() || !(num(inv.amount) > 0)} onPress={saveInv} />
+          {inv.id ? <Btn kind={invDel ? "danger" : "ghost"} title={invDel ? "Press again to remove this invoice" : "Remove invoice (entered by mistake)"} onPress={cancelInv} />
+            : <T size={12} muted>No need to know when they will pay. The app counts the days from the invoice date: after 30 days it turns amber, after 60 days red. When money comes, press "Payment received"; part payments add up.</T>}
         </>}
       </Sheet>
       <Sheet open={!!rel} onClose={() => setRel(null)} title={rel ? `Release retention · ${rel.name}` : ""}>
