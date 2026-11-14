@@ -27,6 +27,7 @@ Ground rules for every task:
 - Plain, professional language. Roman Urdu only where the task asks for it.`;
 let TASK = ""; // which task is running, for the usage log
 const LOG = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+let USER_ID: string | null = null; // who is asking (for the daily AI limit)
 let RULES = ""; // filled per request from preferences "rules" (the owner's feedback, "Teach your AI")
 async function claude(prompt: string, opts: { images?: Img[]; model?: string; max?: number; webSearch?: number } = {}) {
   const content: unknown[] = (opts.images ?? []).map((i) => i.media_type === "application/pdf"
@@ -44,7 +45,7 @@ async function claude(prompt: string, opts: { images?: Img[]; model?: string; ma
   if (!r.ok) throw new Error(`AI ${r.status}: ${(await r.text()).slice(0, 300)}`);
   const j = await r.json();
   // Usage log: every call's tokens are counted per task, so the owner sees where the AI money goes.
-  try { const u = j.usage || {}; await LOG.from("ai_usage").insert({ task: TASK, model: opts.model ?? MODEL, input_tokens: u.input_tokens || 0, output_tokens: u.output_tokens || 0, cache_read: u.cache_read_input_tokens || 0, cache_write: u.cache_creation_input_tokens || 0, files: (opts.images ?? []).length }); } catch { /* never block the answer */ }
+  try { const u = j.usage || {}; await LOG.from("ai_usage").insert({ user_id: USER_ID, task: TASK, model: opts.model ?? MODEL, input_tokens: u.input_tokens || 0, output_tokens: u.output_tokens || 0, cache_read: u.cache_read_input_tokens || 0, cache_write: u.cache_creation_input_tokens || 0, files: (opts.images ?? []).length }); } catch { /* never block the answer */ }
   return (j.content ?? []).filter((c: { type: string }) => c.type === "text").map((c: { text: string }) => c.text).join("");
 }
 /** Public share links (Google Drive, Dropbox, OneDrive, WeTransfer-style direct links) → direct download URLs. */
@@ -196,8 +197,15 @@ Deno.serve(async (req) => {
     if (!prof?.active) return json({ error: "Account not active" }, 403);
     const role = prof.role as string;
     const { task, ...p } = body;
-    TASK = String(task || "");
-    try { const { data: rl } = await admin.from("preferences").select("value").eq("key", "rules").maybeSingle(); RULES = ((rl?.value as any)?.list || []).slice(-30).map((r: any) => `- ${r.action_for_agents || r.observed_rule}`).join("\n"); } catch { RULES = ""; }
+    TASK = String(task || ""); USER_ID = u.user.id;
+    // Daily AI limit for everyone except Super-Admin (stops a lost phone or a bad actor running up the AI bill).
+    if (role !== "admin") {
+      const { count } = await admin.from("ai_usage").select("id", { count: "exact", head: true }).eq("user_id", u.user.id).gte("at", new Date(Date.now() - 864e5).toISOString());
+      if ((count ?? 0) >= 150) return json({ error: "Today's AI limit is reached. It opens again tomorrow, or ask Super-Admin." }, 429);
+    }
+    // The owner's private pricing rules ("Teach your AI") go only into Super-Admin and Abu requests, never to site staff.
+    RULES = "";
+    if (role === "admin" || role === "abu") { try { const { data: rl } = await admin.from("preferences").select("value").eq("key", "rules").maybeSingle(); RULES = ((rl?.value as any)?.list || []).slice(-30).map((r: any) => `- ${r.action_for_agents || r.observed_rule}`).join("\n"); } catch { RULES = ""; } }
 
     if (task === "parse") {
       const lang = LANG[p.lang] ?? "Urdu";
@@ -225,7 +233,9 @@ Rules: digits 0-9 only. Never invent a number that was not said: use null and as
 
     if (task === "receipt") {
       // A receipt is read only by the person who uploaded it (path starts with their id), or by Super-Admin / Abu.
-      if (!["admin", "abu"].includes(role) && !String(p.path || "").startsWith(u.user.id + "/")) return json({ error: "Not your receipt" }, 403);
+      // Strict path: <own user id>/<file name>, no "..", no extra folders (so no way to step into someone else's folder).
+      if (!/^[0-9a-f-]{36}\/[\w.-]+$/.test(String(p.path || "")) || String(p.path).includes("..")) return json({ error: "Bad file path" }, 400);
+      if (!["admin", "abu"].includes(role) && !String(p.path).startsWith(u.user.id + "/")) return json({ error: "Not your receipt" }, 403);
       const img = await imageFrom(admin, "receipts", p.path);
       const prompt = `This image is a purchase receipt or invoice from Saudi Arabia (Arabic and/or English). Read it carefully. Return JSON only:
 {"supplier":"<name>","invoice_no":"<invoice / tax invoice number or null>","buyer":"<the company the invoice is made out to (customer name, VAT no.) or null>","date":"YYYY-MM-DD or null","lines":[{"name":"<item as written; add English if Arabic>","qty":<n>,"unit":"<unit>","price":<unit price before VAT>,"total":<line total before VAT>}],"subtotal":<before VAT>,"vat":<VAT amount or 0>,"total":<grand total>,"confidence":"high|medium|low","notes":"<anything unclear>"}
