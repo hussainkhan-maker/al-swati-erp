@@ -1,14 +1,23 @@
 import { StatusBar } from "expo-status-bar";
 import React, { useEffect, useState } from "react";
-import { ActivityIndicator, View } from "react-native";
+import { ActivityIndicator, Platform, View } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { FlowProvider } from "./components/Flows";
 import { DataProvider, Profile } from "./lib/data";
 import { supabase } from "./lib/supabase";
 import Login, { SetPassword } from "./screens/Login";
+import PublicBlog from "./screens/PublicBlog";
 import Shell from "./screens/Shell";
 
+// The public blog (…/blog/) is open to everyone, without signing in.
+const isBlog = Platform.OS === "web" && typeof location !== "undefined" && /\/blog(\/|$)/.test(location.pathname);
+
 export default function App() {
+  if (isBlog) return <SafeAreaProvider><PublicBlog /></SafeAreaProvider>;
+  return <Main />;
+}
+
+function Main() {
   const [ready, setReady] = useState(false);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [problem, setProblem] = useState("");
