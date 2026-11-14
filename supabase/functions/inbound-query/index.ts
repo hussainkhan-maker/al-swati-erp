@@ -184,8 +184,13 @@ Return JSON only: {"yes":[<n of each "yes" email>]}`;
   let text = "", model = fast, inT = 0, outT = 0;
   if (fast.startsWith("gemini") && gkey) {
     try {
-      const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${fast}:generateContent`, { method: "POST", headers: { "x-goog-api-key": gkey, "content-type": "application/json" },
+      let r = new Response(null, { status: 599 });
+      for (let attempt = 1; ; attempt++) { // free Gemini is sometimes busy (503) or rate-limited (429): try up to 3 times
+      r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${fast}:generateContent`, { method: "POST", headers: { "x-goog-api-key": gkey, "content-type": "application/json" },
         body: JSON.stringify({ contents: [{ role: "user", parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: 2048, responseMimeType: "application/json" } }) });
+      if (r.ok || attempt >= 3 || ![429, 500, 503].includes(r.status)) break;
+      await new Promise((res) => setTimeout(res, 2000 * attempt));
+      }
       if (!r.ok) throw new Error("Gemini " + r.status + ": " + (await r.text()).slice(0, 200));
       const j = await r.json();
       text = (j.candidates?.[0]?.content?.parts ?? []).map((p: { text?: string }) => p.text ?? "").join("");
