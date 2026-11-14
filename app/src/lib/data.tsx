@@ -21,7 +21,17 @@ export type Role = "admin" | "abu" | "engineer" | "supervisor";
 export type Profile = { id: string; name: string; role: Role; lang: Lang; phone?: string; active: boolean };
 
 type Q = { key: string; run: () => any };
-const Tbl = (t: string, order = "created_at", limit = 3000): Q => ({ key: t, run: () => supabase.from(t).select("*").order(order, { ascending: false }).limit(limit) });
+// The server hands out at most 1,000 rows per request, so tables are read page by page (money totals need every row).
+const Tbl = (t: string, order = "created_at", limit = 20000): Q => ({ key: t, run: async () => {
+  const all: any[] = [];
+  for (let from = 0; from < limit; from += 1000) {
+    const { data, error } = await supabase.from(t).select("*").order(order, { ascending: false }).range(from, Math.min(from + 999, limit - 1));
+    if (error) return { data: null, error };
+    all.push(...(data || []));
+    if (!data || data.length < 1000) break;
+  }
+  return { data: all, error: null };
+} });
 const View = (t: string): Q => ({ key: t, run: () => supabase.from(t).select("*") });
 const Rpc = (key: string, fn: string): Q => ({ key, run: () => supabase.rpc(fn) });
 
