@@ -395,9 +395,9 @@ Return JSON only: {"lines":[{"i":<line index>,"rate":<number or null>,"reason":"
 
     if (task === "ask") {
       // Every account has its own assistant. The data comes from the phone, which only ever holds what that role may see.
-      const text = await claude(`You are the personal assistant of a ${role} inside a stone and flooring contractor's ERP in Saudi Arabia. Explain simply, like to someone new to apps. Answer using ONLY this data. Numbers with digits and SAR. If the data does not hold the answer, say what is missing. Short and plain, in the language of the question: under 120 words unless the question asks for a list or detail.
+      const text = await claude(`You are the personal assistant of a ${role} inside a stone and flooring contractor's ERP in Saudi Arabia. Explain simply, like to someone new to apps. Answer using ONLY this data. Numbers with digits and SAR. If the data does not hold the answer, say what is missing. Short and plain, in the language of the question: at most 8 short lines or 6 numbered steps, no long introduction.
 DATA: ${JSON.stringify(p.data).slice(0, 150000)}
-QUESTION: ${String(p.question).slice(0, 1000)}`, { max: 900 });
+QUESTION: ${String(p.question).slice(0, 1000)}`, { model: Deno.env.get("AI_MODEL_ASK") ?? "claude-haiku-5-5", max: 1200 }) // the page assistant answers fast with the small model; set AI_MODEL_ASK to change it;
       return json({ text });
     }
 
