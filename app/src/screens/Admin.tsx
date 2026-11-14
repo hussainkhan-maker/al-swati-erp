@@ -130,7 +130,7 @@ export function Dashboard() {
         {main.map(([k, l, v], i) => (
           <Pressable key={k} onPress={() => setKd(k)} style={({ hovered }: any) => ({ flex: 1, paddingVertical: wide ? 4 : 14, paddingHorizontal: 20, gap: 6, borderColor: "rgba(255,255,255,0.12)", borderLeftWidth: wide && i ? 1 : 0, borderTopWidth: !wide && i ? 1 : 0, opacity: hovered ? 0.85 : 1, cursor: "pointer" } as any)}>
             <T size={13} color={DEEP.muted}>{l}</T>
-            <T size={wide ? 26 : 22} bold numberOfLines={1} style={{ letterSpacing: -0.5 }} color={k === "profit" && sum(L, "profit") < 0 ? "#F2A497" : "#FFFFFF"}>{String(v).replace(/ SAR$/, "")}<T size={13} color={DEEP.muted}> SAR</T></T>
+            <T size={wide ? 24 : 22} bold numberOfLines={1} style={{ letterSpacing: -0.5 }} color={k === "profit" && sum(L, "profit") < 0 ? "#F2A497" : "#FFFFFF"}>{money(Math.round(Number(String(v).replace(/[^\d.-]/g, "")) || 0))}<T size={13} color={DEEP.muted}> SAR</T></T>
           </Pressable>))}
       </View>
       <View style={{ flexDirection: "row", flexWrap: "wrap", borderTopWidth: 1, borderColor: "rgba(255,255,255,0.10)", backgroundColor: "rgba(0,0,0,0.14)", paddingHorizontal: wide ? 8 : 0 }}>
