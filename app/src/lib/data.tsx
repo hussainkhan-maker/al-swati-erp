@@ -39,9 +39,9 @@ const READS: Record<Role, Q[]> = {
   admin: [Tbl("projects"), View("project_members"), Tbl("subcontractors"), Tbl("txns"), Tbl("progress", "created_at", 5000), Tbl("items"), Tbl("prices"), Tbl("quotes", "updated_at"), Tbl("documents"), Tbl("profiles"),
     View("project_ledger"), View("vat_by_company"), View("sub_ledger"), Tbl("audit_log", "at", 300), Tbl("locations", "at", 600),
     Tbl("inquiries"), Tbl("suppliers"), Tbl("supplier_requests"), Tbl("agent_reports", "created_at", 5), View("preferences"),
-    Tbl("rfis", "updated_at"), Tbl("blog_posts", "updated_at"), Tbl("outreach_contacts"), Tbl("email_outbox", "created_at", 200)],
+    Tbl("rfis", "updated_at"), Tbl("blog_posts", "updated_at"), Tbl("outreach_contacts"), Tbl("email_outbox", "created_at", 200), Tbl("company_invoices", "issued_on")],
   abu: [Tbl("projects"), Tbl("subcontractors"), Tbl("txns"), Tbl("progress", "created_at", 5000), Tbl("items"), Tbl("prices"), Tbl("quotes", "updated_at"), View("project_ledger"), View("vat_by_company"), View("sub_ledger"),
-    Tbl("suppliers"), Tbl("supplier_requests"), View("preferences")],
+    Tbl("suppliers"), Tbl("supplier_requests"), View("preferences"), Tbl("company_invoices", "issued_on")],
   // Engineers: project names, m² progress and drawings only (no rates, prices, quotations or staff phone numbers).
   engineer: [Rpc("projects", "eng_projects"), Rpc("progress", "eng_progress"), Tbl("documents"), Rpc("sub_names", "sub_names")],
   // Supervisors: project name and company only (no service fee, client or prices).
