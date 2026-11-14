@@ -99,10 +99,93 @@ async function imageFrom(admin: ReturnType<typeof createClient>, bucket: string,
   return { media_type: data.type || "image/jpeg", data: btoa(bin) };
 }
 
+/** AI reads one query (two readers: fast and strong) and stores the reading on it. */
+async function readInquiry(admin: any, p: any) {
+  TASK = "rfq";
+  const imgs: Img[] = [];
+  if (p.inquiry_id) {
+    const { data: q } = await admin.from("inquiries").select("body, attachments").eq("id", p.inquiry_id).single();
+    p.text = [p.text, q?.body].filter(Boolean).join("\n\n");
+    for (const a of (q?.attachments || []).filter((a: any) => /^image\/|pdf$/i.test(a.type || "")).slice(0, 5)) {
+      try {
+        // Token saver: a PDF that has real text (BOQ, specification, letter) is sent as text — far fewer tokens.
+        // Drawings and scans (little or no text) are still sent as the file, because they must be seen.
+        if (/pdf/i.test(a.type)) { const t = await pdfText(admin, "inbox", a.path); if (t) { p.text = [p.text, `=== ${a.name} (text of the PDF) ===\n${t}`].filter(Boolean).join("\n\n"); continue; } }
+        const f = await imageFrom(admin, "inbox", a.path); if (/pdf/i.test(a.type)) f.media_type = "application/pdf"; imgs.push(f);
+      } catch { /* skip unreadable file */ }
+    }
+  }
+  if (p.path) imgs.push(await imageFrom(admin, "documents", p.path));
+  const prompt = `You read a construction RFQ / BOQ for a stone, marble, granite, porcelain and flooring contractor in Saudi Arabia. Extract every priced line exactly as given. Return JSON only:
+{"lines":[{"ref":"<item no>","desc":"<full description incl. material, size, thickness, finish>","qty":<number>,"unit":"sqm|rft|lm|no|ton|ls","category":"Marble|Granite|Porcelain|Ceramic|Civil|Fixing|Other"}],
+ "documents":[{"name":"<file or section>","kind":"drawing|boq|specification|letter|other","summary":"<one line: what it contains>"}],
+ "specs":["<each requirement from specifications: material grade, thickness, finish, fixing method, standards, samples, warranty>"],
+ "drawingQuantities":[{"what":"<area or element>","qty":<number>,"unit":"sqm|lm|no","source":"<which drawing / DXF layer>"}],
+ "rfis":["<contradiction between BOQ, drawings and specs, or missing spec, to ask the consultant>"],"siteChecks":["<what must be verified on site before work>"],
+ "estimate":{"waste_pct":<cutting waste % from slab sizes vs. the areas, or null>,"waste_note":"<which slab size you assumed>","fixings":[{"item":"<bracket|pin|anchor bolt|channel|adhesive>","qty":<number or null>,"basis":"<how counted: per m², per panel, wind/dead load in KSA>"}]},"notes":"<anything unclear>"}
+Compare BOQ quantities with drawing quantities (including any "DXF takeoff" section in the text) and put every difference above 3% in rfis.
+Digits only. Never invent a quantity: if unreadable, qty null and say so in notes.
+BOQ TEXT:
+${String(p.text ?? "(see image)").slice(0, 30000)}`;
+  const [a, b] = await Promise.all([
+    claude(prompt, { images: imgs, max: 6000 }),
+    claude(prompt + "\nRead slowly, line by line, and check each quantity twice.", { images: imgs, model: MODEL_STRONG, max: 6000 }),
+  ]);
+  const result = { a: asJson(a), b: asJson(b) };
+  if (p.inquiry_id) await admin.from("inquiries").update({ reading: result, status: "Under Review" }).eq("id", p.inquiry_id).eq("status", "New");
+  if (p.inquiry_id) await admin.from("inquiries").update({ reading: result }).eq("id", p.inquiry_id);
+  return result;
+}
+
+// Red gates (same as the app): the two readings disagree, or a quantity / unit is missing.
+const STD_UNITS = ["sqm", "rft", "lm", "no", "ton", "ls"];
+function redGate(A: any[], B: any[]) {
+  if (B.length > A.length) return true;
+  for (let i = 0; i < A.length; i++) {
+    const l = A[i], m = B.find((x: any) => x.ref && x.ref === l.ref) || B[i];
+    if (!m || Number(m.qty) !== Number(l.qty) || String(m.unit) !== String(l.unit)) return true;
+    if (!(Number(l.qty) > 0) || !STD_UNITS.includes(String(l.unit).toLowerCase())) return true;
+  }
+  const refs = A.map((l: any) => l.ref).filter(Boolean);
+  return refs.some((x: any, i: number) => refs.indexOf(x) !== i);
+}
+
+/** Autopilot (runs on the server, app open or not): reads new queries and turns clean ones into draft quotations.
+ *  Safe to call any time: it only does work that is waiting, claims each query first so it is never done twice,
+ *  and never prices or sends anything. Rates stay for the owner. */
+async function autopilot(admin: any) {
+  const out = { read: 0, quoted: 0 };
+  const { data: news } = await admin.from("inquiries").select("id").eq("status", "New").is("reading", null).order("created_at").limit(2);
+  // Both readings run side by side so the call stays well inside the time limit.
+  await Promise.all((news || []).map(async (q: any) => {
+    const { data: claim } = await admin.from("inquiries").update({ status: "Under Review" }).eq("id", q.id).eq("status", "New").is("reading", null).select("id");
+    if (!claim?.length) return;
+    try { await readInquiry(admin, { inquiry_id: q.id }); out.read++; } catch { /* the owner can press "Read with AI" on the query */ }
+  }));
+  const { data: ready } = await admin.from("inquiries").select("id, ref, subject, from_name, reading").not("reading", "is", null).is("quote_id", null).in("status", ["New", "Under Review"]).limit(5);
+  for (const q of ready || []) {
+    const A = q.reading?.a?.lines || [], B = q.reading?.b?.lines || [];
+    if (!A.length || redGate(A, B)) continue;
+    const { data: claim } = await admin.from("inquiries").update({ status: "Priced" }).eq("id", q.id).is("quote_id", null).in("status", ["New", "Under Review"]).select("id");
+    if (!claim?.length) continue;
+    const { data: qt, error } = await admin.from("quotes").insert({
+      title: q.subject || q.ref, client: q.from_name, owner: "admin",
+      lines: A.map((l: any) => ({ desc: (l.ref ? l.ref + " · " : "") + l.desc, qty: Number(l.qty) || 0, unit: l.unit, rate: null })),
+      history: [`${new Date(Date.now() + 3 * 3600e3).toISOString().slice(0, 16).replace("T", " ")} made by the autopilot from ${q.ref}`], rfq: { inquiry_id: q.id, ref: q.ref },
+    }).select("id").single();
+    if (error) { await admin.from("inquiries").update({ status: "Under Review" }).eq("id", q.id); continue; }
+    await admin.from("inquiries").update({ quote_id: qt.id }).eq("id", q.id);
+    out.quoted++;
+  }
+  return out;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   const json = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { ...cors, "content-type": "application/json" } });
   try {
+    const body = await req.json().catch(() => ({}));
+    if (body.task === "autopilot") { TASK = "autopilot"; return json(await autopilot(createClient(URL_, SERVICE))); }
     const auth = req.headers.get("Authorization") ?? "";
     const user = createClient(URL_, ANON, { global: { headers: { Authorization: auth } } });
     const { data: u } = await user.auth.getUser();
@@ -111,7 +194,7 @@ Deno.serve(async (req) => {
     const { data: prof } = await admin.from("profiles").select("role, active").eq("id", u.user.id).single();
     if (!prof?.active) return json({ error: "Account not active" }, 403);
     const role = prof.role as string;
-    const { task, ...p } = await req.json();
+    const { task, ...p } = body;
     TASK = String(task || "");
     try { const { data: rl } = await admin.from("preferences").select("value").eq("key", "rules").maybeSingle(); RULES = ((rl?.value as any)?.list || []).slice(-30).map((r: any) => `- ${r.action_for_agents || r.observed_rule}`).join("\n"); } catch { RULES = ""; }
 
@@ -149,39 +232,7 @@ Digits 0-9. Read EVERY line: the same stone or tile often appears 2-4 times with
 
     if (task === "rfq") {
       if (role !== "admin") return json({ error: "Only Super-Admin" }, 403);
-      const imgs: Img[] = [];
-      if (p.inquiry_id) {
-        const { data: q } = await admin.from("inquiries").select("body, attachments").eq("id", p.inquiry_id).single();
-        p.text = [p.text, q?.body].filter(Boolean).join("\n\n");
-        for (const a of (q?.attachments || []).filter((a: any) => /^image\/|pdf$/i.test(a.type || "")).slice(0, 5)) {
-          try {
-            // Token saver: a PDF that has real text (BOQ, specification, letter) is sent as text — far fewer tokens.
-            // Drawings and scans (little or no text) are still sent as the file, because they must be seen.
-            if (/pdf/i.test(a.type)) { const t = await pdfText(admin, "inbox", a.path); if (t) { p.text = [p.text, `=== ${a.name} (text of the PDF) ===\n${t}`].filter(Boolean).join("\n\n"); continue; } }
-            const f = await imageFrom(admin, "inbox", a.path); if (/pdf/i.test(a.type)) f.media_type = "application/pdf"; imgs.push(f);
-          } catch { /* skip unreadable file */ }
-        }
-      }
-      if (p.path) imgs.push(await imageFrom(admin, "documents", p.path));
-      const prompt = `You read a construction RFQ / BOQ for a stone, marble, granite, porcelain and flooring contractor in Saudi Arabia. Extract every priced line exactly as given. Return JSON only:
-{"lines":[{"ref":"<item no>","desc":"<full description incl. material, size, thickness, finish>","qty":<number>,"unit":"sqm|rft|lm|no|ton|ls","category":"Marble|Granite|Porcelain|Ceramic|Civil|Fixing|Other"}],
- "documents":[{"name":"<file or section>","kind":"drawing|boq|specification|letter|other","summary":"<one line: what it contains>"}],
- "specs":["<each requirement from specifications: material grade, thickness, finish, fixing method, standards, samples, warranty>"],
- "drawingQuantities":[{"what":"<area or element>","qty":<number>,"unit":"sqm|lm|no","source":"<which drawing / DXF layer>"}],
- "rfis":["<contradiction between BOQ, drawings and specs, or missing spec, to ask the consultant>"],"siteChecks":["<what must be verified on site before work>"],
- "estimate":{"waste_pct":<cutting waste % from slab sizes vs. the areas, or null>,"waste_note":"<which slab size you assumed>","fixings":[{"item":"<bracket|pin|anchor bolt|channel|adhesive>","qty":<number or null>,"basis":"<how counted: per m², per panel, wind/dead load in KSA>"}]},"notes":"<anything unclear>"}
-Compare BOQ quantities with drawing quantities (including any "DXF takeoff" section in the text) and put every difference above 3% in rfis.
-Digits only. Never invent a quantity: if unreadable, qty null and say so in notes.
-BOQ TEXT:
-${String(p.text ?? "(see image)").slice(0, 30000)}`;
-      const [a, b] = await Promise.all([
-        claude(prompt, { images: imgs, max: 6000 }),
-        claude(prompt + "\nRead slowly, line by line, and check each quantity twice.", { images: imgs, model: MODEL_STRONG, max: 6000 }),
-      ]);
-      const result = { a: asJson(a), b: asJson(b) };
-      if (p.inquiry_id) await admin.from("inquiries").update({ reading: result, status: "Under Review" }).eq("id", p.inquiry_id).eq("status", "New");
-      if (p.inquiry_id) await admin.from("inquiries").update({ reading: result }).eq("id", p.inquiry_id);
-      return json(result);
+      return json(await readInquiry(admin, p));
     }
 
     if (task === "supplier_msg") {
