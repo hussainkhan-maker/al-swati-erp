@@ -276,6 +276,53 @@ async function pull(admin: Admin) {
   }
 }
 
+// ───────────────────────── weekly backup ─────────────────────────
+// Every table the business runs on, as one compressed file in the private "backups" bucket, plus a copy as an email
+// in the Outlook folder "AL-Swati backups" (kept outside this server). Never the Outlook sign-in token (mail_link).
+const BACKUP_TABLES = ["profiles", "projects", "project_members", "subcontractors", "progress", "txns", "company_invoices", "items", "prices", "quotes",
+  "inquiries", "rfis", "suppliers", "supplier_requests", "preferences", "email_outbox", "blog_posts", "outreach_contacts", "agent_reports", "documents"];
+const b64 = (u: Uint8Array) => { let s = ""; for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode(...u.subarray(i, i + 0x8000)); return btoa(s); };
+async function backup(admin: Admin) {
+  const at = new Date().toISOString(), tables: Record<string, unknown[]> = {};
+  let rows = 0;
+  for (const t of BACKUP_TABLES) {
+    const all: unknown[] = [];
+    for (let from = 0; ; from += 1000) {
+      const { data, error } = await admin.from(t).select("*").range(from, from + 999);
+      if (error) { if (/does not exist|schema cache|not find/i.test(error.message)) break; throw new Error(`${t}: ${error.message}`); }
+      all.push(...(data || []));
+      if (!data || data.length < 1000) break;
+    }
+    tables[t] = all; rows += all.length;
+  }
+  const json = JSON.stringify({ app: "AL-Swati ERP", made_at: at, tables });
+  const gz = new Uint8Array(await new Response(new Blob([json]).stream().pipeThrough(new CompressionStream("gzip"))).arrayBuffer());
+  const path = `al-swati-backup-${at.slice(0, 10)}-${at.slice(11, 16).replace(":", "")}.json.gz`;
+  const { error } = await admin.storage.from("backups").upload(path, gz, { contentType: "application/gzip", upsert: true });
+  if (error) throw new Error("Backup file: " + error.message);
+  let outlook = false;
+  const L = await link(admin);
+  if (L?.refresh_token && gz.length < 2_800_000) {
+    try {
+      const token = await access(admin, L);
+      let folder = (await graph(token, `/me/mailFolders?$filter=${encodeURIComponent("displayName eq 'AL-Swati backups'")}&$select=id`))?.value?.[0]?.id;
+      if (!folder) folder = (await graph(token, "/me/mailFolders", { method: "POST", body: JSON.stringify({ displayName: "AL-Swati backups" }) }))?.id;
+      await graph(token, `/me/mailFolders/${encodeURIComponent(folder)}/messages`, { method: "POST", body: JSON.stringify({
+        subject: `AL-Swati ERP backup ${at.slice(0, 10)} (${rows} rows)`,
+        body: { contentType: "Text", content: `Weekly copy of all AL-Swati ERP data, made by the app on ${at.slice(0, 16).replace("T", " ")} UTC.\nKeep this email; it is not sent to anyone. If data is ever lost, this file brings it back.` },
+        attachments: [{ "@odata.type": "#microsoft.graph.fileAttachment", name: path, contentType: "application/gzip", contentBytes: b64(gz) }] }) });
+      outlook = true;
+    } catch (e) { console.error("Outlook backup copy failed:", e); }
+  }
+  const { data: pref } = await admin.from("preferences").select("value").eq("key", "backups").maybeSingle();
+  const before = (((pref?.value as any)?.list) || []) as any[];
+  const list = [{ at, path, rows, size: gz.length, outlook }, ...before].slice(0, 12);
+  await admin.from("preferences").upsert({ key: "backups", value: { list }, updated_at: at });
+  const drop = before.slice(11).map((x) => x.path).filter(Boolean);
+  if (drop.length) await admin.storage.from("backups").remove(drop);
+  return { done: true, at, rows, outlook, size: gz.length };
+}
+
 /** Only an active Super-Admin may link or unlink the mailbox. */
 async function isAdmin(admin: Admin, req: Request) {
   const jwt = (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "");
@@ -298,6 +345,20 @@ Deno.serve(async (req) => {
       const L = await link(admin);
       if (L?.last_pull && Date.now() - Date.parse(L.last_pull) < 60000 && !(await isAdmin(admin, req))) return json({ linked: !!L?.refresh_token, skipped: "checked less than a minute ago" });
       return json(await pull(admin));
+    }
+    // Weekly backup: the 30-minute timer asks every time, but it only runs when the last one is 7 days old. Super-Admin can run it any time.
+    if (p.action === "backup") {
+      const boss = await isAdmin(admin, req);
+      const { data: pref } = await admin.from("preferences").select("value").eq("key", "backups").maybeSingle();
+      const last = ((pref?.value as any)?.list || [])[0]?.at;
+      if (!boss && last && Date.now() - Date.parse(last) < 7 * 864e5 - 30 * 60000) return json({ skipped: "last backup " + last });
+      return json(await backup(admin));
+    }
+    if (p.action === "backup_link") {
+      if (!(await isAdmin(admin, req))) return json({ error: "Only Super-Admin can download backups." }, 403);
+      if (!/^al-swati-backup-[\d-]+\.json\.gz$/.test(String(p.path || ""))) return json({ error: "Unknown backup." }, 400);
+      const { data, error } = await admin.storage.from("backups").createSignedUrl(p.path, 600, { download: true });
+      return error ? json({ error: error.message }, 400) : json({ url: data.signedUrl });
     }
     if (typeof p.action === "string" && p.action.startsWith("outlook_")) {
       if (!(await isAdmin(admin, req))) return json({ error: "Only Super-Admin can link Outlook." }, 403);
