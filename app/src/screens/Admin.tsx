@@ -274,6 +274,7 @@ export function Projects() {
   const { d, insert, update, reload } = useData(); const flows = useFlows(); const c = useColors();
   const [p, setP] = useState<any>(null), [s, setS] = useState<any>(null), [err, setErr] = useState(""), [busy, setBusy] = useState(false);
   const [det, setDet] = useState<any>(null); // one entry opened for full details
+  const [rel, setRel] = useState<any>(null); // retention release for one subcontractor
   const [hist, setHist] = useState<Record<string, string | null>>({}); // project id → "" (all) or a subcontractor name; missing = closed
   const staff = (d.profiles || []).filter((x: any) => ["supervisor", "engineer"].includes(x.role));
   // Everything that happened on one project, newest first: payments, invoices, expenses and work done (m²).
@@ -297,7 +298,11 @@ export function Projects() {
     const pr = active(d.progress).filter((r: any) => r.project_id === pid && lc(r.sub_name) === lc(x.name));
     const qty = sum(pr, "qty"), earned = pr.reduce((t: number, r: any) => t + (Number(r.qty) || 0) * (Number(r.rate) || 0), 0);
     const paid = sum(active(d.txns).filter((t: any) => t.type === "subpay" && t.project_id === pid && lc(t.sub_name) === lc(x.name)), "amount");
-    return { x, qty, earned, paid, due: earned - paid };
+    // Same retention % as the client keeps on this project: held back from each subcontractor until handover / defects period.
+    const rp = (Number(termsOf(d, pid).retention) || 0) / 100;
+    const released = sum(active(d.txns).filter((t: any) => t.type === "subpay" && t.project_id === pid && lc(t.sub_name) === lc(x.name) && /^Retention release/i.test(String(t.description || ""))), "amount");
+    const held = Math.max(0, earned * rp - released), now = earned - paid - held;
+    return { x, qty, earned, paid, due: earned - paid, held, now, released, rp };
   });
   const saveLinks = async (pid: string, want: string[]) => {
     for (const x of d.subcontractors || []) {
@@ -409,27 +414,32 @@ export function Projects() {
         </View>
 
         <StatStrip items={[{ label: "Installed", value: money(a.m2) + " m²" }, { label: "Client still owes", value: SAR(a.owes) }, { label: "Received from client", value: SAR(a.received) },
-          { label: "Subcontractors still to be paid", value: SAR(subNums(x.id).reduce((t, r) => t + r.due, 0)), tone: subNums(x.id).some((r) => r.due > 0.5) ? "bad" : undefined }, { label: "Retention kept by client", value: SAR(a.retHeld) }]} />
+          { label: "Pay subcontractors now", value: SAR(subNums(x.id).reduce((t, r) => t + Math.max(0, r.now), 0)), tone: subNums(x.id).some((r) => r.now > 0.5) ? "bad" : undefined },
+          { label: "Retention we keep from subs", value: SAR(subNums(x.id).reduce((t, r) => t + r.held, 0)) }, { label: "Retention kept by client", value: SAR(a.retHeld) }]} />
         {!a.rate && <T muted size={13}>Add the client rate per m² (Edit) to see the work value and what is still to come.</T>}
         <VarianceCard x={x} done={a.m2} />
 
         <Rise i={5}><Card style={{ padding: 0, gap: 0, overflow: "hidden" }}>
-          <View style={{ padding: 18, paddingBottom: 12 }}><SectionHead title="Subcontractors" sub="What each one has done, earned, been paid, and what is still to pay" right={<Btn icon={<Icon name="plus" size={16} />} title="Add" onPress={() => setS({ name: "", rate: "", unit: "sqm", projects: [x.id] })} />} /></View>
-          {subs.length ? (() => { const R = subNums(x.id), tot = R.reduce((t, r) => ({ qty: t.qty + r.qty, earned: t.earned + r.earned, paid: t.paid + r.paid, due: t.due + r.due }), { qty: 0, earned: 0, paid: 0, due: 0 });
+          <View style={{ padding: 18, paddingBottom: 12 }}><SectionHead title="Subcontractors" sub={a.r ? `We keep ${money(a.r)}% retention from each one, the same as the client keeps from us` : "Set the project's retention (Edit project) to keep the same % from subcontractors"} right={<Btn icon={<Icon name="plus" size={16} />} title="Add" onPress={() => setS({ name: "", rate: "", unit: "sqm", projects: [x.id] })} />} /></View>
+          {subs.length ? (() => { const R = subNums(x.id), tot = R.reduce((t, r) => ({ qty: t.qty + r.qty, earned: t.earned + r.earned, paid: t.paid + r.paid, now: t.now + Math.max(0, r.now), held: t.held + r.held }), { qty: 0, earned: 0, paid: 0, now: 0, held: 0 });
             const cell = (v: any, o: any = {}) => <View style={{ flex: o.f || 1, alignItems: o.left ? "flex-start" : "flex-end", justifyContent: "center" }}>{typeof v === "string" ? <T size={o.h ? 12 : 14} bold={o.b} muted={o.h} color={o.col}>{v}</T> : v}</View>;
             return <View>
               <View style={{ flexDirection: "row", gap: 12, paddingVertical: 8, paddingHorizontal: 18, backgroundColor: c.sunk, borderTopWidth: 1, borderBottomWidth: 1, borderColor: c.line }}>
-                {cell("Name", { f: 1.6, left: true, h: true })}{wide && cell("Rate", { h: true })}{cell("m² done", { h: true })}{wide && cell("Earned", { h: true })}{wide && cell("Paid", { h: true })}{cell("Still to pay", { h: true })}{cell("", { f: 0.7 })}
+                {cell("Name", { f: 1.6, left: true, h: true })}{wide && cell("Rate", { h: true })}{cell("m² done", { h: true })}{wide && cell("Earned", { h: true })}{wide && cell("Paid", { h: true })}{cell("Pay now", { h: true })}{cell("Retention held", { h: true })}{cell("", { f: 1.1 })}
               </View>
               {R.map((r, i) => { const sc = contacts.sub?.[r.x.id] || {}; return (
                 <Pressable key={r.x.id} onPress={() => setS({ ...r.x, ...sc })} style={({ hovered }: any) => ({ flexDirection: "row", gap: 12, paddingVertical: 11, paddingHorizontal: 18, borderTopWidth: i ? 1 : 0, borderColor: c.line, backgroundColor: hovered ? c.sunk : c.surface, cursor: "pointer" } as any)}>
                   {cell(<View><T bold size={14}>{r.x.name}</T>{sc.phone ? <T size={12} muted>{sc.phone}</T> : null}</View>, { f: 1.6, left: true })}
                   {wide && cell(`${money(r.x.rate)} / ${r.x.unit === "sqm" ? "m²" : r.x.unit}`, { col: c.muted })}{cell(money(r.qty))}{wide && cell(money(r.earned))}{wide && cell(money(r.paid))}
-                  {cell(money(r.due), { b: true, col: r.due > 0.5 ? c.warn : c.good })}
-                  {cell(r.due > 0.5 ? <Btn kind="ghost" title="Pay" onPress={() => flows("speak", { intent: "subpay", project_id: x.id, sub_name: r.x.name })} /> : <T size={12} muted>Settled</T>, { f: 0.7 })}
+                  {cell(money(Math.max(0, r.now)), { b: true, col: r.now > 0.5 ? c.warn : c.good })}
+                  {cell(r.held > 0.5 ? money(r.held) : r.released > 0 ? "Released" : "—", { col: c.muted })}
+                  {cell(<View style={{ flexDirection: "row", gap: 2 }}>
+                    {r.now > 0.5 ? <Btn kind="ghost" title="Pay" onPress={() => flows("speak", { intent: "subpay", project_id: x.id, sub_name: r.x.name, amount: String(Math.round(r.now * 100) / 100) })} /> : null}
+                    {r.held > 0.5 ? <Btn kind="ghost" title="Release" onPress={() => setRel({ pid: x.id, name: r.x.name, held: r.held, full: r.earned * r.rp })} /> : null}
+                    {r.now <= 0.5 && r.held <= 0.5 ? <T size={12} muted>Settled</T> : null}</View>, { f: 1.1 })}
                 </Pressable>); })}
               <View style={{ flexDirection: "row", gap: 12, paddingVertical: 11, paddingHorizontal: 18, borderTopWidth: 1, borderColor: c.line, backgroundColor: c.sunk }}>
-                {cell("Total", { f: 1.6, left: true, b: true })}{wide && cell("")}{cell(money(tot.qty), { b: true })}{wide && cell(money(tot.earned), { b: true })}{wide && cell(money(tot.paid), { b: true })}{cell(money(tot.due), { b: true, col: tot.due > 0.5 ? c.warn : c.good })}{cell("", { f: 0.7 })}
+                {cell("Total", { f: 1.6, left: true, b: true })}{wide && cell("")}{cell(money(tot.qty), { b: true })}{wide && cell(money(tot.earned), { b: true })}{wide && cell(money(tot.paid), { b: true })}{cell(money(tot.now), { b: true, col: tot.now > 0.5 ? c.warn : c.good })}{cell(money(tot.held), { b: true, col: c.muted })}{cell("", { f: 1.1 })}
               </View>
             </View>; })() : <View style={{ paddingHorizontal: 18, paddingBottom: 18 }}><T muted>No subcontractors on this project yet. Press Add.</T></View>}
         </Card></Rise>
@@ -461,6 +471,17 @@ export function Projects() {
         </View>
       ) : (cur ? detail : list)}
 
+      <Sheet open={!!rel} onClose={() => setRel(null)} title={rel ? `Release retention · ${rel.name}` : ""}>
+        {rel && <>
+          <T size={14}>We are holding {money(rel.held)} SAR of {rel.name}'s money as retention on this project.</T>
+          <T size={13} muted>Usual practice: release half when his work is inspected and handed over (snag list closed), and the rest after the defects period (often 12 months) or when the client releases our retention.</T>
+          <Row wrap>
+            {rel.held > rel.full / 2 + 0.5 ? <Btn kind="primary" title={`Release half at handover (${money(Math.min(rel.held, rel.full / 2))})`} onPress={() => { const amt = Math.round(Math.min(rel.held, rel.full / 2) * 100) / 100; setRel(null); flows("speak", { intent: "subpay", project_id: rel.pid, sub_name: rel.name, amount: String(amt), relRet: true }); }} /> : null}
+            <Btn kind={rel.held > rel.full / 2 + 0.5 ? "default" : "primary"} title={`Release all that is left (${money(rel.held)})`} onPress={() => { const amt = Math.round(rel.held * 100) / 100; setRel(null); flows("speak", { intent: "subpay", project_id: rel.pid, sub_name: rel.name, amount: String(amt), relRet: true }); }} />
+          </Row>
+          <T size={12} muted>If you had to pay someone else to fix his defects, release less: change the amount in the next step.</T>
+        </>}
+      </Sheet>
       <Sheet open={!!det} onClose={() => setDet(null)} title="Entry details">
         {det && <>
           <Table cols={["", ""]} rows={([
