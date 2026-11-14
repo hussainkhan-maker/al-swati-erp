@@ -38,7 +38,7 @@ async function claude(prompt: string, opts: { images?: Img[]; model?: string; ma
   const chosen = opts.model ?? MODEL;
   if (chosen.startsWith("gemini")) {
     if (GEMINI_KEY && !opts.webSearch) { try { return await gemini(prompt, chosen, opts); } catch (e) { console.error("Gemini failed, using Claude:", e); } }
-    opts = { ...opts, model: CLAUDE_FALLBACK };
+    opts = { ...opts, model: opts.model === MODEL_FAST ? "claude-haiku-5-5" : CLAUDE_FALLBACK }; // fast jobs fall back to the cheap Claude model
   }
   const content: unknown[] = (opts.images ?? []).map((i) => i.media_type === "application/pdf"
     ? { type: "document", source: { type: "base64", media_type: "application/pdf", data: i.data } }
