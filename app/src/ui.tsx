@@ -239,7 +239,7 @@ export function StatStrip({ items }: { items: { label: string; value: string; on
       {items.map((x, i) => (
         <Pressable key={x.label} disabled={!x.onPress} onPress={x.onPress} style={({ hovered }: any) => ({ flex: 1, paddingVertical: 14, paddingHorizontal: 16, gap: 3, borderColor: c.line, borderLeftWidth: wide && i ? 1 : 0, borderTopWidth: !wide && i ? 1 : 0, backgroundColor: hovered && x.onPress ? c.sunk : c.surface, cursor: x.onPress ? "pointer" : "default" } as any)}>
           <T size={13} muted>{x.label}</T>
-          <T size={20} bold style={{ letterSpacing: -0.3 }} color={x.tone === "bad" ? c.bad : c.ink}>{x.value}</T>
+          <Text numberOfLines={1} style={{ fontSize: 20, fontWeight: "600", letterSpacing: -0.3, color: x.tone === "bad" ? c.bad : c.ink, fontVariant: ["tabular-nums"] }}>{String(x.value).replace(/ SAR$/, "")}{/ SAR$/.test(String(x.value)) ? <Text style={{ fontSize: 12, fontWeight: "500", color: c.muted }}> SAR</Text> : null}</Text>
         </Pressable>))}
     </View>
   );
