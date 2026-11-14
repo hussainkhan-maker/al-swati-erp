@@ -10,15 +10,16 @@ Deno.serve(async (req) => {
     const user = createClient(url, Deno.env.get("SUPABASE_ANON_KEY")!, { global: { headers: { Authorization: req.headers.get("Authorization") ?? "" } } });
     const { data: u } = await user.auth.getUser();
     const admin = createClient(url, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
-    const { data: me } = await admin.from("profiles").select("role").eq("id", u?.user?.id ?? "").single();
-    if (me?.role !== "admin") return json({ error: "Only Super-Admin can add people" }, 403);
+    // Only an ACTIVE Super-Admin may add people or reset passwords (a switched-off admin can still sign in, but not do this).
+    const { data: me } = await admin.from("profiles").select("role, active").eq("id", u?.user?.id ?? "").single();
+    if (me?.role !== "admin" || !me?.active) return json({ error: "Only Super-Admin can add people" }, 403);
 
     const body = await req.json();
-    const pwOk = (p: unknown) => typeof p === "string" && p.length >= 8;
+    const pwOk = (p: unknown) => typeof p === "string" && p.length >= 10;
 
     // Forgot password: Super-Admin sets a new starting password; the person chooses their own at the next sign-in.
     if (body.action === "reset") {
-      if (!body.user_id || !pwOk(body.password)) return json({ error: "A new password of 8 or more characters is required" }, 400);
+      if (!body.user_id || !pwOk(body.password)) return json({ error: "A new password of 10 or more characters is required" }, 400);
       const { data: r, error } = await admin.auth.admin.updateUserById(body.user_id, { password: body.password, user_metadata: { temp_password: true } });
       if (error) return json({ error: error.message }, 400);
       return json({ id: body.user_id, email: r.user?.email });
@@ -26,7 +27,7 @@ Deno.serve(async (req) => {
 
     const { email, name, role, phone, projects = [], password } = body;
     if (!email || !name || !["abu", "engineer", "supervisor", "admin"].includes(role)) return json({ error: "Email, name and role are required" }, 400);
-    if (!pwOk(password)) return json({ error: "A starting password of 8 or more characters is required" }, 400);
+    if (!pwOk(password)) return json({ error: "A starting password of 10 or more characters is required" }, 400);
     const lang = role === "abu" ? "ar" : role === "supervisor" ? "ur" : "en";
 
     let id: string | undefined;
