@@ -220,8 +220,9 @@ async function pull(admin: Admin) {
   try {
     const token = await access(admin, L);
     L = await link(admin);
-    const since = L.watermark || new Date(now.getTime() - 3 * 864e5).toISOString(); // first time: the last 3 days
-    const list = (await graph(token, `/me/mailFolders/inbox/messages?$filter=receivedDateTime gt ${since}&$orderby=receivedDateTime asc&$top=30&$select=id,subject,from,receivedDateTime,bodyPreview,hasAttachments,categories`))?.value || [];
+    // first time: the last 3 days. Always plain UTC ("…Z"): a "+00:00" from the database would break Outlook's filter.
+    const since = new Date(L.watermark ? Date.parse(L.watermark) : now.getTime() - 3 * 864e5).toISOString();
+    const list = (await graph(token, `/me/mailFolders/inbox/messages?$filter=${encodeURIComponent(`receivedDateTime gt ${since}`)}&$orderby=receivedDateTime%20asc&$top=30&$select=id,subject,from,receivedDateTime,bodyPreview,hasAttachments,categories`))?.value || [];
     const yes = await sortEmails(admin, list);
     let mark = since;
     for (const m of list) {
