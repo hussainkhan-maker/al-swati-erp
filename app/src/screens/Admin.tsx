@@ -422,10 +422,10 @@ export function Projects() {
         <Rise i={5}><Card style={{ padding: 0, gap: 0, overflow: "hidden" }}>
           <View style={{ padding: 18, paddingBottom: 12 }}><SectionHead title="Subcontractors" sub={a.r ? `We keep ${money(a.r)}% retention from each one, the same as the client keeps from us` : "Set the project's retention (Edit project) to keep the same % from subcontractors"} right={<Btn icon={<Icon name="plus" size={16} />} title="Add" onPress={() => setS({ name: "", rate: "", unit: "sqm", projects: [x.id] })} />} /></View>
           {subs.length ? (() => { const R = subNums(x.id), tot = R.reduce((t, r) => ({ qty: t.qty + r.qty, earned: t.earned + r.earned, paid: t.paid + r.paid, now: t.now + Math.max(0, r.now), held: t.held + r.held }), { qty: 0, earned: 0, paid: 0, now: 0, held: 0 });
-            const cell = (v: any, o: any = {}) => <View style={{ flex: o.f || 1, alignItems: o.left ? "flex-start" : "flex-end", justifyContent: "center" }}>{typeof v === "string" ? <T size={o.h ? 12 : 14} bold={o.b} muted={o.h} color={o.col}>{v}</T> : v}</View>;
+            const cell = (v: any, o: any = {}) => <View style={{ ...(o.w ? { width: o.w } : { flex: o.f || 1 }), alignItems: o.left ? "flex-start" : "flex-end", justifyContent: "center" }}>{typeof v === "string" ? <T size={o.h ? 12 : 14} bold={o.b} muted={o.h} color={o.col}>{v}</T> : v}</View>;
             return <View>
               <View style={{ flexDirection: "row", gap: 12, paddingVertical: 8, paddingHorizontal: 18, backgroundColor: c.sunk, borderTopWidth: 1, borderBottomWidth: 1, borderColor: c.line }}>
-                {cell("Name", { f: 1.6, left: true, h: true })}{wide && cell("Rate", { h: true })}{cell("m² done", { h: true })}{wide && cell("Earned", { h: true })}{wide && cell("Paid", { h: true })}{cell("Pay now", { h: true })}{cell("Retention held", { h: true })}{cell("", { f: 1.1 })}
+                {cell("Name", { f: 1.6, left: true, h: true })}{wide && cell("Rate", { h: true })}{cell("m² done", { h: true })}{wide && cell("Earned", { h: true })}{wide && cell("Paid", { h: true })}{cell("Pay now", { h: true })}{cell("Held", { h: true })}{cell("", { w: 150 })}
               </View>
               {R.map((r, i) => { const sc = contacts.sub?.[r.x.id] || {}; return (
                 <Pressable key={r.x.id} onPress={() => setS({ ...r.x, ...sc })} style={({ hovered }: any) => ({ flexDirection: "row", gap: 12, paddingVertical: 11, paddingHorizontal: 18, borderTopWidth: i ? 1 : 0, borderColor: c.line, backgroundColor: hovered ? c.sunk : c.surface, cursor: "pointer" } as any)}>
@@ -436,10 +436,10 @@ export function Projects() {
                   {cell(<View style={{ flexDirection: "row", gap: 2 }}>
                     {r.now > 0.5 ? <Btn kind="ghost" title="Pay" onPress={() => flows("speak", { intent: "subpay", project_id: x.id, sub_name: r.x.name, amount: String(Math.round(r.now * 100) / 100) })} /> : null}
                     {r.held > 0.5 ? <Btn kind="ghost" title="Release" onPress={() => setRel({ pid: x.id, name: r.x.name, held: r.held, full: r.earned * r.rp })} /> : null}
-                    {r.now <= 0.5 && r.held <= 0.5 ? <T size={12} muted>Settled</T> : null}</View>, { f: 1.1 })}
+                    {r.now <= 0.5 && r.held <= 0.5 ? <T size={12} muted>Settled</T> : null}</View>, { w: 150 })}
                 </Pressable>); })}
               <View style={{ flexDirection: "row", gap: 12, paddingVertical: 11, paddingHorizontal: 18, borderTopWidth: 1, borderColor: c.line, backgroundColor: c.sunk }}>
-                {cell("Total", { f: 1.6, left: true, b: true })}{wide && cell("")}{cell(money(tot.qty), { b: true })}{wide && cell(money(tot.earned), { b: true })}{wide && cell(money(tot.paid), { b: true })}{cell(money(tot.now), { b: true, col: tot.now > 0.5 ? c.warn : c.good })}{cell(money(tot.held), { b: true, col: c.muted })}{cell("", { f: 1.1 })}
+                {cell("Total", { f: 1.6, left: true, b: true })}{wide && cell("")}{cell(money(tot.qty), { b: true })}{wide && cell(money(tot.earned), { b: true })}{wide && cell(money(tot.paid), { b: true })}{cell(money(tot.now), { b: true, col: tot.now > 0.5 ? c.warn : c.good })}{cell(money(tot.held), { b: true, col: c.muted })}{cell("", { w: 150 })}
               </View>
             </View>; })() : <View style={{ paddingHorizontal: 18, paddingBottom: 18 }}><T muted>No subcontractors on this project yet. Press Add.</T></View>}
         </Card></Rise>
