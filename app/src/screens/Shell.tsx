@@ -2,12 +2,13 @@
 import * as LocalAuthentication from "expo-local-authentication";
 import { Platform } from "react-native";
 import React, { useEffect, useRef, useState } from "react";
-import { Animated, AppState, BackHandler, Easing, Pressable, Text, View } from "react-native";
+import { Animated, AppState, BackHandler, Easing, Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useFlows } from "../components/Flows";
 import { useData } from "../lib/data";
 import { startTracking } from "../lib/location";
 import { supabase } from "../lib/supabase";
+import Svg, { Path } from "react-native-svg";
 import { Btn, Card, DEEP, H2, Icon, Screen, T, Tile, useColors, useDir, useWide } from "../ui";
 import * as Abu from "./Abu";
 import * as Admin from "./Admin";
@@ -131,9 +132,9 @@ export default function Shell() {
   if (intro) return (
     <View style={{ flex: 1, backgroundColor: DEEP.bg, alignItems: "center", justifyContent: "center" }}>
       <Animated.View style={{ opacity: introV, transform: [{ scale: introV.interpolate({ inputRange: [0, 1], outputRange: [0.85, 1] }) }], alignItems: "center", gap: 8 }}>
-        <View style={{ width: 64, height: 64, borderRadius: 20, backgroundColor: DEEP.bg2, alignItems: "center", justifyContent: "center" }}><Icon name="spark" size={34} color={DEEP.glow} /></View>
-        <Text style={{ color: DEEP.ink, fontSize: 30, fontWeight: "800" }}>AL-Swati</Text>
-        <Text style={{ color: DEEP.muted, fontSize: 14 }}>Stone · Marble · Granite · Porcelain</Text>
+        <View style={{ width: 60, height: 60, borderRadius: 8, borderWidth: 2, borderColor: DEEP.glow, alignItems: "center", justifyContent: "center" }}><Text style={{ color: DEEP.glow, fontSize: 22, fontWeight: "600", letterSpacing: 1 }}>AS</Text></View>
+        <Text style={{ color: DEEP.ink, fontSize: 26, fontWeight: "600" }}>Al-Swati Contracting</Text>
+        <Text style={{ color: DEEP.muted, fontSize: 14 }}>Marble, granite, stone and porcelain</Text>
       </Animated.View>
     </View>
   );
@@ -144,27 +145,36 @@ export default function Shell() {
   const T_ = (k: string) => { const x = tabs.find((y) => y.key === k)!; return { key: k, label: x.label, icon: x.icon, isSub: false }; };
   const S_ = (k: string) => ({ key: k, label: SUB_LABEL[k], icon: SUB_ICON[k], isSub: true });
   // Admin sidebar order: what is used most first; the list of all entries near the end.
-  const navItems = role === "admin"
-    ? [T_("home"), S_("projects"), T_("queries"), T_("quotes"), S_("rfis"), S_("suppliers"), S_("prices"), S_("agents"), S_("growth"), S_("people"), S_("team"), T_("money"), S_("audit")]
-    : tabs.map((x) => ({ key: x.key, label: x.label, icon: x.icon, isSub: false }));
+  // Admin sidebar in groups, in the order the work happens: sales → site → money → company.
+  const groups: [string, any[]][] = role === "admin"
+    ? [["", [T_("home")]], ["Sales", [T_("queries"), T_("quotes"), S_("rfis"), S_("growth")]], ["Site", [S_("projects"), S_("team")]],
+       ["Buying", [S_("suppliers"), S_("prices")]], ["Money", [T_("money")]], ["Company", [S_("people"), S_("agents"), S_("audit")]]]
+    : [["", tabs.map((x) => ({ key: x.key, label: x.label, icon: x.icon, isSub: false }))]];
   const sidebar = wide && (
-    <View style={{ width: 236, margin: 12, marginRight: 0, borderRadius: 24, backgroundColor: DEEP.bg, padding: 16, gap: 4 }}>
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 10, paddingHorizontal: 6, marginBottom: 8 }}>
-        <View style={{ width: 36, height: 36, borderRadius: 12, backgroundColor: DEEP.bg2, alignItems: "center", justifyContent: "center" }}><Icon name="spark" size={20} color={DEEP.glow} /></View>
-        <View><Text style={{ color: DEEP.ink, fontSize: 18, fontWeight: "800" }}>AL-Swati</Text><Text style={{ color: DEEP.muted, fontSize: 11 }}>Contracting</Text></View>
+    <View style={{ width: 232, backgroundColor: DEEP.bg, paddingVertical: 18, paddingHorizontal: 12, overflow: "hidden" }}>
+      <Veins />
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 8, marginBottom: 18 }}>
+        <View style={{ width: 34, height: 34, borderRadius: 6, borderWidth: 1.5, borderColor: DEEP.glow, alignItems: "center", justifyContent: "center" }}><Text style={{ color: DEEP.glow, fontSize: 13, fontWeight: "600", letterSpacing: 0.5 }}>AS</Text></View>
+        <View><Text style={{ color: DEEP.ink, fontSize: 16, fontWeight: "600" }}>Al-Swati</Text><Text style={{ color: DEEP.muted, fontSize: 12 }}>Contracting</Text></View>
       </View>
-      {navItems.map((x) => {
-        const on = x.isSub ? sub === x.key : !sub && cur.key === x.key;
-        return (
-          <Pressable key={x.key} onPress={() => { if (x.isSub) setSub(x.key); else { setSub(null); setTab(x.key); } }}
-            style={({ hovered }: any) => ({ flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 11, paddingHorizontal: 12, borderRadius: 14, backgroundColor: on ? DEEP.glow : hovered ? DEEP.bg2 : "transparent", cursor: "pointer" } as any)}>
-            <Icon name={x.icon} size={20} color={on ? DEEP.bg : DEEP.muted} />
-            <Text style={{ color: on ? DEEP.bg : DEEP.ink, fontSize: 15, fontWeight: on ? "800" : "500" }}>{x.label}</Text>
-          </Pressable>
-        );
-      })}
-      <View style={{ flex: 1 }} />
-      <Pressable onPress={() => supabase.auth.signOut()} style={{ paddingVertical: 10, paddingHorizontal: 12 }}><Text style={{ color: DEEP.muted, fontSize: 14 }}>Sign out</Text></Pressable>
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ gap: 2 }}>
+        {groups.map(([g, items]) => (
+          <View key={g || "top"} style={{ gap: 2, marginBottom: 10 }}>
+            {g ? <Text style={{ color: DEEP.muted, fontSize: 12, fontWeight: "500", paddingHorizontal: 10, paddingTop: 4, paddingBottom: 4, opacity: 0.85 }}>{g}</Text> : null}
+            {items.map((x: any) => {
+              const on = x.isSub ? sub === x.key : !sub && cur.key === x.key;
+              return (
+                <Pressable key={x.key} onPress={() => { if (x.isSub) setSub(x.key); else { setSub(null); setTab(x.key); } }}
+                  style={({ hovered }: any) => ({ flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 8, paddingHorizontal: 10, borderRadius: 6, backgroundColor: on ? "rgba(255,255,255,0.12)" : hovered ? "rgba(255,255,255,0.06)" : "transparent", cursor: "pointer" } as any)}>
+                  <Icon name={x.icon} size={17} color={on ? DEEP.ink : DEEP.muted} />
+                  <Text style={{ color: on ? "#FFFFFF" : DEEP.ink, opacity: on ? 1 : 0.86, fontSize: 14, fontWeight: on ? "600" : "400" }}>{x.label}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        ))}
+      </ScrollView>
+      <Pressable onPress={() => supabase.auth.signOut()} style={({ hovered }: any) => ({ paddingVertical: 8, paddingHorizontal: 10, borderRadius: 6, backgroundColor: hovered ? "rgba(255,255,255,0.06)" : "transparent", cursor: "pointer" } as any)}><Text style={{ color: DEEP.muted, fontSize: 13 }}>Sign out</Text></Pressable>
     </View>
   );
   return (
@@ -186,8 +196,8 @@ export default function Shell() {
         <Body go={(k: string) => (SUBS[k] ? setSub(k) : setTab(k))} />
         {/* AI helper on every page: knows the page, suggests the next step and what to correct. */}
         <Pressable accessibilityRole="button" accessibilityLabel="AI helper" onPress={() => flows("ask", { page: sub ? (SUB_LABEL[sub] || sub) : cur.label })}
-          style={{ position: "absolute", bottom: 16, [row === "row-reverse" ? "left" : "right"]: 16, width: 58, height: 58, borderRadius: 29, backgroundColor: c.accent, alignItems: "center", justifyContent: "center", elevation: 6, shadowColor: "#000", shadowOpacity: 0.25, shadowRadius: 6, shadowOffset: { width: 0, height: 3 } }}>
-          <Icon name="spark" size={28} color={c.accentInk} />
+          style={{ position: "absolute", bottom: 20, [row === "row-reverse" ? "left" : "right"]: 20, height: 44, paddingHorizontal: 16, borderRadius: 22, flexDirection: "row", gap: 8, backgroundColor: c.accent, alignItems: "center", justifyContent: "center", elevation: 4, shadowColor: "#11261F", shadowOpacity: 0.22, shadowRadius: 8, shadowOffset: { width: 0, height: 3 } }}>
+          <Icon name="spark" size={18} color={c.accentInk} />{wide ? <Text style={{ color: c.accentInk, fontSize: 14, fontWeight: "600" }}>Ask AI</Text> : null}
         </Pressable>
       </View>
       {!wide && <SafeAreaView edges={["bottom"]} style={{ backgroundColor: c.surface, borderTopWidth: 1, borderColor: c.line }}>
@@ -205,5 +215,16 @@ export default function Shell() {
         </View>
       </SafeAreaView>}
     </View>
+  );
+}
+
+/** The one decorative element of the app: faint marble veins in the sidebar, like a slab of verde marble. */
+function Veins() {
+  return (
+    <Svg width={232} height={900} viewBox="0 0 232 900" style={{ position: "absolute", top: 0, left: 0 }} pointerEvents="none">
+      {["M-20 120 C 60 160, 90 260, 180 300 S 260 420, 210 520", "M40 -10 C 70 80, 30 170, 110 240 S 150 380, 90 470 S 60 640, 140 720",
+        "M250 560 C 190 600, 160 680, 190 760 S 120 860, 60 920", "M-10 640 C 50 660, 70 720, 40 790"].map((d, i) => (
+        <Path key={i} d={d} stroke="#FFFFFF" strokeOpacity={i === 1 ? 0.07 : 0.045} strokeWidth={i === 1 ? 1.4 : 1} fill="none" />))}
+    </Svg>
   );
 }
