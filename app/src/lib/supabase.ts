@@ -5,6 +5,9 @@ import { SUPABASE_ANON_KEY, SUPABASE_URL } from "../config";
 const url = (process.env.EXPO_PUBLIC_SUPABASE_URL as string) || SUPABASE_URL;
 const anon = (process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY as string) || SUPABASE_ANON_KEY;
 
+// The public (anon) key is meant to be public: database rules decide what it can do. The Gmail script uses it to reach the intake function.
+export const API_URL = url, PUBLIC_ANON_KEY = anon;
+
 export const supabase = createClient(url, anon, {
   auth: { storage: AsyncStorage, autoRefreshToken: true, persistSession: true, detectSessionInUrl: false },
 });
