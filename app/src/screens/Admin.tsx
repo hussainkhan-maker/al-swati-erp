@@ -129,9 +129,9 @@ export function Dashboard({ go }: { go?: (k: string) => void } = {}) {
   const kpis = (
     <View style={[{ backgroundColor: DEEP.bg, borderRadius: 14, overflow: "hidden" }, ELEV]}>
       <Marble />
-      <View style={{ flexDirection: wide ? "row" : "column", paddingVertical: wide ? 22 : 8, paddingHorizontal: wide ? 8 : 0 }}>
+      <View style={{ flexDirection: wide ? "row" : "column", flexWrap: "wrap", paddingVertical: wide ? 22 : 8, paddingHorizontal: wide ? 8 : 0 }}>
         {main.map(([k, l, v], i) => (
-          <Pressable key={k} onPress={() => setKd(k)} style={({ hovered }: any) => ({ flex: 1, paddingVertical: wide ? 4 : 14, paddingHorizontal: 20, gap: 6, borderColor: "rgba(255,255,255,0.12)", borderLeftWidth: wide && i ? 1 : 0, borderTopWidth: !wide && i ? 1 : 0, opacity: hovered ? 0.85 : 1, cursor: "pointer" } as any)}>
+          <Pressable key={k} onPress={() => setKd(k)} style={({ hovered }: any) => ({ flex: 1, minWidth: 190, paddingVertical: wide ? 4 : 14, paddingHorizontal: 20, gap: 6, borderColor: "rgba(255,255,255,0.12)", borderLeftWidth: wide && i ? 1 : 0, borderTopWidth: !wide && i ? 1 : 0, opacity: hovered ? 0.85 : 1, cursor: "pointer" } as any)}>
             <T size={13} color={DEEP.muted}>{l}</T>
             <View style={{ flexDirection: "row", alignItems: "baseline", gap: 5 }}><CountUp value={Number(String(v).replace(/[^\d.-]/g, "")) || 0} size={wide ? 26 : 22} color={k === "profit" && sum(L, "profit") < 0 ? "#F2A497" : "#FFFFFF"} style={{ letterSpacing: -0.6 }} /><T size={13} color={DEEP.muted}>SAR</T></View>
           </Pressable>))}
@@ -230,7 +230,7 @@ export function Dashboard({ go }: { go?: (k: string) => void } = {}) {
       <Sheet open={!!kd} onClose={() => setKd(null)} title={kd ? KD[kd][0] : ""}>{kd ? KD[kd][1]() : null}</Sheet>
       {wide ? (
         <View style={{ flexDirection: "row", gap: 18, alignItems: "flex-start" }}>
-          <View style={{ flex: 2.2, gap: 16 }}><Rise i={0}>{hero}</Rise><Rise i={1}>{kpis}</Rise><View style={{ flexDirection: "row", gap: 16, alignItems: "flex-start" }}><View style={{ flex: 1.3 }}>{chartCard}</View><View style={{ flex: 1 }}>{recentCard}</View></View>{table}</View>
+          <View style={{ flex: 2.2, gap: 16 }}><Rise i={0}>{hero}</Rise><Rise i={1}>{kpis}</Rise><View style={{ flexDirection: "row", flexWrap: "wrap", gap: 16, alignItems: "flex-start" }}><View style={{ flex: 1.3, minWidth: 280 }}>{chartCard}</View><View style={{ flex: 1, minWidth: 280 }}>{recentCard}</View></View>{table}</View>
           <View style={{ flex: 1, gap: 16, minWidth: 300 }}>{side}</View>
         </View>
       ) : <><Rise i={0}>{hero}</Rise><Rise i={1}>{kpis}</Rise>{chartCard}{side}{recentCard}{table}</>}
