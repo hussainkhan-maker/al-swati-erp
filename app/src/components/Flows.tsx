@@ -84,7 +84,7 @@ function SpeakSheet({ init, onClose, open }: { init?: any; onClose: () => void; 
   };
 
   // Opened from a project's buttons: go straight to the right form with the project (and subcontractor) filled in.
-  useEffect(() => { if (init?.intent) byHand(init.intent, init.project_id, init.sub_name); }, []);
+  useEffect(() => { if (init?.intent) { byHand(init.intent, init.project_id, init.sub_name); if (init.amount || init.relRet) setO((x: any) => ({ ...x, amount: init.amount ?? x.amount, relRet: !!init.relRet })); } }, []);
 
   // Lines left empty (a subcontractor who did not work that day) are skipped.
   const form = o ? { ...o, amount: num(o.amount), loan: num(o.loan || 0), rows: (o.rows || []).filter((r: any) => String(r.qty ?? "").trim() !== "").map((r: any) => ({ ...r, qty: num(r.qty) })) } : null;
@@ -118,7 +118,7 @@ function SpeakSheet({ init, onClose, open }: { init?: any; onClose: () => void; 
       if (form.intent === "progress") for (const r of form.rows) q(await ins("progress", { project_id: form.project_id, sub_name: r.sub_name, qty: r.qty, unit: r.unit, work: r.work, work_date: when, heard: text, flags }));
       else if (form.intent === "income") q(await ins("txns", { type: "income", project_id: form.project_id, gross: form.amount, loan: form.loan || 0, paid_on: when, method: how, description: [form.relRet ? "Retention release" : null, memo].filter(Boolean).join(" · ") || null, heard: text, flags }));
       else if (form.intent === "loan") q(await ins("txns", { type: "loan", project_id: form.project_id, amount: form.amount, paid_on: when, method: how, description: memo, heard: text, flags }));
-      else if (form.intent === "subpay") q(await ins("txns", { type: "subpay", project_id: form.project_id, amount: form.amount, sub_name: form.sub_name, paid_on: when, method: how, description: memo, heard: text, flags }));
+      else if (form.intent === "subpay") q(await ins("txns", { type: "subpay", project_id: form.project_id, amount: form.amount, sub_name: form.sub_name, paid_on: when, method: how, description: [form.relRet ? "Retention release" : null, memo].filter(Boolean).join(" · ") || null, heard: text, flags }));
       else if (form.intent === "expense") q(await ins("txns", { type: "expense", project_id: form.project_id, amount: form.amount, description: [form.description, memo].filter(Boolean).join(" · "), paid_on: when, method: how, heard: text, flags }));
       else if (form.intent === "rate") {
         let itemId = matchItems(form.material, d.items || []).find((m) => m.score >= 0.75)?.item.id;
@@ -172,7 +172,8 @@ function SpeakSheet({ init, onClose, open }: { init?: any; onClose: () => void; 
             {ret > 0 && !o.relRet && num(o.amount) > 0 && <T muted size={13}>Retention {ret}%: the client keeps about {money(r2(num(o.amount) / 1.15 / (1 - ret / 100) * ret / 100))} SAR more on this payment (shown in the project's client account).</T>}
           </>; })()}
           {o.intent === "subpay" && (() => { const onP = (d.subcontractors || []).filter((x: any) => (x.projects || []).includes(o.project_id)).map((x: any) => x.name), names = onP.length ? [...onP, ...subNames(d).filter((n: string) => !onP.includes(n))] : subNames(d);
-            return <Select label={t("sub")} value={o.sub_name} options={names.map((n: string) => ({ value: n, label: onP.includes(n) ? n + " ✓" : n }))} onChange={(v) => set("sub_name", v)} />; })()}
+            return <><Select label={t("sub")} value={o.sub_name} options={names.map((n: string) => ({ value: n, label: onP.includes(n) ? n + " ✓" : n }))} onChange={(v) => set("sub_name", v)} />
+              <Btn kind={o.relRet ? "primary" : "default"} title={(o.relRet ? "✓ " : "") + "This payment releases the retention we kept"} onPress={() => set("relRet", !o.relRet)} /></>; })()}
           {o.intent === "rate" && <Row wrap><Field label={t("material")} value={o.material} onChange={(v) => set("material", v)} /><Field label={t("unit")} value={o.unit} onChange={(v) => set("unit", v)} style={{ maxWidth: 100 }} /><Field label={t("supplier")} value={o.supplier} onChange={(v) => set("supplier", v)} /></Row>}
           {o.intent === "expense" && <Field label="What was it for (transport, food, small tools…)" value={o.description} onChange={(v) => set("description", v)} />}
         </>}
