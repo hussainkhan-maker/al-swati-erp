@@ -5,6 +5,7 @@ import { useFlows } from "../components/Flows";
 import { active, pname, useData } from "../lib/data";
 import { day, money, num, SAR, stamp } from "../lib/fmt";
 import { pricesFor } from "../lib/match";
+import { invoicesOf, STATE_LABEL } from "../lib/invoices";
 import { ai, supabase } from "../lib/supabase";
 import { Bars, Btn, Card, Checks, CountUp, DEEP, ELEV, Empty, Marble, SectionHead, Segmented, StatStrip, Field, H1, H2, Icon, Kpi, MonthCal, Photo, Pill, Rise, Row, Screen, Select, Sheet, T, Table, Tile, useColors, useWide } from "../ui";
 
@@ -179,6 +180,7 @@ export function Dashboard({ go }: { go?: (k: string) => void } = {}) {
     }
     return out;
   }, [d.txns]);
+  const waiting = invoicesOf(d).filter((v: any) => v.left > 0.5);
   const side = <>
     <Rise i={2}><Card><MonthCal marks={marks} /><T size={12} muted>A dot marks a day with a payment or work entry.</T></Card></Rise>
     <Rise i={3}><Card>
@@ -193,6 +195,15 @@ export function Dashboard({ go }: { go?: (k: string) => void } = {}) {
       {rises.map((r, i) => <T key={i} size={13} color={c.bad}>▲ {r}</T>)}
       {(() => { const wait = (d.quotes || []).filter((q: any) => q.status === "Draft" && !q.rfq?.lock && (q.lines || []).length && (q.lines || []).every((l: any) => Number(l.rate) > 0)); return wait.length ? <Pill kind="bad" text={`${wait.length} quotation(s) waiting for your Approve & Lock`} /> : null; })()}
     </Card></Rise>
+    {waiting.length ? <Rise i={4}><Card style={{ gap: 6 }}>
+      <SectionHead title="Waiting for payment" sub="Invoices not fully paid yet" />
+      {waiting.slice(0, 6).map((v: any) => (
+        <Row key={v.id} style={{ paddingVertical: 6, borderTopWidth: 1, borderColor: c.line }}>
+          <View style={{ flex: 1 }}><T bold size={14}>{pname(d, v.project_id)}, invoice {v.invoice_no}</T>
+            <T size={12} color={v.state === "late" ? c.bad : c.muted}>{v.state === "late" ? `Late: promised ${day(v.due_on)}` : v.due_on ? `Promised ${day(v.due_on)}` : "No date given"}{v.paid > 0 ? `, ${money(v.paid)} received` : ""}</T></View>
+          <T bold color={v.state === "late" ? c.bad : c.warn}>{money(v.left)}</T>
+        </Row>))}
+    </Card></Rise> : null}
   </>;
   const table = <Rise i={5} style={{ gap: 10 }}>
     <SectionHead title="Projects" action={go ? "Open projects" : undefined} onAction={() => go?.("projects")} />
@@ -277,6 +288,15 @@ export function Projects() {
   const [p, setP] = useState<any>(null), [s, setS] = useState<any>(null), [err, setErr] = useState(""), [busy, setBusy] = useState(false);
   const [det, setDet] = useState<any>(null); // one entry opened for full details
   const [rel, setRel] = useState<any>(null); // retention release for one subcontractor
+  const [inv, setInv] = useState<any>(null), [invErr, setInvErr] = useState(""); // new company invoice
+  const isDate = (s: any) => /^\d{4}-\d{2}-\d{2}$/.test(String(s || "").trim());
+  const saveInv = async () => {
+    setInvErr("");
+    const { error } = await supabase.from("company_invoices").insert({ project_id: inv.project_id, invoice_no: String(inv.invoice_no).trim(), amount: num(inv.amount),
+      issued_on: isDate(inv.issued_on) ? inv.issued_on.trim() : new Date().toISOString().slice(0, 10), due_on: isDate(inv.due_on) ? inv.due_on.trim() : null, note: inv.note || null });
+    if (error) { setInvErr(/duplicate|unique/i.test(error.message) ? "This invoice number is already saved for this project." : error.message); return; }
+    setInv(null); await reload(["company_invoices"]);
+  };
   const [hist, setHist] = useState<Record<string, string | null>>({}); // project id → "" (all) or a subcontractor name; missing = closed
   const staff = (d.profiles || []).filter((x: any) => ["supervisor", "engineer"].includes(x.role));
   // Everything that happened on one project, newest first: payments, invoices, expenses and work done (m²).
@@ -411,6 +431,7 @@ export function Projects() {
             <Btn icon={<Icon name="people" size={16} />} title="Pay subcontractor" onPress={() => flows("speak", { intent: "subpay", project_id: x.id, sub_name: subs.length === 1 ? subs[0].name : "" })} />
             <Btn icon={<Icon name="ruler" size={16} />} title="Work done (m²)" onPress={() => flows("speak", { intent: "progress", project_id: x.id })} />
             <Btn icon={<Icon name="receipt" size={16} />} title="Expense / purchase" onPress={() => flows("speak", { intent: "expense", project_id: x.id })} />
+            <Btn icon={<Icon name="pct" size={16} />} title={`Loan from ${x.company || "company"}`} onPress={() => flows("speak", { intent: "loan", project_id: x.id })} />
             <Btn icon={<Icon name="doc" size={16} />} title="Statement" onPress={() => flows("statement", { kind: "project", target: x.name, project_id: x.id })} />
           </Row>
         </View>
@@ -421,6 +442,41 @@ export function Projects() {
           { label: "Retention held from subs", value: SAR(subNums(x.id).reduce((t, r) => t + r.held, 0)) }, { label: "Retention kept by client", value: SAR(a.retHeld) }]} />
         {!a.rate && <T muted size={13}>Add the client rate per m² (Edit) to see the work value and what is still to come.</T>}
         <VarianceCard x={x} done={a.m2} />
+
+        <Rise i={5}><Card style={{ padding: 0, gap: 0, overflow: "hidden" }}>
+          <View style={{ padding: 18, paddingBottom: 12 }}><SectionHead title="Invoices" sub={`Invoices ${x.company || "the company"} raised for our work: what was paid and what is still to come`}
+            right={<Btn icon={<Icon name="plus" size={16} />} title="Add invoice" onPress={() => { setInvErr(""); setInv({ project_id: x.id, invoice_no: "", amount: "", issued_on: new Date().toISOString().slice(0, 10), due_on: "", note: "" }); }} />} /></View>
+          {invoicesOf(d, x.id).length ? invoicesOf(d, x.id).map((v: any) => { const [lab, kind] = STATE_LABEL[v.state as keyof typeof STATE_LABEL]; return (
+            <View key={v.id} style={{ flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 11, paddingHorizontal: 18, borderTopWidth: 1, borderColor: c.line }}>
+              <View style={{ flex: 1.4 }}><T bold size={14}>Invoice {v.invoice_no}</T><T size={12} muted>{day(v.issued_on)}{v.note ? ", " + v.note : ""}</T></View>
+              {wide ? <View style={{ flex: 1, alignItems: "flex-end" }}><T size={12} muted>Amount</T><T size={14}>{money(v.amount)}</T></View> : null}
+              <View style={{ flex: 1, alignItems: "flex-end" }}><T size={12} muted>Received</T><T size={14} color={c.good}>{money(v.paid)}</T></View>
+              <View style={{ flex: 1, alignItems: "flex-end" }}><T size={12} muted>Still to come</T><T size={14} bold color={v.state === "late" ? c.bad : v.left > 0.5 ? c.warn : c.good}>{money(v.left)}</T></View>
+              <View style={{ width: 110, alignItems: "flex-end", gap: 3 }}><Pill kind={kind} text={lab} />{v.due_on && v.left > 0.5 ? <T size={11} muted>promised {day(v.due_on)}</T> : null}</View>
+              <View style={{ width: 150, alignItems: "flex-end" }}>{v.left > 0.5 ? <Btn kind="ghost" title="Payment received" onPress={() => flows("speak", { intent: "income", project_id: x.id, amount: String(v.left), invoice_no: v.invoice_no })} /> : <T size={12} muted>Settled</T>}</View>
+            </View>); }) : <View style={{ paddingHorizontal: 18, paddingBottom: 18 }}><T muted>No invoices yet. Add each invoice {x.company || "the company"} raises, then pick it when the payment comes (part payments add up).</T></View>}
+        </Card></Rise>
+
+        {/* Money the company lent us to run the work, and what it has cut back from its payments. */}
+        <Rise i={5}><Card style={{ padding: 0, gap: 0, overflow: "hidden" }}>
+          {(() => { const co = x.company || "the company", tx = active(d.txns || []).filter((t: any) => t.project_id === x.id && (t.type === "loan" || (t.type === "income" && Number(t.loan) > 0)))
+              .sort((p: any, q: any) => dkey(q).localeCompare(dkey(p)));
+            const taken = tx.filter((t: any) => t.type === "loan").reduce((s2: number, t: any) => s2 + (Number(t.amount) || 0), 0), cut = tx.filter((t: any) => t.type === "income").reduce((s2: number, t: any) => s2 + (Number(t.loan) || 0), 0), open = taken - cut;
+            return <>
+              <View style={{ padding: 18, paddingBottom: 12 }}><SectionHead title={`Loan from ${co}`} sub={`Money ${co} gave us to run the work, and what they cut back from their payments`}
+                right={<Btn icon={<Icon name="plus" size={16} />} title="Loan taken" onPress={() => flows("speak", { intent: "loan", project_id: x.id })} />} /></View>
+              <View style={{ flexDirection: "row", borderTopWidth: 1, borderColor: c.line }}>
+                {([["Taken", taken, c.ink], ["Cut back so far", cut, c.good], ["Still to cut", open, open > 0.5 ? c.warn : c.good]] as [string, number, string][]).map(([k, v, col], i) => (
+                  <View key={k} style={{ flex: 1, paddingVertical: 12, paddingHorizontal: 18, borderLeftWidth: i ? 1 : 0, borderColor: c.line, gap: 2 }}><T size={12} muted>{k}</T><T size={16} bold color={col}>{money(v)}</T></View>))}
+              </View>
+              {tx.length ? tx.slice(0, 8).map((t: any) => (
+                <View key={t.id} style={{ flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 10, paddingHorizontal: 18, borderTopWidth: 1, borderColor: c.line }}>
+                  <View style={{ width: 90 }}><T size={13} muted>{day(t.paid_on || t.created_at)}</T></View>
+                  <View style={{ flex: 1 }}><T size={14}>{t.type === "loan" ? `${co} gave us a loan` : `${co} cut it from a payment of ${money(t.gross)}${t.invoice_no ? ` (invoice ${t.invoice_no})` : ""}`}</T>{t.description ? <T size={12} muted>{t.description}</T> : null}</View>
+                  <T size={14} bold color={t.type === "loan" ? c.ink : c.good}>{t.type === "loan" ? "+" + money(t.amount) : "−" + money(t.loan)}</T>
+                </View>)) : <View style={{ paddingHorizontal: 18, paddingVertical: 14, borderTopWidth: 1, borderColor: c.line }}><T muted>{`No loan yet. When ${co} gives money, press "Loan taken". When they cut it back, enter the cut in the payment form ("Loan ${co} cut from this payment").`}</T></View>}
+            </>; })()}
+        </Card></Rise>
 
         <Rise i={5}><Card style={{ padding: 0, gap: 0, overflow: "hidden" }}>
           <View style={{ padding: 18, paddingBottom: 12 }}><SectionHead title="Subcontractors" sub={a.r ? `We keep ${money(a.r)}% retention from each one, the same as the client keeps from us` : "Set the project's retention (Edit project) to keep the same % from subcontractors"} right={<Btn icon={<Icon name="plus" size={16} />} title="Add" onPress={() => setS({ name: "", rate: "", unit: "sqm", projects: [x.id] })} />} /></View>
@@ -475,6 +531,20 @@ export function Projects() {
         </View>
       ) : (cur ? detail : list)}
 
+      <Sheet open={!!inv} onClose={() => setInv(null)} title="Add invoice">
+        {inv && <>
+          <Field required label="Invoice number" value={inv.invoice_no} onChange={(v) => setInv({ ...inv, invoice_no: v })} />
+          <Field required label="Amount on the invoice (SAR, with VAT)" value={inv.amount} numeric onChange={(v) => setInv({ ...inv, amount: v })} />
+          <Row wrap>
+            <Field label="Invoice date (YYYY-MM-DD)" value={inv.issued_on} onChange={(v) => setInv({ ...inv, issued_on: v })} />
+            <Field label="Payment promised by (YYYY-MM-DD)" value={inv.due_on} onChange={(v) => setInv({ ...inv, due_on: v })} />
+          </Row>
+          <Field label="Note (e.g. half now, half next week)" value={inv.note} onChange={(v) => setInv({ ...inv, note: v })} />
+          {invErr ? <T color={c.bad}>{invErr}</T> : null}
+          <Btn big kind="primary" title="Save invoice" disabled={!String(inv.invoice_no).trim() || !(num(inv.amount) > 0)} onPress={saveInv} />
+          <T size={12} muted>When money comes, press "Payment received" on the invoice (or pick the invoice in the payment form). If they pay in parts, each part adds up; what is still to come shows here and on Home.</T>
+        </>}
+      </Sheet>
       <Sheet open={!!rel} onClose={() => setRel(null)} title={rel ? `Release retention · ${rel.name}` : ""}>
         {rel && <>
           <T size={14}>We are holding {money(rel.held)} SAR of {rel.name}'s money as retention on this project.</T>
