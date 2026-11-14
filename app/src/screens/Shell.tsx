@@ -79,7 +79,8 @@ export default function Shell() {
   useAutopilot(priceHint); // reads new client queries and drafts their quotations by itself
   const ABU_LABELS: Record<string, [string, string, string]> = { home: ["الرئيسية", "ہوم", "Home"], money: ["الحسابات", "حسابات", "Accounts"], vat: ["الضريبة", "VAT", "VAT"], suppliers: ["الموردون", "سپلائرز", "Suppliers"], quotes: ["العروض", "کوٹیشن", "Quotes"] };
   const tabs = role === "abu" ? TABS.abu.map((x) => ({ ...x, label: ABU_LABELS[x.key][lang === "ur" ? 1 : lang === "en" ? 2 : 0] })) : TABS[role];
-  const [tab, setTab] = useState(tabs[0].key), [sub, setSub] = useState<string | null>(null);
+  // Back from "Sign in with Microsoft" (Outlook link): open Client queries, where the link is finished.
+  const [tab, setTab] = useState(() => (Platform.OS === "web" && /[?&]state=/.test(globalThis.location?.search || "") && tabs.some((x: any) => x.key === "queries") ? "queries" : tabs[0].key)), [sub, setSub] = useState<string | null>(null);
   const [locked, setLocked] = useState(true);
   const bgAt = useRef(0);
   const flows = useFlows();
