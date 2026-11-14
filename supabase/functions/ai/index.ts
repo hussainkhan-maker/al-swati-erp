@@ -67,7 +67,7 @@ async function gemini(prompt: string, model: string, opts: { images?: Img[]; max
   let r: Response = new Response(null, { status: 599 });
   for (let attempt = 1; ; attempt++) {
   r = await fetch("https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent", {
-    method: "POST",
+    method: "POST", signal: AbortSignal.timeout(12000), // never let a busy Gemini hold the page
     headers: { "x-goog-api-key": GEMINI_KEY, "content-type": "application/json" },
     body: JSON.stringify({
       system_instruction: { parts: [{ text: GUIDE + (RULES ? "\nThe owner's own rules (always follow):\n" + RULES : "") }] },
@@ -75,8 +75,8 @@ async function gemini(prompt: string, model: string, opts: { images?: Img[]; max
       generationConfig: { maxOutputTokens: Math.max(opts.max ?? 2000, 8192) },
     }),
   });
-    if (r.ok || attempt >= 3 || ![429, 500, 503].includes(r.status)) break;
-    await new Promise((res) => setTimeout(res, 2000 * attempt));
+    if (r.ok || attempt >= 2 || ![429, 500, 503].includes(r.status)) break;
+    await new Promise((res) => setTimeout(res, 1000));
   }
   if (!r.ok) throw new Error("Gemini " + r.status + ": " + (await r.text()).slice(0, 300));
   const j = await r.json();
@@ -395,9 +395,9 @@ Return JSON only: {"lines":[{"i":<line index>,"rate":<number or null>,"reason":"
 
     if (task === "ask") {
       // Every account has its own assistant. The data comes from the phone, which only ever holds what that role may see.
-      const text = await claude(`You are the personal assistant of a ${role} inside a stone and flooring contractor's ERP in Saudi Arabia. Explain simply, like to someone new to apps. Answer using ONLY this data. Numbers with digits and SAR. If the data does not hold the answer, say what is missing. Short and plain, in the language of the question.
+      const text = await claude(`You are the personal assistant of a ${role} inside a stone and flooring contractor's ERP in Saudi Arabia. Explain simply, like to someone new to apps. Answer using ONLY this data. Numbers with digits and SAR. If the data does not hold the answer, say what is missing. Short and plain, in the language of the question: under 120 words unless the question asks for a list or detail.
 DATA: ${JSON.stringify(p.data).slice(0, 150000)}
-QUESTION: ${String(p.question).slice(0, 1000)}`);
+QUESTION: ${String(p.question).slice(0, 1000)}`, { max: 900 });
       return json({ text });
     }
 
