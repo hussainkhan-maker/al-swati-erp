@@ -1,11 +1,10 @@
 // Query → quotation → project, done by the app itself.
-// The AI reads every new client query; a clean one (no red gate) becomes a draft quotation with the rates
+// The server reads every new client query (app open or not); a clean one (no red gate) becomes a draft quotation with the rates
 // we quoted before for the same material; when the client approves the quotation, the project opens by itself.
 // Prices are never sent anywhere automatically: the owner still checks the rates, locks and sends.
 import { useEffect, useRef } from "react";
-import { rfqGates } from "./checks";
 import { useData } from "./data";
-import { matchItems, num, stamp } from "./fmt";
+import { num, stamp } from "./fmt";
 import { ai, supabase } from "./supabase";
 
 const isM2 = (u: any) => /^(sqm|m2|m²|م2|م²|متر مربع)$/i.test(String(u || "").trim());
@@ -47,31 +46,15 @@ export async function projectFromQuote(q: any, d: any, reload: (k?: string[]) =>
   return data.id as string;
 }
 
-/** Runs while Super-Admin has the app open: reads new queries and turns clean ones into draft quotations. */
-export function useAutopilot(hint?: (d: any, desc: string) => any) {
-  const { d, role, insert, update, reload } = useData();
-  const tried = useRef<Set<string>>(new Set()), busy = useRef(false);
-  const inq = (d.inquiries || []) as any[];
-  const unread = inq.filter((q) => q.status === "New" && !q.reading && !tried.current.has("r" + q.id)).map((q) => q.id).join(",");
-  const ready = inq.filter((q) => q.reading && !q.quote_id && ["New", "Under Review"].includes(q.status) && !tried.current.has("q" + q.id)).map((q) => q.id).join(",");
+/** While Super-Admin has the app open, waiting queries are handed to the server autopilot at once
+ *  (the server also runs it by itself when a query arrives, and every 30 minutes). */
+export function useAutopilot(_hint?: (d: any, desc: string) => any) {
+  const { d, role, reload } = useData();
+  const busy = useRef(false), last = useRef("");
+  const key = ((d.inquiries || []) as any[]).filter((q) => (q.status === "New" && !q.reading) || (q.reading && !q.quote_id && ["New", "Under Review"].includes(q.status))).map((q) => q.id).join(",");
   useEffect(() => {
-    if (role !== "admin" || busy.current || (!unread && !ready)) return;
-    busy.current = true;
-    (async () => {
-      try {
-        // 1. Read up to two new queries at a time (each reading costs AI tokens).
-        const toRead = inq.filter((q) => unread.split(",").includes(q.id)).slice(0, 2);
-        for (const q of toRead) { tried.current.add("r" + q.id); try { await ai("rfq", { inquiry_id: q.id }); } catch { /* shown on the query when opened */ } }
-        if (toRead.length) { await reload(["inquiries"]); return; }
-        // 2. A read query with lines and no red gate becomes a draft quotation.
-        for (const q of inq.filter((x) => ready.split(",").includes(x.id))) {
-          tried.current.add("q" + q.id);
-          const r = q.reading, lines = r?.a?.lines || [];
-          const gates = rfqGates(q.body || "", r?.a || {}, r?.b || {}, (desc: string) => !!matchItems(desc, d.items || [])[0]);
-          if (!lines.length || gates.some((g: any) => g.s === "bad")) continue;
-          await quoteFromQuery(q, d, insert, update, hint);
-        }
-      } finally { busy.current = false; }
-    })();
-  }, [role, unread, ready]);
+    if (role !== "admin" || !key || busy.current || last.current === key) return;
+    busy.current = true; last.current = key;
+    ai("autopilot", {}).then((r: any) => (r?.read || r?.quoted ? reload(["inquiries", "quotes"]) : null)).catch(() => {}).finally(() => { busy.current = false; });
+  }, [role, key]);
 }
