@@ -325,8 +325,8 @@ function PurchaseSheet({ init, onClose }: { init?: any; onClose: () => void }) {
 // ───────────────────────── statements → checked PDF → share ─────────────────────────
 function StatementSheet({ init, onClose }: { init?: any; onClose: () => void }) {
   const { t, d, role, lang, profile } = useData(); const c = useColors();
-  const kinds = role === "supervisor" ? ["project", "sub"] : role === "engineer" ? ["project"] : ["project", "received", "sub", "expenses", "purchases", "supplier", "material", "vat"];
-  const KL: Record<string, string> = { project: "Whole project", received: "Payments I received (dates)", sub: "Subcontractor (money + m²)", expenses: "Small expenses only", purchases: "Material purchases (VAT, invoice)", supplier: t("supplier"), material: t("material"), vat: t("vat") };
+  const kinds = role === "supervisor" ? ["project", "sub"] : role === "engineer" ? ["project"] : ["project", "company", "received", "sub", "expenses", "purchases", "supplier", "material", "vat"];
+  const KL: Record<string, string> = { project: "Whole project", company: "Company (e.g. Hindcco): invoices, payments, loans", received: "Payments I received (dates)", sub: "Subcontractor (money + m²)", expenses: "Small expenses only", purchases: "Material purchases (VAT, invoice)", supplier: t("supplier"), material: t("material"), vat: t("vat") };
   const [kind, setKind] = useState(kinds.includes(init?.kind) ? init.kind : "project");
   const [target, setTarget] = useState(init?.target || "");
   const [pid, setPid] = useState(init?.project_id || "");
@@ -335,7 +335,7 @@ function StatementSheet({ init, onClose }: { init?: any; onClose: () => void }) 
   const doc = useMemo(() => (noName || target ? buildStatement(d, role, lang, kind, target, kind === "project" ? "" : pid) : null), [kind, target, pid, d]);
   const html = doc ? docHTML(doc, lang, profile.name) : "";
   const checks = doc ? pdfChecks(t, doc, html) : [];
-  const chips = kind === "project" ? (d.projects || []).map((p: any) => p.name) : kind === "sub" ? subNames(d) : kind === "supplier" ? [...new Set(active(d.txns).filter((x: any) => x.supplier).map((x: any) => x.supplier))] : kind === "material" ? (d.items || []).map((i: any) => i.name) : [];
+  const chips = kind === "project" || kind === "company" ? (d.projects || []).map((p: any) => p.name) : kind === "sub" ? subNames(d) : kind === "supplier" ? [...new Set(active(d.txns).filter((x: any) => x.supplier).map((x: any) => x.supplier))] : kind === "material" ? (d.items || []).map((i: any) => i.name) : [];
   return (
     <Sheet open onClose={onClose} title={t("statement")}>
       <Select label={t("kind")} value={kind} options={kinds.map((k) => ({ value: k, label: KL[k] }))} onChange={(v) => { setKind(v); setTarget(""); }} />
