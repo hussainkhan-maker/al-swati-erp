@@ -62,7 +62,6 @@ const TABS: Record<string, TabDef[]> = {
   engineer: [
     { key: "progress", label: "Progress", icon: "ruler", C: Eng.Progress },
     { key: "docs", label: "Drawings", icon: "folder", C: Eng.Docs },
-    { key: "quotes", label: "Quotations", icon: "doc", C: Quotes },
   ],
   supervisor: [
     { key: "home", label: "ہوم", icon: "home", C: Sup.Home },
