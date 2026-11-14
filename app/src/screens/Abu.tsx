@@ -2,6 +2,7 @@
 // everything by Urdu voice, confirmed before saving.
 import React from "react";
 import { View } from "react-native";
+import * as Speech from "expo-speech";
 import { useFlows } from "../components/Flows";
 import { active, pname, useData } from "../lib/data";
 import { day, money, SAR } from "../lib/fmt";
@@ -26,7 +27,7 @@ export function LanguageSwitch() {
 }
 
 export function Home({ go }: { go: (k: string) => void }) {
-  const { d, profile } = useData(); const flows = useFlows(); const W = useAbuWords();
+  const { d, profile, lang } = useData(); const flows = useFlows(); const W = useAbuWords();
   const month = new Date().toISOString().slice(0, 7);
   const spent = active(d.txns).filter((x: any) => ["purchase", "expense"].includes(x.type) && String(x.created_at).startsWith(month)).reduce((s: number, x: any) => s + Number(x.total ?? x.amount ?? 0), 0);
   const vat = (d.vat_by_company || []).reduce((s: number, x: any) => s + Number(x.vat), 0);
@@ -36,6 +37,20 @@ export function Home({ go }: { go: (k: string) => void }) {
       <H1>{W("مرحباً", "السلام علیکم", "Hello")} {profile.name}</H1>
       <LanguageSwitch />
       <Kpi hero label={W("مصروفات هذا الشهر", "اس مہینے کے خرچے", "Spent this month")} value={SAR(spent)} />
+      <Btn big kind="primary" icon={<Icon name="mic" color="#fff" />} title={W("🔊 استمع لتقرير اليوم", "🔊 آج کی رپورٹ سنیں", "🔊 Listen to today's report")} onPress={() => {
+        // Made by the app from the numbers (no AI, no cost) and read aloud in Abu's language.
+        const today = new Date().toISOString().slice(0, 10), week = Date.now() - 7 * 864e5;
+        const t = active(d.txns).filter((x: any) => String(x.created_at).startsWith(today));
+        const sum = (types: string[]) => Math.round(t.filter((x: any) => types.includes(x.type)).reduce((s: number, x: any) => s + Number(x.total ?? x.amount ?? x.gross ?? 0), 0));
+        const m2 = Math.round(active(d.progress || []).filter((p: any) => Date.parse(p.created_at) > week).reduce((s: number, p: any) => s + Number(p.qty || p.sqm || 0), 0));
+        const parts = [
+          W(`اليوم دخل ${sum(["income"])} ريال، وصرفنا ${sum(["purchase", "expense", "subpay"])} ريال.`, `آج ${sum(["income"])} ریال آئے، اور ${sum(["purchase", "expense", "subpay"])} ریال خرچ ہوئے۔`, `Today ${sum(["income"])} riyals came in and ${sum(["purchase", "expense", "subpay"])} riyals went out.`),
+          W(`مصروفات هذا الشهر ${Math.round(spent)} ريال.`, `اس مہینے کا خرچہ ${Math.round(spent)} ریال ہے۔`, `This month's spending is ${Math.round(spent)} riyals.`),
+          W(`هذا الأسبوع تم تركيب ${m2} متر مربع.`, `اس ہفتے ${m2} مربع میٹر کام ہوا۔`, `This week ${m2} square meters were installed.`),
+          review ? W(`لديك ${review} عرض سعر للمراجعة.`, `آپ کے پاس ${review} کوٹیشن دیکھنے کے لیے ہیں۔`, `You have ${review} quotations to review.`) : "",
+        ].filter(Boolean).join(" ");
+        Speech.stop(); Speech.speak(parts, { language: lang === "ar" ? "ar-SA" : lang === "en" ? "en-US" : "ur-PK", rate: 0.9 });
+      }} />
       <Tile accent icon="mic" title={W("اضغط وتكلم", "دبائیں اور بولیں", "Tap and speak")} sub={W("تكلم بالأردو · سأتأكد معك قبل الحفظ", "اردو میں بولیں · محفوظ کرنے سے پہلے میں پوچھوں گا", "Speak in Urdu · I confirm before saving")} onPress={() => flows("speak")} />
       <View style={{ flexDirection: "row-reverse", flexWrap: "wrap", gap: 12 }}>
         <Tile icon="receipt" title={W("فاتورة شراء", "خریداری کی رسید", "Purchase invoice")} sub={W("صورة + مشروع + ضريبة", "تصویر + پروجیکٹ + VAT", "Photo + project + VAT")} onPress={() => flows("purchase")} />
