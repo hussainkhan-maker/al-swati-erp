@@ -121,7 +121,12 @@ export default function Shell() {
       if (st === "background") bgAt.current = Date.now();
       if (st === "active" && bgAt.current && Date.now() - bgAt.current > 3 * 60e3) { setLocked(true); unlock(); }
     });
-    return () => s.remove();
+    // Laptop / web: sign out by itself after 30 minutes with no mouse, keyboard or touch, so an open browser is never left signed in.
+    let idle: any = null;
+    const poke = () => { clearTimeout(idle); idle = setTimeout(() => supabase.auth.signOut(), 30 * 60e3); };
+    const evs = ["mousemove", "mousedown", "keydown", "touchstart", "scroll", "wheel"];
+    if (Platform.OS === "web" && typeof window !== "undefined") { evs.forEach((e) => window.addEventListener(e, poke, { passive: true } as any)); poke(); }
+    return () => { s.remove(); clearTimeout(idle); if (Platform.OS === "web" && typeof window !== "undefined") evs.forEach((e) => window.removeEventListener(e, poke)); };
   }, []);
 
   if (locked) return (
