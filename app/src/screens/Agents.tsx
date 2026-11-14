@@ -41,6 +41,7 @@ export default function Agents() {
       <A icon="doc" name="Contract auditor" job="Reads Arabic muqawala contracts and client quotations; flags penalties, retention, hidden transport/crane costs and suggests counter-terms" s="good" status="Use “Contract check” below" />
       <A icon="truck" name="Quotation comparer" job="Puts supplier quotations side by side (price, VAT, stock, delivery, credit days, hidden costs) and names the best value" s="good" status="Use “Compare supplier quotations” below" />
       <A icon="spark" name="Memory agent" job="Turns your feedback into rules that the advisor and supplier agents follow" s="good" status={`${(pref(d, "rules", { list: [] }).list || []).length} rules learned`} />
+      {role === "admin" && <AiUsage />}
       {role === "admin" && <AiTools />}
       {role === "admin" && <Prefs />}
       <Card>
@@ -79,6 +80,32 @@ function Prefs() {
       {bad && <T color={c.bad}>Minimum must be above 0 and not more than the target.</T>}
       {msg ? <T color={c.accent}>{msg}</T> : null}
       <Btn kind="primary" title="Save preferences" disabled={bad} onPress={save} />
+    </Card>
+  );
+}
+
+/** Where the AI tokens go this month, per job. Simple questions answered from the app's own numbers never appear here: they cost nothing. */
+function AiUsage() {
+  const c = useColors();
+  const [rows, setRows] = useState<any[] | null>(null);
+  useEffect(() => {
+    const from = new Date(); from.setDate(1); from.setHours(0, 0, 0, 0);
+    supabase.from("ai_usage").select("task, model, input_tokens, output_tokens, cache_read, files, at").gte("at", from.toISOString()).limit(5000).then(({ data }) => setRows(data || []));
+  }, []);
+  if (!rows) return null;
+  const by: Record<string, { calls: number; inp: number; out: number; cache: number; model: string }> = {};
+  rows.forEach((r) => { const k = r.task || "other"; const x = (by[k] ||= { calls: 0, inp: 0, out: 0, cache: 0, model: "" }); x.calls++; x.inp += r.input_tokens; x.out += r.output_tokens; x.cache += r.cache_read; x.model = String(r.model || "").replace("claude-", ""); });
+  const list = Object.entries(by).sort((a, b) => b[1].inp + b[1].out * 5 - (a[1].inp + a[1].out * 5));
+  const k = (n: number) => (n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e3 ? Math.round(n / 1e3) + "k" : String(n));
+  const tot = list.reduce((s, [, x]) => ({ calls: s.calls + x.calls, inp: s.inp + x.inp, out: s.out + x.out, cache: s.cache + x.cache }), { calls: 0, inp: 0, out: 0, cache: 0 });
+  return (
+    <Card>
+      <H2>AI use this month</H2>
+      <Row wrap><Pill text={`${tot.calls} calls`} /><Pill text={`${k(tot.inp)} tokens read`} /><Pill text={`${k(tot.out)} tokens written`} />{tot.cache ? <Pill kind="good" text={`${k(tot.cache)} from cache (90% cheaper)`} /> : null}</Row>
+      {list.slice(0, 12).map(([task, x]) => (
+        <Row key={task}><T style={{ flex: 1 }}>{task}</T><T size={13} muted>{x.calls}× · {k(x.inp)} in · {k(x.out)} out · {x.model}</T></Row>))}
+      {!list.length && <T muted>No AI calls yet this month.</T>}
+      <T size={12} muted>Money questions ("Prime ka kharcha?") are answered from your own numbers without AI. PDFs with text are sent as text, drawings as files. Emails and reminders use the small model; reading BOQs, receipts and checks use the strong ones.</T>
     </Card>
   );
 }
