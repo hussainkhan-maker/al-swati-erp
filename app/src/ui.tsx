@@ -48,7 +48,7 @@ export function Marble({ w = 1200, h = 400, o = 1 }: { w?: number; h?: number; o
     "M600 -20 C 640 80, 560 160, 650 240 S 760 380, 700 460", "M180 -10 C 210 90, 160 170, 240 250 S 300 380, 260 440"];
   return (
     <Svg width="100%" height="100%" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="xMidYMid slice" style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }} pointerEvents="none">
-      {paths.map((d, i) => <Path key={i} d={d} stroke="#FFFFFF" strokeOpacity={(i % 2 ? 0.05 : 0.08) * o} strokeWidth={i % 2 ? 1 : 1.5} fill="none" />)}
+      {paths.map((d, i) => <Path key={i} d={d} stroke="#FFFFFF" strokeOpacity={(i % 2 ? 0.08 : 0.14) * o} strokeWidth={i % 2 ? 1 : 1.5} fill="none" />)}
     </Svg>
   );
 }
