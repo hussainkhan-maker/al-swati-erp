@@ -155,12 +155,13 @@ function redGate(A: any[], B: any[]) {
  *  and never prices or sends anything. Rates stay for the owner. */
 async function autopilot(admin: any) {
   const out = { read: 0, quoted: 0 };
-  const { data: news } = await admin.from("inquiries").select("id").eq("status", "New").is("reading", null).order("created_at").limit(2);
-  // Both readings run side by side so the call stays well inside the time limit.
+  const { data: news } = await admin.from("inquiries").select("id").eq("status", "New").is("reading", null).order("created_at").limit(1);
+  // One query per call (two AI readers run side by side), so the call stays well inside the time limit.
   await Promise.all((news || []).map(async (q: any) => {
     const { data: claim } = await admin.from("inquiries").update({ status: "Under Review" }).eq("id", q.id).eq("status", "New").is("reading", null).select("id");
     if (!claim?.length) return;
-    try { await readInquiry(admin, { inquiry_id: q.id }); out.read++; } catch { /* the owner can press "Read with AI" on the query */ }
+    // On failure the query goes back to New with the error kept, so the owner sees it and presses "Read with AI" (never retried by itself).
+    try { await readInquiry(admin, { inquiry_id: q.id }); out.read++; } catch (e) { await admin.from("inquiries").update({ status: "New", reading: { error: String((e as Error).message || e).slice(0, 300) } }).eq("id", q.id); }
   }));
   const { data: ready } = await admin.from("inquiries").select("id, ref, subject, from_name, reading").not("reading", "is", null).is("quote_id", null).in("status", ["New", "Under Review"]).limit(5);
   for (const q of ready || []) {
@@ -223,6 +224,8 @@ Rules: digits 0-9 only. Never invent a number that was not said: use null and as
     }
 
     if (task === "receipt") {
+      // A receipt is read only by the person who uploaded it (path starts with their id), or by Super-Admin / Abu.
+      if (!["admin", "abu"].includes(role) && !String(p.path || "").startsWith(u.user.id + "/")) return json({ error: "Not your receipt" }, 403);
       const img = await imageFrom(admin, "receipts", p.path);
       const prompt = `This image is a purchase receipt or invoice from Saudi Arabia (Arabic and/or English). Read it carefully. Return JSON only:
 {"supplier":"<name>","invoice_no":"<invoice / tax invoice number or null>","buyer":"<the company the invoice is made out to (customer name, VAT no.) or null>","date":"YYYY-MM-DD or null","lines":[{"name":"<item as written; add English if Arabic>","qty":<n>,"unit":"<unit>","price":<unit price before VAT>,"total":<line total before VAT>}],"subtotal":<before VAT>,"vat":<VAT amount or 0>,"total":<grand total>,"confidence":"high|medium|low","notes":"<anything unclear>"}
