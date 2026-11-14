@@ -3,11 +3,15 @@ import React, { useState } from "react";
 import { Linking, View } from "react-native";
 import { useFlows } from "../components/Flows";
 import { useData } from "../lib/data";
-import { ageDays, day, norm } from "../lib/fmt";
+import { ageDays, day, money, norm } from "../lib/fmt";
+import { priceSummary } from "../lib/match";
 import { ai } from "../lib/supabase";
 import { Btn, Card, Empty, Field, H1, H2, Icon, Pill, Row, Screen, Select, Sheet, T, useColors } from "../ui";
 
 const CATS = ["Marble", "Granite", "Porcelain", "Ceramic", "Civil", "Fixing", "Other"];
+// Same supplier written two ways ("Al Hajar Est." / "مؤسسة الحجر" in its own script only): company words ignored.
+const coreName = (n: string) => norm(n).replace(/\b(est|establishment|co|company|trading|llc|ltd|factory|group|for|and)\b|مؤسسه|شركه|مصنع|للتجاره|التجاريه|مجموعه/g, " ").replace(/\s+/g, " ").trim();
+const sameName = (a: string, b: string) => { const x = coreName(a), y = coreName(b); return !!x && !!y && (x === y || x.includes(y) || y.includes(x)); };
 const guessCats = (desc: string) => { const n = norm(desc); return CATS.filter((c) => (c === "Marble" && /marble|رخام|crema|carrara/.test(n)) || (c === "Granite" && /granite|جرانيت|غرانيت/.test(n)) || (c === "Porcelain" && /porcelain|بورسلان/.test(n)) || (c === "Ceramic" && /ceramic|سيراميك/.test(n)) || (c === "Civil" && /cement|sand|اسمنت|رمل|screed/.test(n)) || (c === "Fixing" && /adhesive|grout|anchor|لاصق/.test(n))); };
 const waNumber = (s: string) => { let n = String(s || "").replace(/\D/g, ""); if (n.startsWith("00")) n = n.slice(2); if (n.startsWith("05")) n = "966" + n.slice(1); return n; };
 
@@ -85,7 +89,10 @@ export function RequestPrices({ init, onClose }: { init: { items: any[]; inquiry
   const { d, insert, profile } = useData(); const c = useColors();
   const need = [...new Set(init.items.flatMap((i: any) => guessCats(i.desc)))];
   const fit = (d.suppliers || []).filter((s: any) => s.approved !== false).filter((s: any) => !need.length || (s.categories || []).some((k: string) => need.includes(k)));
-  const [pick, setPick] = useState<string[]>(fit.slice(0, 5).map((s: any) => s.id));
+  // What we already paid for each item (from invoices, Arabic/English names matched) and who sold it.
+  const paid = init.items.map((i: any) => ({ i, ps: priceSummary(d, i.desc) }));
+  const soldBefore = (d.suppliers || []).filter((s: any) => paid.some((p: any) => (p.ps?.suppliers || []).some((b: any) => b.supplier && sameName(b.supplier, s.name))));
+  const [pick, setPick] = useState<string[]>([...new Set([...soldBefore.map((s: any) => s.id), ...fit.slice(0, 5).map((s: any) => s.id)])].slice(0, 6));
   const [msgs, setMsgs] = useState<Record<string, string>>({}), [busy, setBusy] = useState(false), [sent, setSent] = useState<string[]>([]), [err, setErr] = useState("");
   const draft = async () => {
     setBusy(true); setErr("");
@@ -105,6 +112,11 @@ export function RequestPrices({ init, onClose }: { init: { items: any[]; inquiry
   return (
     <Sheet open onClose={onClose} title="Ask suppliers for prices">
       <T muted>{init.items.length} items · looking for: {need.join(", ") || "any"}</T>
+      {paid.some((p: any) => p.ps) && <Card>
+        <T bold>Already bought before</T>
+        {paid.map((p: any, k: number) => <T key={k} size={13}>{p.i.desc}: {p.ps ? `lowest ${money(p.ps.lowest.price)}/${p.ps.lowest.unit || "unit"} from ${p.ps.lowest.supplier || "?"} (${p.ps.lowest.date})${p.ps.suppliers.length > 1 ? ` · also ${p.ps.suppliers.slice(1, 3).map((b: any) => `${b.supplier} ${money(b.price)}`).join(", ")}` : ""}` : "no invoice yet"}</T>)}
+        {soldBefore.length ? <T size={12} muted>Suppliers who sold these before are ticked below.</T> : null}
+      </Card>}
       <H2>Choose suppliers</H2>
       <Row wrap>{(fit.length ? fit : d.suppliers || []).map((s: any) => { const on = pick.includes(s.id); return <Btn key={s.id} kind={on ? "primary" : "default"} title={s.name} onPress={() => setPick(on ? pick.filter((x) => x !== s.id) : [...pick, s.id])} />; })}</Row>
       {!(d.suppliers || []).length && <T muted>Add suppliers first under More → Suppliers.</T>}
