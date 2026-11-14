@@ -42,7 +42,8 @@ const READS: Record<Role, Q[]> = {
     Tbl("rfis", "updated_at"), Tbl("blog_posts", "updated_at"), Tbl("outreach_contacts"), Tbl("email_outbox", "created_at", 200)],
   abu: [Tbl("projects"), Tbl("subcontractors"), Tbl("txns"), Tbl("progress", "created_at", 5000), Tbl("items"), Tbl("prices"), Tbl("quotes", "updated_at"), View("project_ledger"), View("vat_by_company"), View("sub_ledger"),
     Tbl("suppliers"), Tbl("supplier_requests"), View("preferences")],
-  engineer: [Tbl("projects"), Tbl("subcontractors"), Tbl("progress", "created_at", 5000), Tbl("quotes", "updated_at"), Tbl("documents"), Tbl("profiles")],
+  // Engineers: project names, m² progress and drawings only (no rates, prices, quotations or staff phone numbers).
+  engineer: [Rpc("projects", "eng_projects"), Rpc("progress", "eng_progress"), Tbl("documents"), Rpc("sub_names", "sub_names")],
   supervisor: [Tbl("projects"), Tbl("txns"), Tbl("documents"), Rpc("sub_names", "sub_names"), Rpc("progress", "sup_progress"), View("preferences")],
 };
 // which base-table change refreshes which keys
