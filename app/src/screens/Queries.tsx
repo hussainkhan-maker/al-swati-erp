@@ -1,6 +1,6 @@
 // Client queries arriving from email and the website. The AI reads each one twice, code runs the gates,
 // and only a query with no red gate becomes a quotation.
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Linking, Platform, View } from "react-native";
 import { rfqGates } from "../lib/checks";
 import { useData } from "../lib/data";
@@ -66,6 +66,64 @@ function pushDrafts() {
 }
 `;
 
+/** Outlook (Microsoft 365): linked once with Microsoft's own sign-in. The server then reads new inbox emails every 30 minutes
+ *  (app open or not), the AI keeps the client queries, and approved replies go to Outlook Drafts. Nothing is sent by itself. */
+async function mail(action: string) {
+  const { data, error } = await supabase.functions.invoke("inbound-query", { body: { action } });
+  if (error) { let m = error.message; try { const j = await (error as any).context?.json?.(); if (j?.error) m = j.error; } catch { /* keep the first message */ } throw new Error(m); }
+  if (data?.error) throw new Error(data.error);
+  return data;
+}
+export function OutlookLink() {
+  const { reload } = useData(); const c = useColors();
+  const [st, setSt] = useState<any>(null), [dev, setDev] = useState<any>(null), [msg, setMsg] = useState(""), [busy, setBusy] = useState("");
+  const load = () => mail("outlook_status").then(setSt).catch((e) => setMsg(e.message));
+  useEffect(() => { load(); }, []);
+  // While the code is on screen, ask every 5 seconds whether the sign-in on Microsoft's page is done.
+  useEffect(() => {
+    if (!dev) return;
+    const t = setInterval(async () => {
+      try {
+        const r = await mail("outlook_finish");
+        if (r.done) { setDev(null); setMsg(`Connected to ${r.account}. Checking your inbox now…`); await load(); check(); }
+      } catch (e: any) { setDev(null); setMsg(e.message); }
+    }, 5000);
+    return () => clearInterval(t);
+  }, [dev]);
+  const start = async () => { setBusy("start"); setMsg(""); try { setDev(await mail("outlook_start")); } catch (e: any) { setMsg(e.message); } finally { setBusy(""); } };
+  const check = async () => {
+    setBusy("check"); setMsg("");
+    try { const r = await mail("outlook_pull"); setMsg(r.busy ? "Already checking, give it a minute." : `Looked at ${r.checked ?? 0} new email${r.checked === 1 ? "" : "s"}: ${r.taken ?? 0} client quer${r.taken === 1 ? "y" : "ies"} added${r.drafted ? `, ${r.drafted} reply draft(s) put in Outlook` : ""}.${r.more ? " More are waiting: press Check now again." : ""}`); await reload(["inquiries", "email_outbox"]); await load(); }
+    catch (e: any) { setMsg(e.message); await load(); } finally { setBusy(""); }
+  };
+  const mins = st?.last_pull ? Math.round((Date.now() - Date.parse(st.last_pull)) / 60000) : null;
+  return (
+    <Card>
+      <Row><T bold style={{ flex: 1 }}>Outlook email</T>
+        {st == null ? null : st.linked ? <Pill kind={st.last_error ? "bad" : "good"} text={st.last_error ? "needs attention" : mins == null ? `connected · ${st.account}` : `connected · checked ${mins} min ago`} /> : <Pill kind="warn" text="not connected" />}
+      </Row>
+      {!dev && <T size={13} muted>{st?.linked
+        ? `${st.account}: the AI reads each new email in your inbox and brings client queries here with their files (${st.taken} so far, from ${st.checked} emails looked at). They get the category "AL-Swati ERP" in Outlook. Replies you approve go to your Outlook Drafts; nothing is sent by itself.`
+        : "Link your Outlook once. The server then reads new emails every 30 minutes, even with the app closed: the AI keeps the client queries (with their files) and makes draft quotations. Replies you approve go to your Outlook Drafts; nothing is sent by itself."}</T>}
+      {st?.last_error ? <T size={13} color={c.bad}>{st.last_error}</T> : null}
+      {dev ? <View style={{ gap: 8 }}>
+        <T size={14}>1. Open the Microsoft page below (on this laptop or your phone).</T>
+        <T size={14}>2. Type this code, then sign in with your company email and press Accept:</T>
+        <T bold size={30} style={{ letterSpacing: 3 }}>{dev.user_code}</T>
+        <Row wrap><Btn kind="primary" title="Open microsoft.com/devicelogin" onPress={() => Linking.openURL(dev.url)} />
+          <Btn kind="ghost" title="Copy code" onPress={async () => { try { await (navigator as any).clipboard.writeText(dev.user_code); setMsg("Code copied."); } catch { /* type it by hand */ } }} />
+          <Btn kind="ghost" title="Cancel" onPress={() => setDev(null)} /></Row>
+        <T size={12} muted>Waiting for you to finish on Microsoft's page… The code works for {dev.minutes} minutes. Microsoft may ask you to allow "AL-Swati ERP mail" to read and write your mail: that is this app.</T>
+      </View> : <Row wrap>
+        {st?.linked ? <><Btn kind="primary" title="Check now" busy={busy === "check"} onPress={check} />
+          <Btn kind="ghost" title="Disconnect" onPress={async () => { try { await mail("outlook_disconnect"); setMsg("Disconnected. The app no longer reads your Outlook."); load(); } catch (e: any) { setMsg(e.message); } }} /></>
+          : <Btn kind="primary" title={st?.last_error ? "Connect Outlook again" : "Connect Outlook"} busy={busy === "start"} onPress={start} />}
+      </Row>}
+      {msg ? <T size={13} color={/^(Connected|Looked|Code|Disconnected|Already)/.test(msg) ? c.ink : c.bad}>{msg}</T> : null}
+    </Card>
+  );
+}
+
 /** Connect Gmail: makes a private link code, shows the ready script to paste into script.google.com. */
 function GmailLink() {
   const { d, reload } = useData(); const c = useColors();
@@ -115,6 +173,7 @@ export default function Queries() {
   return (
     <Screen>
       <Row><View style={{ flex: 1 }}><H1>Client queries</H1></View><Btn icon={<Icon name="plus" />} title="Paste one" onPress={() => setAdd({ subject: "", from_name: "", body: "" })} /></Row>
+      <OutlookLink />
       <GmailLink />
       <Select value={filter} onChange={setFilter} options={[{ value: "open", label: "Open" }, { value: "all", label: "All" }, ...STATUSES.map((s) => ({ value: s, label: s }))]} />
       {list.length ? list.map((q: any) => {
@@ -234,7 +293,11 @@ function ReplyBox({ q, gates, rfis }: { q: any; gates: any[]; rfis: string[] }) 
     setBusy("draft"); setMsg("");
     const { error } = await supabase.from("email_outbox").insert({ inquiry_id: q.id, gmail_id: gmailId, to_email: q.from_email, subject: m.subject, body: m.body });
     setBusy(""); if (error) { setMsg(error.message); return; }
-    await reload(["email_outbox"]); setM(null); setMsg("Saved. Within 5 minutes it appears in your Gmail Drafts" + (gmailId ? " as a reply in the same thread." : ".") + " Open Gmail and press Send.");
+    // With Outlook linked, the server makes the draft right away; with the Gmail script, within 5 minutes.
+    const ol = await supabase.functions.invoke("inbound-query", { body: { action: "outlook_pull" } }).then((r) => r.data?.linked).catch(() => false);
+    await reload(["email_outbox"]); setM(null);
+    setMsg(ol ? "Saved. It is in your Outlook Drafts" + (gmailId ? " as a reply in the same thread" : "") + " (if not yet, within 30 minutes). Open Outlook and press Send."
+      : "Saved. Within 5 minutes it appears in your Gmail Drafts" + (gmailId ? " as a reply in the same thread." : ".") + " Open Gmail and press Send.");
   };
   return (
     <Card>
