@@ -16,6 +16,10 @@ const mdHtml = (md: string) => String(md || "").replace(/\r/g, "").split(/\n{2,}
   const t = b.trim(); if (!t) return "";
   const inl = (x: string) => esc(x).replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>");
   const h = t.match(/^#{2,4}\s+(.*)$/); if (h) return `<h3>${inl(h[1])}</h3>`;
+  if (/^\|.*\|\s*$/m.test(t.split("\n")[0])) { // markdown table
+    const rows = t.split("\n").filter((l) => /^\|/.test(l.trim()) && !/^\|[\s:|-]+\|?\s*$/.test(l.trim())).map((l) => l.trim().replace(/^\||\|$/g, "").split("|").map((c) => c.trim()));
+    return `<table>${rows.map((r, i) => `<tr>${r.map((c) => (i === 0 ? `<th>${inl(c)}</th>` : `<td>${inl(c)}</td>`)).join("")}</tr>`).join("")}</table>`;
+  }
   if (/^[-*•]\s/m.test(t)) return `<ul>${t.split("\n").map((l) => `<li>${inl(l.replace(/^[-*•]\s*/, ""))}</li>`).join("")}</ul>`;
   return `<p>${inl(t).replace(/\n/g, "<br>")}</p>`;
 }).join("");
