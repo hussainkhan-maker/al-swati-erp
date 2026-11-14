@@ -4,6 +4,15 @@ import NetInfo from "@react-native-community/netinfo";
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Platform } from "react-native";
 import { uid as genId } from "./fmt";
+
+const ID_TABLES = ["txns", "progress"];
+const uuid4 = () => {
+  const b = new Uint8Array(16);
+  if (typeof crypto !== "undefined" && (crypto as any).getRandomValues) (crypto as any).getRandomValues(b); else for (let i = 0; i < 16; i++) b[i] = Math.floor(Math.random() * 256);
+  b[6] = (b[6] & 0x0f) | 0x40; b[8] = (b[8] & 0x3f) | 0x80;
+  const h = [...b].map((x) => x.toString(16).padStart(2, "0")).join("");
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+};
 import { Lang, isRTL, makeT } from "./i18n";
 import { uploadFile } from "./files";
 import { supabase } from "./supabase";
@@ -94,7 +103,11 @@ export function DataProvider({ profile, children }: { profile: Profile; children
     // Supervisors may write progress but never read it back (rates are money), so they insert without reading.
     if (profile.role === "supervisor" && j.table === "progress") { const { error } = await supabase.from(j.table).insert(row); if (error) throw error; return null; }
     const { data, error } = await supabase.from(j.table).insert(row).select().single();
-    if (error) throw error;
+    if (error) {
+      // Saved already (the first try reached the server but its reply was lost): read it back instead of saving twice.
+      if (error.code === "23505" && row.id && /_pkey/.test(error.message || "")) { const { data: got } = await supabase.from(j.table).select().eq("id", row.id).single(); return got; }
+      throw error;
+    }
     return data;
   };
   const flushing = useRef(false);
@@ -125,7 +138,8 @@ export function DataProvider({ profile, children }: { profile: Profile; children
   }, []);
 
   const insert = useCallback(async (table: string, row: any, file?: FileSpec) => {
-    const job: Job = { id: genId(), table, row, file, at: Date.now() };
+    // Money and work entries get their id here, so a retry can never save the same entry twice.
+    const job: Job = { id: genId(), table, row: ID_TABLES.includes(table) && !row.id ? { id: uuid4(), ...row } : row, file, at: Date.now() };
     try { const data = await send(job); reload(DERIVED[table] ?? [table]); return { data }; }
     catch (e: any) {
       if (!isNetErr(e)) throw new Error(e.message);
