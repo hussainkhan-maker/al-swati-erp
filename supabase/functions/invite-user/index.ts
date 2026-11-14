@@ -22,6 +22,7 @@ Deno.serve(async (req) => {
       if (!body.user_id || !pwOk(body.password)) return json({ error: "A new password of 10 or more characters is required" }, 400);
       const { data: r, error } = await admin.auth.admin.updateUserById(body.user_id, { password: body.password, user_metadata: { temp_password: true } });
       if (error) return json({ error: error.message }, 400);
+      await admin.from("profiles").update({ must_change: true }).eq("id", body.user_id); // nothing opens until they choose their own
       return json({ id: body.user_id, email: r.user?.email });
     }
 
@@ -39,7 +40,7 @@ Deno.serve(async (req) => {
       await admin.auth.admin.updateUserById(id, { password, user_metadata: { temp_password: true } });
     } else id = created.data.user.id;
 
-    const { error: pe } = await admin.from("profiles").upsert({ id, name, role, phone, lang, active: true });
+    const { error: pe } = await admin.from("profiles").upsert({ id, name, role, phone, lang, active: true, must_change: true });
     if (pe) return json({ error: pe.message }, 400);
     if (projects.length) await admin.from("project_members").upsert(projects.map((p: string) => ({ project_id: p, user_id: id })));
     return json({ id, email });
