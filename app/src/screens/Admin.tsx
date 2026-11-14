@@ -558,7 +558,13 @@ export function Projects() {
 }
 
 /** A starting password the person changes on first sign-in: 10 letters and digits, no look-alikes (0/O, 1/l). */
-const startPassword = () => { const a = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789"; let p = ""; for (let i = 0; i < 10; i++) p += a[Math.floor(Math.random() * a.length)]; return /\d/.test(p) ? p : p.slice(0, 9) + "7"; };
+// Starting password: 12 characters from the device's secure random source (no look-alike letters like l/1, O/0).
+const startPassword = () => {
+  const a = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789", b = new Uint32Array(12);
+  if (typeof crypto !== "undefined" && (crypto as any).getRandomValues) (crypto as any).getRandomValues(b); else for (let i = 0; i < 12; i++) b[i] = Math.floor(Math.random() * 2 ** 32);
+  const p = [...b].map((x) => a[x % a.length]).join("");
+  return /\d/.test(p) ? p : p.slice(0, 11) + "7";
+};
 const waTo = (phone: string) => { let n = String(phone || "").replace(/\D/g, ""); if (n.startsWith("00")) n = n.slice(2); if (n.startsWith("05")) n = "966" + n.slice(1); return n; };
 
 export function People() {
@@ -597,7 +603,7 @@ export function People() {
           {["supervisor", "engineer"].includes(f.role) && <><T bold>Sites</T><Row wrap>{(d.projects || []).map((p: any) => { const on = f.projects.includes(p.id); return <Btn key={p.id} kind={on ? "primary" : "default"} title={p.name} onPress={() => setF({ ...f, projects: on ? f.projects.filter((x: string) => x !== p.id) : [...f.projects, p.id] })} />; })}</Row></>}
           <Field label="Starting password (they change it on first sign-in)" value={f.password} onChange={(v) => setF({ ...f, password: v.trim() })} />
           {err ? <T color="#B42318">{err}</T> : null}
-          <Btn big kind="primary" title="Add" busy={busy} disabled={!f.name || !/.+@.+\..+/.test(f.email) || waTo(f.phone).length < 9 || f.password.length < 8} onPress={add} />
+          <Btn big kind="primary" title="Add" busy={busy} disabled={!f.name || !/.+@.+\..+/.test(f.email) || waTo(f.phone).length < 9 || f.password.length < 10} onPress={add} />
         </>}
       </Sheet>
       <Sheet open={!!reset} onClose={() => setReset(null)} title={`New password for ${reset?.name || ""}`}>
@@ -605,7 +611,7 @@ export function People() {
           <Field label="New starting password" value={reset.password} onChange={(v) => setReset({ ...reset, password: v.trim() })} />
           <T muted size={13}>Their old password stops working now. They sign in with this one, then choose their own.</T>
           {err ? <T color="#B42318">{err}</T> : null}
-          <Btn big kind="primary" title="Set new password" busy={busy} disabled={reset.password.length < 8} onPress={doReset} />
+          <Btn big kind="primary" title="Set new password" busy={busy} disabled={reset.password.length < 10} onPress={doReset} />
         </>}
       </Sheet>
       <Sheet open={!!done} onClose={() => setDone(null)} title="Send the sign-in details">
