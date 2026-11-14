@@ -49,7 +49,7 @@ async function claude(prompt: string, opts: { images?: Img[]; model?: string; ma
   const r = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: { "x-api-key": KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-    body: JSON.stringify({ model: opts.model ?? MODEL, max_tokens: opts.max ?? 2000, ...(NO_THINK ? { thinking: { type: "disabled" } } : {}),
+    body: JSON.stringify({ model: opts.model ?? MODEL, max_tokens: opts.max ?? 2000, ...(NO_THINK && (opts.model ?? MODEL) !== MODEL_STRONG ? { thinking: { type: "disabled" } } : {}), // careful BOQ reading (strong model) keeps its thinking
       system: [{ type: "text", text: GUIDE + (RULES ? `\nThe owner's own rules (always follow):\n${RULES}` : ""), cache_control: { type: "ephemeral" } }],
       messages: [{ role: "user", content }],
       ...(opts.webSearch ? { tools: [{ type: "web_search_20250305", name: "web_search", max_uses: opts.webSearch, user_location: { type: "approximate", country: "SA" } }] } : {}) }),
