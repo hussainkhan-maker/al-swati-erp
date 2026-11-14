@@ -193,8 +193,28 @@ Deno.serve(async (req) => {
     const { data: u } = await user.auth.getUser();
     if (!u?.user) return json({ error: "Sign in first" }, 401);
     const admin = createClient(URL_, SERVICE);
-    const { data: prof } = await admin.from("profiles").select("role, active").eq("id", u.user.id).single();
+    const { data: prof } = await admin.from("profiles").select("role, active, must_change").eq("id", u.user.id).single();
     if (!prof?.active) return json({ error: "Account not active" }, 403);
+    // Sign in again after 7 days (same rule as the database), so an old stolen session stops working.
+    if (u.user.last_sign_in_at && Date.parse(u.user.last_sign_in_at) < Date.now() - 7 * 864e5) return json({ error: "Please sign in again." }, 401);
+
+    // Choosing one's own password goes through here, so the server checks it (strength + known leaked passwords)
+    // and only then clears "must change". Until then no other AI task (and no data in the database) opens.
+    if (body.task === "set_password") {
+      const pw = String(body.password || ""), name = String(u.user.email || "").split("@")[0].toLowerCase();
+      if (pw.length < 10 || !/[a-z]/i.test(pw) || !/\d/.test(pw)) return json({ error: "Use 10 or more characters with letters and numbers." }, 400);
+      if ((name.length >= 3 && pw.toLowerCase().includes(name)) || /password|123456|qwerty|swati/i.test(pw)) return json({ error: "Do not use your name, email or an easy word." }, 400);
+      try { // Have I Been Pwned (k-anonymity): only the first 5 characters of the SHA-1 hash leave the server.
+        const h = [...new Uint8Array(await crypto.subtle.digest("SHA-1", new TextEncoder().encode(pw)))].map((b) => b.toString(16).padStart(2, "0")).join("").toUpperCase();
+        const list = await (await fetch(`https://api.pwnedpasswords.com/range/${h.slice(0, 5)}`, { headers: { "Add-Padding": "true" } })).text();
+        if (list.split("\n").some((l) => l.split(":")[0].trim() === h.slice(5) && Number(l.split(":")[1]) > 0)) return json({ error: "This password is known to be leaked on the internet. Choose another one." }, 400);
+      } catch { /* check service down: the strength rules above still apply */ }
+      const { error: ue } = await admin.auth.admin.updateUserById(u.user.id, { password: pw, user_metadata: { temp_password: false } });
+      if (ue) return json({ error: ue.message }, 400);
+      await admin.from("profiles").update({ must_change: false }).eq("id", u.user.id);
+      return json({ ok: true });
+    }
+    if (prof.must_change) return json({ error: "Choose your own password first." }, 403);
     const role = prof.role as string;
     const { task, ...p } = body;
     TASK = String(task || ""); USER_ID = u.user.id;
