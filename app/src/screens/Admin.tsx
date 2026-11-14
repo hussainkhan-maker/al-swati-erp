@@ -414,9 +414,9 @@ export function Projects() {
         </View>
 
         <StatStrip items={[{ label: "Installed", value: money(a.m2) + " m²" }, { label: "Client still owes", value: SAR(a.owes) }, { label: "Received from client", value: SAR(a.received) },
-          { label: "Expenses and purchases (ex VAT)", value: SAR(Number(L(x.id).cost) || 0), onPress: () => setHf("__exp") },
+          { label: "Expenses (ex VAT)", value: SAR(Number(L(x.id).cost) || 0), onPress: () => setHf("__exp") },
           { label: "Pay subcontractors now", value: SAR(subNums(x.id).reduce((t, r) => t + Math.max(0, r.now), 0)), tone: subNums(x.id).some((r) => r.now > 0.5) ? "bad" : undefined },
-          { label: "Retention we keep from subs", value: SAR(subNums(x.id).reduce((t, r) => t + r.held, 0)) }, { label: "Retention kept by client", value: SAR(a.retHeld) }]} />
+          { label: "Retention held from subs", value: SAR(subNums(x.id).reduce((t, r) => t + r.held, 0)) }, { label: "Retention kept by client", value: SAR(a.retHeld) }]} />
         {!a.rate && <T muted size={13}>Add the client rate per m² (Edit) to see the work value and what is still to come.</T>}
         <VarianceCard x={x} done={a.m2} />
 
