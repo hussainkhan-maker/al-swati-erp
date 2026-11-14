@@ -7,7 +7,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import React, { useEffect, useRef, useState } from "react";
 import { Animated, Easing, KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { supabase } from "../lib/supabase";
+import { ai, supabase } from "../lib/supabase";
 import { DEEP, Marble, Rise, useColors, useWide } from "../ui";
 
 const web = Platform.OS === "web";
@@ -173,9 +173,9 @@ export function SetPassword({ onDone }: { onDone: () => void }) {
   const st = strength(a, mail);
   const save = async () => {
     setBusy(true); setMsg("");
-    const { error } = await supabase.auth.updateUser({ password: a, data: { temp_password: false } });
-    setBusy(false);
-    if (error) setMsg(/weak|pwned|leaked/i.test(error.message) ? "This password is known to be leaked on the internet. Choose another one." : error.message); else onDone();
+    // The server checks the password (strength and known leaked passwords) and then opens the account.
+    try { await ai("set_password", { password: a }); setBusy(false); await supabase.auth.refreshSession(); onDone(); }
+    catch (e: any) { setBusy(false); setMsg(e.message); }
   };
   const bar = ["#B23A2E", "#C77A1F", "#9A5E10", "#2C7350", "#17594C"];
   return (
