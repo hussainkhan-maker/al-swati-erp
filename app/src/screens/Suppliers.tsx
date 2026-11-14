@@ -1,6 +1,7 @@
 // Supplier directory and price requests. The AI writes the message; you send it yourself from WhatsApp 1, WhatsApp 2 or email.
 import React, { useRef, useState } from "react";
 import { Linking, View } from "react-native";
+import * as DocumentPicker from "expo-document-picker";
 import { useFlows } from "../components/Flows";
 import { useData } from "../lib/data";
 import { ageDays, day, money, norm } from "../lib/fmt";
@@ -22,7 +23,7 @@ const waNumber = (s: string) => { let n = String(s || "").replace(/\D/g, ""); if
 export default function Suppliers() {
   const { d, role, insert, update, lang, reload } = useData(); const c = useColors(); const flows = useFlows();
   const ar = role === "abu" && lang === "ar";
-  const [f, setF] = useState<any>(null), [err, setErr] = useState(""), [busy, setBusy] = useState(false), [q, setQ] = useState(""), [find, setFind] = useState(false);
+  const [f, setF] = useState<any>(null), [err, setErr] = useState(""), [busy, setBusy] = useState(false), [q, setQ] = useState(""), [find, setFind] = useState(false), [imp, setImp] = useState(false);
   const reqs = d.supplier_requests || [];
   const list = (d.suppliers || []).filter((s: any) => !q || norm([s.name, s.city, ...(s.categories || [])].join(" ")).includes(norm(q)));
   const saving = useRef(false); // a double tap saves once
@@ -39,7 +40,11 @@ export default function Suppliers() {
   return (
     <Screen>
       <Row><View style={{ flex: 1 }}><H1>{ar ? "الموردون" : "Suppliers"}</H1></View><Btn kind="primary" icon={<Icon name="plus" color="#fff" />} title={ar ? "إضافة" : "Add"} onPress={() => setF({ name: "", city: "Riyadh", categories: [], lang: "ar" })} /></Row>
-      <Btn big icon={<Icon name="spark" color={c.accent} />} title={ar ? "ابحث عن موردين جدد (ذكاء اصطناعي)" : "Find new suppliers (AI)"} onPress={() => setFind(true)} />
+      <Row wrap>
+        <Btn big icon={<Icon name="spark" color={c.accent} />} title={ar ? "ابحث عن موردين جدد (ذكاء اصطناعي)" : "Find new suppliers (AI)"} onPress={() => setFind(true)} />
+        {role === "admin" ? <Btn big icon={<Icon name="doc" />} title={ar ? "استيراد قائمة" : "Import a list"} onPress={() => setImp(true)} /> : null}
+      </Row>
+      {imp && <ImportSuppliers onClose={() => setImp(false)} />}
       <Field value={q} onChange={setQ} placeholder={ar ? "بحث: رخام، الرياض…" : "Search: marble, Riyadh…"} />
       {list.length ? list.map((s: any) => {
         const mine = reqs.filter((r: any) => r.supplier_id === s.id), open = mine.filter((r: any) => r.status === "Sent");
@@ -183,6 +188,87 @@ function FindSuppliers({ onClose }: { onClose: () => void }) {
           </Row>
         </Card>))}
       {res.length > 0 && <T size={12} muted>Check the CR on the Ministry of Commerce site before you approve a new supplier.</T>}
+    </Sheet>
+  );
+}
+
+// ───────────────────────── import a supplier list ─────────────────────────
+// Paste from Excel (copy the cells), a CSV file, or a plain list ("Al Hajar Marble - 0551234567 - Riyadh").
+// Each line becomes one supplier: phone, email, city and material are picked out, the rest is the name. Copies are skipped.
+const CITIES: [RegExp, string][] = [[/riyadh|الرياض/i, "Riyadh"], [/jedd?ah|جدة|جده/i, "Jeddah"], [/dammam|الدمام/i, "Dammam"], [/khobar|الخبر/i, "Khobar"], [/hass?a|hofuf|الأحساء|الاحساء|الهفوف/i, "Al-Hassa"],
+  [/jubail|الجبيل/i, "Jubail"], [/mecca|makkah|مكة/i, "Makkah"], [/madinah|medina|المدينة/i, "Madinah"], [/qassim|buraid|القصيم|بريدة/i, "Qassim"], [/tabuk|تبوك/i, "Tabuk"], [/abha|أبها|ابها/i, "Abha"], [/khamis|خميس/i, "Khamis Mushait"], [/taif|الطائف/i, "Taif"]];
+const HEAD: Record<string, RegExp> = { name: /name|supplier|company|vendor|اسم|المورد|الشركة|المؤسسة/i, phone: /phone|mobile|tel|contact|جوال|هاتف|رقم|موبايل/i, whatsapp: /whats|واتس/i,
+  city: /city|location|area|مدينة|المدينة|الموقع/i, email: /e-?mail|بريد|ايميل/i, cat: /categor|material|type|items|product|مواد|صنف|نوع|منتج/i, notes: /note|remark|ملاحظ/i };
+const phoneOf = (t: string) => { const m = String(t).replace(/[\s\-()]/g, "").match(/(\+?966|00966|0)?5\d{8}/); if (!m) return ""; const d = m[0].replace(/^\+?966|^00966/, ""); return d.startsWith("0") ? d : "0" + d; };
+function parseList(text: string) {
+  const lines = String(text || "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  if (!lines.length) return [];
+  const sep = lines.some((l) => l.includes("\t")) ? "\t" : lines.filter((l) => l.includes(",")).length > lines.length / 2 ? "," : lines.filter((l) => l.includes(";")).length > lines.length / 2 ? ";" : null;
+  const cells = (l: string) => (sep ? l.split(sep) : [l]).map((x) => x.replace(/^"|"$/g, "").trim());
+  // A first line that names the columns ("Name, Phone, City…") decides which column is which.
+  const first = cells(lines[0]), cols: Record<string, number> = {};
+  if (sep && first.some((x) => !phoneOf(x)) && first.filter((x) => Object.values(HEAD).some((r) => r.test(x))).length >= 2)
+    first.forEach((x, i) => { for (const [k, r] of Object.entries(HEAD)) if (cols[k] === undefined && r.test(x) && !(k === "phone" && HEAD.whatsapp.test(x))) { cols[k] = i; break; } });
+  const body = Object.keys(cols).length ? lines.slice(1) : lines;
+  return body.map((l) => {
+    const c = cells(l), all = c.join(" ");
+    const pick = (k: string) => (cols[k] !== undefined ? String(c[cols[k]] || "").trim() : "");
+    const phone = phoneOf(pick("phone")) || phoneOf(all), whatsapp = phoneOf(pick("whatsapp")) || phone;
+    const email = pick("email") || (all.match(/[\w.+-]+@[\w-]+\.[\w.]+/) || [""])[0];
+    const cityText = pick("city") || all, city = (CITIES.find(([r]) => r.test(cityText)) || [, ""])[1];
+    const cats = guessCats(pick("cat") || all);
+    let name = pick("name");
+    // "Al Hajar Marble - 0551234567 - Riyadh - marble": the first piece that is not a phone, email or city is the name.
+    if (!name) name = all.split(/\s+[-–|•]\s+|[,;\t]/).map((x) => x.trim()).find((x) => /[A-Za-z\u0600-\u06FF]/.test(x) && !phoneOf(x) && !/@/.test(x) && !CITIES.some(([r]) => r.test(x) && x.length < 20)) || "";
+    if (!name || name === all) name = all.replace(/(\+?966|00966|0)?5[\d\s\-()]{8,12}/g, " ").replace(/[\w.+-]+@[\w-]+\.[\w.]+/g, " ").replace(CITIES.find(([r]) => r.test(all))?.[0] || /$^/, " ").replace(/\s*[-–|:•,;]+\s*/g, " ").replace(/\s+/g, " ").trim();
+    return { name, phone, whatsapp, email, city: city || "Riyadh", categories: cats.length ? cats : ["Other"], notes: pick("notes") || (cols.cat !== undefined ? pick("cat") : "") };
+  }).filter((x) => x.name || x.phone);
+}
+
+function ImportSuppliers({ onClose }: { onClose: () => void }) {
+  const { d, insert, reload } = useData(); const c = useColors();
+  const [text, setText] = useState(""), [busy, setBusy] = useState(false), [msg, setMsg] = useState(""), [done, setDone] = useState(0);
+  const rows = parseList(text);
+  const seen = new Set<string>();
+  const marked = rows.map((r) => { const k = norm(r.name) + "|" + digits(r.phone); const dup = !!twin(d.suppliers || [], r.name, r.phone) || seen.has(k); seen.add(k); return { ...r, state: !r.name ? "No name" : dup ? "Already in the list" : "New" }; });
+  const fresh = marked.filter((r) => r.state === "New");
+  const pickFile = async () => {
+    setMsg("");
+    try {
+      const r = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true, type: ["text/csv", "text/plain", "text/comma-separated-values", "text/tab-separated-values", "application/vnd.ms-excel", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"] });
+      if (r.canceled || !r.assets?.[0]) return;
+      const a = r.assets[0];
+      if (/\.xlsx?$/i.test(a.name || "")) { setMsg("Excel file: open it, select the cells (with the header row), copy, and paste them in the box below."); return; }
+      setText(await (await fetch(a.uri)).text());
+    } catch { setMsg("Could not read that file. Copy the cells and paste them in the box instead."); }
+  };
+  const addAll = async () => {
+    setBusy(true); setMsg(""); let n = 0;
+    try {
+      for (const r of fresh) {
+        try { await insert("suppliers", { name: r.name, phone: r.phone || null, whatsapp: r.whatsapp || null, email: r.email || null, city: r.city, categories: r.categories, notes: r.notes || null, lang: "ar", source: "import", approved: true }); n++; }
+        catch (e: any) { if (!/already in the list/.test(dupMsg(e))) throw e; }
+      }
+      await reload(["suppliers"]); setDone(n); setText("");
+      setMsg(`${n} supplier${n === 1 ? "" : "s"} added.`);
+    } catch (e: any) { setMsg(`${n} added, then stopped: ${dupMsg(e)}`); await reload(["suppliers"]); } finally { setBusy(false); }
+  };
+  return (
+    <Sheet open onClose={onClose} title="Import a supplier list">
+      <T size={14}>Paste your list below: copy the cells from Excel, or one supplier per line, for example "Al Hajar Marble - 0551234567 - Riyadh - marble". Phone, email, city and material are picked out by themselves.</T>
+      <Btn icon={<Icon name="folder" />} title="Or choose a CSV file" onPress={pickFile} />
+      <Field label="List" value={text} multiline onChange={setText} placeholder={"Name\tPhone\tCity\tMaterial\nAl Hajar Marble\t0551234567\tRiyadh\tmarble"} />
+      {marked.length ? <>
+        <T bold>{fresh.length} new, {marked.length - fresh.length} skipped</T>
+        {marked.slice(0, 60).map((r, i) => (
+          <Row key={i} style={{ paddingVertical: 6, borderTopWidth: 1, borderColor: c.line, alignItems: "center" }}>
+            <View style={{ flex: 1 }}><T size={14} bold={r.state === "New"}>{r.name || "(no name)"}</T><T size={12} muted>{[r.phone, r.city, r.categories.join(", "), r.email].filter(Boolean).join(" · ")}</T></View>
+            <Pill kind={r.state === "New" ? "good" : r.state === "No name" ? "bad" : "plain"} text={r.state} />
+          </Row>))}
+        {marked.length > 60 ? <T size={12} muted>…and {marked.length - 60} more.</T> : null}
+      </> : null}
+      {msg ? <T color={/added\.$/.test(msg) ? c.good : c.bad}>{msg}</T> : null}
+      <Btn big kind="primary" title={fresh.length ? `Add ${fresh.length} supplier${fresh.length === 1 ? "" : "s"}` : done ? "Done" : "Add"} busy={busy} disabled={!fresh.length} onPress={addAll} />
     </Sheet>
   );
 }
