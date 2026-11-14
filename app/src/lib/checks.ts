@@ -123,6 +123,7 @@ export function quoteGuards(q: any, minMargin = QUOTE_DEFAULTS.minMargin): Check
   if (t.sell > 0 && t.margin < minMargin) out.push({ s: "bad", text: `Whole quotation margin ${t.margin}% is below your minimum ${minMargin}%` });
   const au = q.rfq?.audit;
   if (!au) out.push({ s: "warn", text: "Second AI check not run yet" });
-  else { const high = (au.lines || []).filter((a: any) => a.level === "high" && !(au.ack || []).includes(a.i)); if (high.length) out.push({ s: "bad", text: `AI auditor flagged ${high.length} line(s): fix them or tick “checked”` }); }
+  else if (au.stale) out.push({ s: "warn", text: "Lines changed after the second AI check (RFI answer) — run it again" });
+  if (au) { const high = (au.lines || []).filter((a: any) => a.level === "high" && !(au.ack || []).includes(a.i)); if (high.length) out.push({ s: "bad", text: `AI auditor flagged ${high.length} line(s): fix them or tick “checked”` }); }
   return out;
 }
