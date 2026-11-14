@@ -8,11 +8,16 @@ import { ai, supabase } from "../lib/supabase";
 import { docHTML, makeAndShare, pdfChecks, quotationDoc } from "../lib/pdf";
 import { Btn, Card, Checks, Empty, Field, H1, Icon, Pill, Row, Screen, Select, Sheet, T, Table, useColors } from "../ui";
 import { lineCalc, QUOTE_DEFAULTS, quoteGuards, quoteTotals } from "../lib/checks";
+import { priceSummary } from "../lib/match";
 import { RequestPrices } from "./Suppliers";
+import { RfiEditor } from "./RFIs";
 
 const AR: Record<string, string> = { Draft: "مسودة", "Abu Review": "مراجعة أبو", "Sent to Client": "أُرسل للعميل", Approved: "معتمد", Lost: "خسرنا" };
 export const pref = (d: any, key: string, dflt: any) => ({ ...dflt, ...((d.preferences || []).find((p: any) => p.key === key)?.value || {}) });
 export const quoteTotal = (q: any) => r2((q.lines || []).reduce((s: number, l: any) => s + (Number(l.qty) || 0) * (Number(l.rate) || 0), 0));
+
+/** Lowest price we really paid for this material (invoice lines, Arabic or English names, same size), else the price list. */
+export const lowestCost = (d: any, desc: string): number | null => priceSummary(d, desc)?.lowest.price ?? priceHint(d, desc)?.cost?.price ?? null;
 
 export function priceHint(d: any, desc: string) {
   const m = matchItems(desc, d.items || [])[0];
@@ -28,7 +33,8 @@ const cleanLines = (ls: any[]) => (ls || []).map((l: any) => ({ ...l, qty: num(l
 const sig = (ls: any[]) => JSON.stringify(cleanLines(ls).map((l: any) => [l.desc, l.unit, l.qty, l.waste, l.cost, l.install, l.rate]));
 
 export default function Quotes() {
-  const { d, role, update, insert, lang, t, profile } = useData(); const c = useColors();
+  const { d, role, update, insert, reload, lang, t, profile } = useData(); const c = useColors();
+  const [del, setDel] = useState<any>(null); // quotation to delete (only drafts or lost ones that are not locked)
   const margin = pref(d, "margin", { target: 20, minimum: 12, round_to: 5 }), terms = pref(d, "quote_terms", { validity_days: 15 });
   const [adv, setAdv] = useState<Record<string, any>>({}), [advBusy, setAdvBusy] = useState(""), [pdfQ, setPdfQ] = useState<any>(null);
   const isAdmin = role === "admin", isAbu = role === "abu", arUI = isAbu && lang === "ar";
@@ -37,6 +43,8 @@ export default function Quotes() {
   const [msg, setMsg] = useState<Record<string, string>>({});
   const [eb, setEb] = useState<Record<string, any[]>>({}); // lines being edited, per quotation
   const [tried, setTried] = useState<Record<string, boolean>>({}), [lk, setLk] = useState<any>(null), [unl, setUnl] = useState<any>(null);
+  const [seeP, setSeeP] = useState<any>(null); // all prices paid for one line
+  const [rfi, setRfi] = useState<any>(null); // RFI being written from this quotation
   const minMargin = Number(margin.minimum_safe ?? Math.max(QUOTE_DEFAULTS.minMargin, Number(margin.minimum) || 0));
   const list = (d.quotes || []).filter((q: any) => !isAbu || q.owner === "abu");
 
@@ -79,7 +87,7 @@ export default function Quotes() {
   const advise = async (q: any) => {
     setAdvBusy(q.id);
     try {
-      const lines = q.lines.map((l: any, i: number) => { const h = priceHint(d, l.desc); return { i, desc: l.desc, qty: l.qty, unit: l.unit, rate: l.rate, cost: h?.cost?.price ?? null, last_quoted: h?.sell?.price ?? null, ai_estimate: h?.est?.price ?? null }; });
+      const lines = q.lines.map((l: any, i: number) => { const h = priceHint(d, l.desc); return { i, desc: l.desc, qty: l.qty, unit: l.unit, rate: l.rate, cost: lowestCost(d, l.desc), last_quoted: h?.sell?.price ?? null, ai_estimate: h?.est?.price ?? null }; });
       const r = await ai("advise", { quote: { title: q.title, client: q.client, lines } });
       setAdv({ ...adv, [q.id]: r });
     } catch (e: any) { setMsg({ ...msg, [q.id]: e.message }); } finally { setAdvBusy(""); }
@@ -115,7 +123,7 @@ export default function Quotes() {
               <Pill kind={q.status === "Approved" ? "good" : q.status === "Lost" ? "bad" : "acc"} text={arUI ? AR[q.status] : q.status} /></Row>
             {isAdmin && !locked && q.status === "Draft" && <T size={13} muted>Step 1: quantities and costs · Step 2: second AI check · Step 3: Approve & Lock · then PDF to client.</T>}
             {lines.map((l: any, i: number) => {
-              const h = isAdmin ? priceHint(d, l.desc) : null, x = lineCalc(l), a = (au?.lines || []).find((z: any) => z.i === i);
+              const h = isAdmin ? priceHint(d, l.desc) : null, ps = isAdmin ? priceSummary(d, l.desc) : null, x = lineCalc(l), a = (au?.lines || []).find((z: any) => z.i === i);
               return (
                 <View key={i} style={{ gap: 6, borderTopWidth: 1, borderColor: c.line, paddingTop: 10 }}>
                   <T bold>{i + 1}. {l.desc}</T>
@@ -131,8 +139,15 @@ export default function Quotes() {
                     <Pill kind="acc" text={`Buy ${money(x.buy)} ${l.unit || ""} (incl. ${x.waste}% waste)`} />
                     <Pill kind="acc" text={`Real cost ${money(x.unitCost)} / ${l.unit || "unit"}`} />
                     {x.margin != null && <Pill kind={x.margin < minMargin ? "bad" : "good"} text={`Margin ${x.margin}%`} />}
-                    {h?.cost && <Pill kind={ageDays(h.cost.created_at) > PRICE_STALE_DAYS ? "warn" : "good"} text={`lowest cost on file ${money(h.cost.price)} · ${ageDays(h.cost.created_at)}d`} />}
-                    {h?.cost && editable && Number(l.cost) !== Number(h.cost.price) && <Btn kind="ghost" title="Use this cost" onPress={() => setL(i, "cost", h.cost.price)} />}
+                    {ps ? <>
+                      <Pill kind={ageDays(ps.lowest.date) > PRICE_STALE_DAYS ? "warn" : "good"} text={`Lowest paid ${money(ps.lowest.price)}/${ps.lowest.unit || "unit"} · ${ps.lowest.supplier || "?"} · ${ps.lowest.date}`} />
+                      {ps.latest !== ps.lowest && <Pill kind="acc" text={`Latest ${money(ps.latest.price)} · ${ps.latest.supplier || "?"} · ${ps.latest.date}`} />}
+                      {editable && Number(l.cost) !== ps.lowest.price && <Btn kind="ghost" title="Use lowest" onPress={() => setL(i, "cost", ps.lowest.price)} />}
+                      <Btn kind="ghost" title={`All ${ps.count} prices`} onPress={() => setSeeP({ desc: l.desc, ps })} />
+                    </> : h?.cost ? <>
+                      <Pill kind={ageDays(h.cost.created_at) > PRICE_STALE_DAYS ? "warn" : "good"} text={`lowest cost on file ${money(h.cost.price)} · ${ageDays(h.cost.created_at)}d`} />
+                      {editable && Number(l.cost) !== Number(h.cost.price) && <Btn kind="ghost" title="Use this cost" onPress={() => setL(i, "cost", h.cost.price)} />}
+                    </> : <Pill kind="warn" text="No invoice price yet · ask suppliers" />}
                     {h?.sell && <Pill kind="acc" text={`last quoted ${money(h.sell.price)}`} />}
                     {!h?.cost && h?.est && <Pill kind="warn" text={`AI estimate ${money(h.est.price)} · verify`} />}
                   </Row>}
@@ -154,6 +169,9 @@ export default function Quotes() {
               <T>{au.summary}</T>
               {(au.missing || []).length > 0 && <T size={14}>Maybe missing: {au.missing.join(", ")}</T>}
               {(au.rfis || []).length > 0 && <T size={14}>Ask the consultant (RFI): {au.rfis.join(" · ")}</T>}
+              {isAdmin && (au.rfis || []).length > 0 && <Btn kind="primary" title={`Make RFI (${au.rfis.length} questions)`} onPress={() => setRfi({ quote_id: q.id, inquiry_id: q.rfq?.inquiry_id || null, subject: `${q.title} - clarifications`, questions: au.rfis })} />}
+              {(d.rfis || []).some((r: any) => r.quote_id === q.id) && <Row wrap>{(d.rfis || []).filter((r: any) => r.quote_id === q.id).map((r: any) => <Pill key={r.id} kind={r.status === "Applied" || r.status === "Closed" ? "good" : r.status === "Answered" ? "warn" : "acc"} text={`${r.ref}: ${r.status}`} />)}</Row>}
+              {au.stale && <Pill kind="warn" text="Lines changed from an RFI answer — run the second AI check again" />}
             </Card>}
             {adv[q.id]?.summary ? <Card style={{ backgroundColor: c.sunk }}><Row><Icon name="spark" color={c.accent} /><T bold>Price advisor</T></Row><T>{adv[q.id].summary}</T>{editable && <Btn title="Use all suggested rates" onPress={() => setEb({ ...eb, [q.id]: lines.map((l: any, j: number) => { const ad = (adv[q.id]?.lines || []).find((z: any) => z.i === j); return ad?.rate > 0 ? { ...l, rate: ad.rate } : l; }) })} />}</Card> : null}
             {isAdmin && !locked && (tried[q.id] ? <Checks list={guards} /> : null)}
@@ -169,6 +187,7 @@ export default function Quotes() {
               <Btn icon={<Icon name="share" />} title="Quotation PDF" disabled={!locked} onPress={() => setPdfQ(q)} />
               {q.status === "Sent to Client" && <Btn kind="primary" title="Client approved → open project" onPress={() => approve(q)} />}
               {q.status === "Sent to Client" && <Btn kind="danger" title="Lost" onPress={() => setLost({ q, why: "" })} />}
+              {isAdmin && !locked && ["Draft", "Lost"].includes(q.status) && <Btn kind="ghost" title="Delete" onPress={() => setDel({ q, err: "" })} />}
             </Row>}
             {isAdmin && !locked && <T size={12} muted>The PDF opens only after Approve & Lock. Rules: every line has quantity, cost and rate; margin at least {minMargin}%; AI warnings checked.</T>}
             {isAbu && q.status === "Abu Review" && <Btn big kind="primary" title={lang === "ur" ? "ٹھیک ہے، ایڈمن کو واپس بھیجیں" : lang === "en" ? "Approve and send back" : "موافق، أعده للمدير"} onPress={() => setStatus(q, "Draft")} />}
@@ -215,14 +234,33 @@ export default function Quotes() {
         {unl && <><Field required label="Why do you need to change it?" value={unl.why} onChange={(v) => setUnl({ ...unl, why: v })} />
           <Btn big kind="danger" title="Unlock" disabled={!unl.why.trim()} onPress={async () => { await update("quotes", unl.q.id, { rfq: { ...(unl.q.rfq || {}), lock: null }, history: hist(unl.q, `unlocked: ${unl.why}`) }); setUnl(null); }} /></>}
       </Sheet>
+      <Sheet open={!!del} onClose={() => setDel(null)} title="Delete this quotation?">
+        {del && <>
+          <T bold>{del.q.title}</T>
+          <T muted>It is removed from the list for good. The audit log keeps a record that it was deleted and by whom.</T>
+          {del.err ? <T color={c.bad}>{del.err}</T> : null}
+          <Btn big kind="danger" title="Yes, delete" onPress={async () => {
+            const { data, error } = await supabase.from("quotes").delete().eq("id", del.q.id).select("id");
+            if (error || !data?.length) { setDel({ ...del, err: error?.message || "Not deleted: only a draft or lost quotation that is not locked can be deleted." }); return; }
+            setDel(null); await reload(["quotes"]);
+          }} />
+        </>}
+      </Sheet>
       <Sheet open={!!lost} onClose={() => setLost(null)} title="Why was it lost?">
         {lost && <><Field label="Reason (rate too high, time too short, client chose another…)" value={lost.why} onChange={(v) => setLost({ ...lost, why: v })} />
           <Btn big kind="primary" title="Save" onPress={async () => { await setStatus(lost.q, "Lost", { lost_reason: lost.why }); setLost(null); }} /></>}
       </Sheet>
       {ask && <RequestPrices init={ask} onClose={() => setAsk(null)} />}
+      {rfi && <RfiEditor init={rfi} onClose={() => setRfi(null)} />}
+      {seeP && <Sheet open onClose={() => setSeeP(null)} title="Prices paid for this material">
+        <T bold>{seeP.desc}</T>
+        <T size={13} muted>Matched across Arabic and English names; a different size or thickness is never counted. Average {money(seeP.ps.avg)}.</T>
+        <Table cols={["Supplier", "Price", "Unit", "Date", "Name on the invoice", "From"]} numeric={[1]}
+          rows={seeP.ps.all.slice(0, 40).map((b: any) => [b.supplier || "—", money(b.price), b.unit, b.date, b.name, b.from])} />
+      </Sheet>}
       {pdfQ && (() => {
         const L = (lang === "ur" ? "en" : lang) as any, doc = quotationDoc(pdfQ, L, pdfQ.rfq?.lock?.terms || terms), html = docHTML(doc, L, profile.name), ch = pdfChecks(t, doc, html);
-        const tooLow = (pdfQ.lines || []).filter((l: any) => { const h = priceHint(d, l.desc); return h?.cost && Number(l.rate) < Number(h.cost.price); });
+        const tooLow = (pdfQ.lines || []).filter((l: any) => { const lc = lowestCost(d, l.desc); return lc != null && Number(l.rate) < lc; });
         const all = [...ch, { s: tooLow.length ? "bad" : "good", text: tooLow.length ? `${tooLow.length} lines below cost` : "No line below cost" } as any];
         return (
           <Sheet open onClose={() => setPdfQ(null)} title="Quotation PDF">
