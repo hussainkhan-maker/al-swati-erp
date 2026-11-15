@@ -184,6 +184,7 @@ Deno.serve(async (req) => {
     }
     return json({ error: "Unknown action" }, 400);
   } catch (e) {
+    console.error("blog-media", TASK, String((e as Error).message || e)); // shows in the function's Logs
     return json({ error: String((e as Error).message || e).slice(0, 400) }, 500);
   }
 });
