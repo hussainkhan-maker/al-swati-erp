@@ -8,7 +8,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { Animated, Easing, KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { ai, supabase } from "../lib/supabase";
-import { DEEP, Marble, Rise, useColors, useWide } from "../ui";
+import { DEEP, Marble, Rise, useColors, useFieldPaint, useWide } from "../ui";
 
 const web = Platform.OS === "web";
 const calm = web && typeof window !== "undefined" && !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
@@ -48,6 +48,7 @@ function Slab({ tall }: { tall: boolean }) {
 
 function Frame({ children }: { children: React.ReactNode }) {
   const c = useColors(), wide = useWide();
+  useFieldPaint(); // saved email/password: no white box in the dark design
   const form = (
     <ScrollView contentContainerStyle={{ padding: wide ? 56 : 24, gap: 14, flexGrow: 1, justifyContent: "center", width: "100%", maxWidth: 460, alignSelf: "center" }} keyboardShouldPersistTaps="handled">
       {children}
