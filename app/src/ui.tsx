@@ -48,6 +48,19 @@ export function CountUp({ value, style, color, size = 24 }: { value: number; sty
   return <Text style={[{ fontSize: size, fontWeight: "600", color, fontVariant: ["tabular-nums"] }, style]}>{Math.round(n).toLocaleString("en")}</Text>;
 }
 export const useColors = () => (useColorScheme() === "dark" ? DARK : LIGHT);
+/** Web: the browser fills a saved email/password on its own white (or light blue) box, which shows as a white strip in
+ *  the dark design. Tell the browser the page's light/dark mode and repaint autofilled fields in the app's own colours. */
+export function useFieldPaint() {
+  const c = useColors();
+  useEffect(() => {
+    if (!web || typeof document === "undefined") return;
+    const mode = c === DARK ? "dark" : "light";
+    document.documentElement.style.colorScheme = mode;
+    let st = document.getElementById("al-swati-autofill") as HTMLStyleElement | null;
+    if (!st) { st = document.createElement("style"); st.id = "al-swati-autofill"; document.head.appendChild(st); }
+    st.textContent = `input,textarea{color-scheme:${mode}}input:-webkit-autofill,input:-webkit-autofill:hover,input:-webkit-autofill:focus,input:-webkit-autofill:active{-webkit-text-fill-color:${c.ink}!important;caret-color:${c.ink};-webkit-box-shadow:0 0 0 1000px ${c.surface} inset!important;box-shadow:0 0 0 1000px ${c.surface} inset!important;transition:background-color 99999s ease-out 0s}`;
+  }, [c]);
+}
 
 /** Direction helpers: Arabic and Urdu read right to left. */
 export function useDir() {
