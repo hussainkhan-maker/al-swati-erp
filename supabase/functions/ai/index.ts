@@ -454,16 +454,21 @@ QUESTION: ${String(p.question).slice(0, 1000)}`, { model: Deno.env.get("AI_MODEL
         if (r.status === "Answered") items.push({ level: "warn", text: `${r.ref} answered - apply it to the quotation` });
       });
       (outr || []).forEach((o: any) => { if (o.status === "Emailed" && o.last_contact && Date.now() - Date.parse(o.last_contact) > 7 * 864e5 && (o.emails || []).length < 3) items.push({ level: "warn", text: `Outreach: ${o.name}${o.company ? ` (${o.company})` : ""} has not replied for 7 days - one polite follow-up` }); });
-      if (!(posts || []).some((x: any) => Date.now() - Date.parse(x.created_at) < 36 * 3600e3)) items.push({ level: "warn", text: "No blog post written since yesterday - write today's post (SEO)" });
+      // SEO autopilot (function "seo"): website leads, Google ranking moves, blog drafts waiting, review requests.
+      const { data: seo } = await admin.from("preferences").select("value").eq("key", "seo_state").maybeSingle();
+      const seoItems = (((seo?.value as any)?.items || []) as any[]).slice(0, 8);
+      seoItems.forEach((x: any) => items.push({ level: x.level === "bad" ? "bad" : "warn", text: String(x.text) }));
+      if (!seo && !(posts || []).some((x: any) => Date.now() - Date.parse(x.created_at) < 7 * 864e5)) items.push({ level: "warn", text: "No blog post this week - write one (SEO)" });
       let summary = items.length ? `${items.filter((i) => i.level === "bad").length} urgent, ${items.filter((i) => i.level === "warn").length} to check.` : "Sab theek hai. Koi khula masla nahi.";
       try {
-        summary = (await claude(`You are the main agent of a stone and flooring contractor's ERP in Saudi Arabia. Write the owner's morning briefing in simple Roman Urdu, numbers as digits, exactly these 5 lines:
+        summary = (await claude(`You are the main agent of a stone and flooring contractor's ERP in Saudi Arabia. Write the owner's morning briefing in simple Roman Urdu, numbers as digits, exactly these 6 lines:
 Projects: <which projects need attention>
 Alerts: <data errors or anomalies caught, or "Koi nahi">
 Procurement: <supplier/price/RFI item to act on, one sentence>
 Paisa: <money impact in SAR from the items>
+Website: <website leads, Google ranking and blog drafts from the "Website"/"SEO" items in one sentence, or "Koi nayi baat nahi">
 Agla kaam: <the one button or approval the owner should do next>
-Use only these items, never invent: ${JSON.stringify(items.slice(0, 80))}`, { max: 600, model: MODEL_FAST })).trim() || summary;
+Use only these items, never invent: ${JSON.stringify(items.slice(0, 80))}`, { max: 700, model: MODEL_FAST })).trim() || summary;
       } catch { /* keep the plain summary */ }
       await admin.from("agent_reports").insert({ for_role: "admin", summary, items });
       return json({ ok: true, items: items.length });
