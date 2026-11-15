@@ -27,7 +27,7 @@ function CompanyProfile() {
     <Card>
       <Row><H2>Company profile</H2><View style={{ flex: 1 }} /><Btn kind="ghost" title="Edit" onPress={() => setF(cur)} /></Row>
       <T size={13} muted>The AI writes only these facts about the company — never invented projects, clients or numbers.</T>
-      <T size={14}>{cur.name} · {cur.services} · {cur.cities}{cur.phone ? ` · ${cur.phone}` : ""}{cur.email ? ` · ${cur.email}` : ""}</T>
+      <T size={14}>{cur.name} · {cur.services} · {cur.cities}{cur.phone ? ` · ${cur.phone}` : ""}{cur.email ? ` · ${cur.email}` : ""}{cur.google_reviews ? " · Google reviews linked" : ""}</T>
       {!cur.phone && !cur.email ? <T color={c.warn}>Add a phone or email so readers can contact you.</T> : null}
     </Card>
   );
@@ -39,6 +39,7 @@ function CompanyProfile() {
       <Field label="What you do" value={f.services} multiline onChange={(v) => set("services", v)} />
       <Field label="Cities you work in" value={f.cities} onChange={(v) => set("cities", v)} />
       <Row wrap><Field label="Phone / WhatsApp" value={f.phone} onChange={(v) => set("phone", v)} /><Field label="Email" value={f.email} onChange={(v) => set("email", v)} /><Field label="Website" value={f.website} onChange={(v) => set("website", v)} /></Row>
+      <Field label="Google reviews link (Google Maps → your business → Share)" value={f.google_reviews} onChange={(v) => set("google_reviews", v.trim())} placeholder="https://maps.google.com/?cid=…" />
       <Field label="True facts the AI may use (experience, types of buildings done, approvals) — only what you can prove" value={f.about} multiline onChange={(v) => set("about", v)} />
       {msg ? <T color={c.bad}>{msg}</T> : null}
       <Row><Btn kind="primary" title="Save" onPress={async () => { const { error } = await supabase.from("preferences").upsert({ key: "company_profile", value: f, updated_at: new Date().toISOString() }); if (error) setMsg(error.message); else { await reload(["preferences"]); setF(null); } }} /><Btn kind="ghost" title="Cancel" onPress={() => setF(null)} /></Row>
@@ -234,7 +235,7 @@ function Outreach() {
         {err ? <T color={c.bad}>{err}</T> : null}
         <Btn big kind="primary" title="Save" onPress={saveContact} />
       </Sheet>}
-      {mail && <WriteMail o={mail.o} kind={mail.kind} profile={profile} signature={`${me.name}, ${profile.name}${profile.phone ? ` · ${profile.phone}` : ""}`} onClose={() => setMail(null)} />}
+      {mail && <WriteMail o={mail.o} kind={mail.kind} profile={profile} signature={`${me.name}, ${profile.name}${profile.phone ? ` · ${profile.phone}` : ""}${profile.google_reviews ? `\nOur Google reviews: ${profile.google_reviews}` : ""}`} onClose={() => setMail(null)} />}
     </>
   );
 }
