@@ -1,7 +1,7 @@
 // Growth: company profile, blog posts for search engines (SEO) and personal outreach to project managers.
 // The AI only drafts. Posts go public only when the owner presses Publish; every email is read and sent by the owner himself.
 import React, { useState } from "react";
-import { Linking, Platform, View } from "react-native";
+import { Image, Linking, Platform, View } from "react-native";
 import { useData } from "../lib/data";
 import { day, stamp } from "../lib/fmt";
 import { ai, supabase } from "../lib/supabase";
@@ -13,6 +13,18 @@ const ROLES = ["Project Manager", "Construction Manager", "Consultant", "Develop
 const SOURCES = ["Met on site", "Business card", "Referral", "Worked together before", "They contacted us", "Event / exhibition", "Their website contact page", "Other"];
 const DAILY_CAP = 15; // personal emails a day: enough for real conversations, low enough to stay personal
 const slugify = (s: string) => s.toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 70) || "post-" + Date.now().toString(36);
+
+/** The "blog-media" server function: "image" makes the post's picture, "arabic" writes its Arabic twin. */
+async function media(action: "image" | "arabic", id: string): Promise<any> {
+  const { data, error } = await supabase.functions.invoke("blog-media", { body: { action, id } });
+  if (error) {
+    let msg = error.message;
+    try { const j = await (error as any).context?.json?.(); if (j?.error) msg = j.error; } catch {}
+    throw new Error(msg);
+  }
+  if ((data as any)?.error) throw new Error((data as any).error);
+  return data;
+}
 
 function useProfile() {
   const { d } = useData();
@@ -144,7 +156,8 @@ function Blog() {
       {!posts.length && <Empty text="No posts yet." />}
       {posts.map((p: any) => (
         <Card key={p.id} onPress={() => setEd(p)}>
-          <Row><View style={{ flex: 1 }}><T bold>{p.title}</T><T size={12} muted>{p.lang === "ar" ? "العربية" : "English"} · {day(p.created_at)}{p.published_at ? ` · published ${day(p.published_at)}` : ""}</T></View>
+          <Row>{p.image_url ? <Image source={{ uri: p.image_url }} accessibilityLabel={p.image_alt || p.title} style={{ width: 72, height: 41, borderRadius: 6 }} /> : null}
+            <View style={{ flex: 1 }}><T bold>{p.title}</T><T size={12} muted>{p.lang === "ar" ? "العربية" : "English"} · {day(p.created_at)}{p.published_at ? ` · published ${day(p.published_at)}` : ""}{p.twin_id ? (p.lang === "ar" ? " · English version too" : " · Arabic version too") : ""}</T></View>
             {p.source === "autopilot" ? <Pill kind="acc" text="autopilot" /> : null}<Pill kind={p.status === "Published" ? "good" : p.status === "Draft" ? "warn" : "plain"} text={p.status} /></Row>
         </Card>))}
       {ed && <PostEditor p={ed} onClose={() => setEd(null)} />}
@@ -152,9 +165,11 @@ function Blog() {
   );
 }
 
-function PostEditor({ p, onClose }: { p: any; onClose: () => void }) {
-  const { reload } = useData(); const c = useColors();
-  const [f, setF] = useState<any>({ ...p, keywords: (p.keywords || []).join(", ") }), [err, setErr] = useState("");
+function PostEditor({ p: first, onClose }: { p: any; onClose: () => void }) {
+  const { d, reload } = useData(); const c = useColors();
+  const p = (d.blog_posts || []).find((x: any) => x.id === first.id) || first; // picture and Arabic twin arrive while the sheet is open
+  const twin = p.twin_id ? (d.blog_posts || []).find((x: any) => x.id === p.twin_id) : null;
+  const [f, setF] = useState<any>({ ...first, keywords: (first.keywords || []).join(", ") }), [err, setErr] = useState(""), [step, setStep] = useState("");
   const words = String(f.body || "").split(/\s+/).filter(Boolean).length;
   const checks = [
     { ok: f.title.length > 10 && f.title.length <= 65, text: `Title ${f.title.length} characters (best 30–65)` },
@@ -167,8 +182,49 @@ function PostEditor({ p, onClose }: { p: any; onClose: () => void }) {
     if (error) { setErr(error.message); return false; } await reload(["blog_posts"]); return true;
   };
   const link = BLOG_URL + "?p=" + encodeURIComponent(f.slug);
+  // Publish = this post goes public, gets its picture, and (for an English post) its Arabic twin goes public with it.
+  const publish = async () => {
+    setErr("");
+    if (!(await save({ status: "Published", published_at: p.published_at || new Date().toISOString() }))) return;
+    const problems: string[] = [];
+    if (!p.image_url) {
+      setStep("Making the picture…");
+      try { await media("image", p.id); } catch (e: any) { problems.push("Picture: " + e.message); }
+    }
+    if (p.lang !== "ar") {
+      setStep("Writing the Arabic version…");
+      try {
+        const r = await media("arabic", p.id);
+        if (r?.post && r.post.status !== "Published") await supabase.from("blog_posts").update({ status: "Published", published_at: r.post.published_at || new Date().toISOString() }).eq("id", r.post.id);
+      } catch (e: any) { problems.push("Arabic version: " + e.message); }
+    }
+    setStep(""); await reload(["blog_posts"]);
+    if (problems.length) { setErr("The post is public. Not finished: " + problems.join(" · ") + " Press the button below to try again."); return; }
+    onClose();
+  };
+  const redo = async (what: "image" | "arabic") => {
+    setErr(""); setStep(what === "image" ? "Making the picture…" : "Writing the Arabic version…");
+    try {
+      const r = await media(what, p.id);
+      if (what === "arabic" && r?.post && p.status === "Published" && r.post.status !== "Published") await supabase.from("blog_posts").update({ status: "Published", published_at: new Date().toISOString() }).eq("id", r.post.id);
+    } catch (e: any) { setErr(e.message); }
+    setStep(""); await reload(["blog_posts"]);
+  };
+  const unpublish = async () => {
+    if (!(await save({ status: "Draft" }))) return;
+    if (p.twin_id) await supabase.from("blog_posts").update({ status: "Draft", updated_at: new Date().toISOString() }).eq("id", p.twin_id);
+    await reload(["blog_posts"]); onClose();
+  };
   return (
     <Sheet open onClose={onClose} title={p.status === "Published" ? "Published post" : "Draft post"}>
+      {p.image_url
+        ? <Image source={{ uri: p.image_url }} accessibilityLabel={p.image_alt || p.title} resizeMode="cover" style={{ width: "100%", aspectRatio: 16 / 9, borderRadius: 8, backgroundColor: c.sunk }} />
+        : <T size={13} muted>No picture yet. The AI makes one for this topic when you press Publish.</T>}
+      <Row wrap>
+        <Btn kind="ghost" icon={<Icon name="spark" />} title={p.image_url ? "Make a new picture" : "Make the picture now"} busy={step.startsWith("Making")} disabled={!!step} onPress={() => redo("image")} />
+        {p.lang !== "ar" && !twin && p.status === "Published" ? <Btn kind="ghost" icon={<Icon name="spark" />} title="Make the Arabic version" busy={step.startsWith("Writing")} disabled={!!step} onPress={() => redo("arabic")} /> : null}
+      </Row>
+      {p.lang !== "ar" ? <T size={13} muted>{twin ? `Arabic version: ${twin.title} (${twin.status === "Published" ? "public" : "draft"}) — open it from the list to read it.` : "The Arabic version (clear Arabic the way Saudi companies write) is written and published together with this post when you press Publish."}</T> : null}
       <Field label="Title" value={f.title} onChange={(v) => setF({ ...f, title: v })} />
       <Field label="Search description (shown under the title on Google)" value={f.meta_description} multiline onChange={(v) => setF({ ...f, meta_description: v })} />
       <Field label="Keywords" value={f.keywords} onChange={(v) => setF({ ...f, keywords: v })} />
@@ -177,10 +233,11 @@ function PostEditor({ p, onClose }: { p: any; onClose: () => void }) {
       <View style={{ gap: 4 }}>{checks.map((x, i) => <T key={i} size={13} color={x.ok ? c.good : c.warn}>{x.ok ? "✓" : "!"} {x.text}</T>)}</View>
       <T size={12} muted>Read it once before publishing: every fact about your company must be true.</T>
       {err ? <T color={c.bad}>{err}</T> : null}
+      {step ? <T color={c.accent}>{step} (up to a minute)</T> : null}
       <Row wrap>
-        <Btn title="Save" onPress={async () => { if (await save()) onClose(); }} />
-        {p.status !== "Published" ? <Btn kind="primary" title="Publish" onPress={async () => { if (await save({ status: "Published", published_at: new Date().toISOString() })) onClose(); }} />
-          : <Btn title="Unpublish" onPress={async () => { if (await save({ status: "Draft" })) onClose(); }} />}
+        <Btn title="Save" disabled={!!step} onPress={async () => { if (await save()) onClose(); }} />
+        {p.status !== "Published" || err ? <Btn kind="primary" title={p.status === "Published" ? "Finish publishing" : "Publish"} busy={!!step} disabled={!!step} onPress={publish} />
+          : <Btn title={twin ? "Unpublish (both languages)" : "Unpublish"} disabled={!!step} onPress={unpublish} />}
         {p.status === "Published" && <Btn kind="ghost" icon={<Icon name="share" />} title="Open public page" onPress={() => Linking.openURL(link)} />}
         <Btn kind="ghost" title="Delete" onPress={async () => { const { error } = await supabase.from("blog_posts").delete().eq("id", p.id); if (error) setErr(error.message); else { await reload(["blog_posts"]); onClose(); } }} />
       </Row>
