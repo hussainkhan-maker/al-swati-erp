@@ -129,8 +129,43 @@ No text, no letters, no numbers, no logos, no watermarks, no flags. No recognisa
   throw new Error("The picture could not be made. " + last);
 }
 
+// ───────── Until Google allows pictures on this key (billing on), the closest photo from the company's own website ─────────
+const SITE = "https://al-swaticontracting.com";
+const PHOTOS: { path: string; en: string; ar: string; tags: string[] }[] = [
+  { path: "/images/3d/stone-cladding-system-exploded-view.webp", en: "Layers of a mechanically fixed stone facade: wall, brackets, C-channels, angles and stone panels", ar: "طبقات واجهة الحجر الميكانيكية: الجدار والزوايا ومجاري C-Channel وألواح الحجر", tags: ["mechanical", "dry fix", "dry-fix", "fixing system", "bracket", "c-channel", "channel", "system", "layers", "ميكانيكي", "تثبيت", "زوايا"] },
+  { path: "/images/3d/mechanical-stone-installation-step-4-stone-panels.webp", en: "Natural stone panels fixed row by row on a mechanical cladding system", ar: "تركيب ألواح الحجر الطبيعي صفاً بعد صف على نظام تثبيت ميكانيكي", tags: ["installation", "install", "panels", "steps", "step", "rows", "مراحل", "تركيب"] },
+  { path: "/images/3d/up-down-angle-stone-kerf-detail.webp", en: "Stainless steel up-down angle entering the kerf of a stone panel", ar: "زاوية Up-Down من الستانلس ستيل داخل مجرى حافة لوح الحجر", tags: ["kerf", "up-down", "angle", "stainless", "edge", "detail", "ستانلس", "مجرى"] },
+  { path: "/images/pages/about/hilti-machinery.webp", en: "Drilling for stone cladding anchors", ar: "تثبيت مسامير الانكر لتكسية الحجر", tags: ["anchor", "anchors", "drill", "drilling", "hilti", "fischer", "bolt", "load", "wind", "انكر", "مسامير", "هيلتي"] },
+  { path: "/images/pages/about/hero.webp", en: "Stone cladding installation on site", ar: "تركيب تكسية الحجر في الموقع", tags: ["site", "scaffold", "team", "contractor", "installer", "workmanship", "quality", "supervision", "مقاول", "موقع", "تنفيذ"] },
+  { path: "/images/pages/about/workshop.webp", en: "Stone cutting and preparation in the workshop", ar: "قص وتجهيز الحجر في الورشة", tags: ["cutting", "cut", "workshop", "fabrication", "thickness", "finish", "honed", "polished", "sample", "samples", "قص", "ورشة", "سماكة", "تشطيب", "عينة"] },
+  { path: "/images/pages/projects/institutional-1.webp", en: "Natural stone wall cladding", ar: "تكسية جدار بالحجر الطبيعي", tags: ["natural stone", "limestone", "travertine", "texture", "colour", "color", "choose", "choosing", "حجر طبيعي", "ترافرتين", "اختيار", "لون"] },
+  { path: "/images/pages/home/service-stone-cladding.webp", en: "Building with natural stone facade cladding", ar: "مبنى بواجهة من الحجر الطبيعي", tags: ["stone cladding", "facade", "façade", "exterior", "building", "heat", "sun", "واجهات", "واجهة", "تكسية"] },
+  { path: "/images/pages/home/hero.webp", en: "Porcelain and stone cladding on a residential tower", ar: "تكسية بورسلان وحجر على برج سكني", tags: ["porcelain", "tower", "high-rise", "apartment", "panel", "بورسلان", "برج"] },
+  { path: "/images/pages/projects/commercial-1.webp", en: "Commercial tower with a light-coloured facade", ar: "برج تجاري بواجهة فاتحة", tags: ["commercial", "office", "tower", "developer", "تجاري", "مكاتب", "مطور"] },
+  { path: "/images/pages/projects/commercial-2.webp", en: "Marble cladding at a building entrance", ar: "تكسية رخام عند مدخل مبنى", tags: ["marble", "entrance", "lobby", "wall", "granite", "رخام", "جرانيت", "مدخل"] },
+  { path: "/images/pages/home/project-3.webp", en: "Polished marble flooring in a bright interior", ar: "أرضيات رخام لامعة في مساحة داخلية", tags: ["floor", "flooring", "tiles", "interior", "polished", "marble floor", "أرضيات", "بلاط", "داخلي"] },
+  { path: "/images/pages/projects/residential-1.webp", en: "Villa with a decorative stone facade", ar: "فيلا بواجهة حجرية مزخرفة", tags: ["villa", "residential", "home", "house", "najdi", "classic", "فيلا", "فلل", "سكني"] },
+  { path: "/images/pages/home/project-1.webp", en: "Villa entrance with natural stone paving", ar: "مدخل فيلا بأرضيات من الحجر الطبيعي", tags: ["paving", "landscape", "outdoor", "garden", "pool", "courtyard", "ممرات", "حديقة", "خارجي"] },
+];
+async function sitePhoto(post: any) {
+  const text = `${post.title} ${post.title} ${post.title} ${(post.keywords || []).join(" ")} ${(post.keywords || []).join(" ")} ${String(post.body || "").slice(0, 3000)}`.toLowerCase();
+  const { data: used } = await db.from("blog_posts").select("image_url").neq("id", post.id).neq("id", post.twin_id ?? post.id).not("image_url", "is", null);
+  const taken = new Set((used || []).map((r: any) => r.image_url));
+  const best = PHOTOS.map((p, i) => ({ p, i, s: p.tags.reduce((n, t) => n + text.split(t).length - 1, 0) - (taken.has(SITE + p.path) ? 3 : 0) }))
+    .sort((a, b) => b.s - a.s || a.i - b.i)[0].p;
+  return { url: SITE + best.path, alt: post.lang === "ar" ? best.ar : best.en, alt_ar: best.ar, alt_en: best.en };
+}
+let aiPicturesOffUntil = 0; // after "no quota", do not ask Google again for an hour
+
 async function picture(post: any) {
-  const pic = await makePicture(post);
+  if (Date.now() < aiPicturesOffUntil) return useSitePhoto(post, "Google AI pictures are not on for this key yet");
+  let pic;
+  try { pic = await makePicture(post); }
+  catch (e) {
+    const why = String((e as Error).message || e);
+    if (/\b429\b|quota|billing/i.test(why)) aiPicturesOffUntil = Date.now() + 3600e3;
+    return useSitePhoto(post, why);
+  }
   const ext = pic.mime.includes("jpeg") || pic.mime.includes("jpg") ? "jpg" : pic.mime.includes("webp") ? "webp" : "png";
   const path = `${post.slug || post.id}-${Date.now().toString(36)}.${ext}`;
   const { error } = await db.storage.from("blog").upload(path, pic.bytes, { contentType: pic.mime, upsert: true, cacheControl: "31536000" });
@@ -144,6 +179,18 @@ async function picture(post: any) {
     await db.from("blog_posts").update({ image_url: url, image_alt: String(tw?.title || alt).slice(0, 120), updated_at: new Date().toISOString() }).eq("id", post.twin_id);
   }
   return { image_url: url, image_alt: alt, model: pic.model };
+}
+
+async function useSitePhoto(post: any, why: string) {
+  console.error("blog-media: AI picture not made, using a website photo -", why.slice(0, 200));
+  const ph = await sitePhoto(post);
+  const now = new Date().toISOString();
+  await db.from("blog_posts").update({ image_url: ph.url, image_alt: ph.alt, updated_at: now }).eq("id", post.id);
+  if (post.twin_id) {
+    const { data: tw } = await db.from("blog_posts").select("lang").eq("id", post.twin_id).maybeSingle();
+    await db.from("blog_posts").update({ image_url: ph.url, image_alt: tw?.lang === "ar" ? ph.alt_ar : ph.alt_en, updated_at: now }).eq("id", post.twin_id);
+  }
+  return { image_url: ph.url, image_alt: ph.alt, model: "website-photo", note: "Google AI pictures need billing on the Google key; a photo from the company website was used." };
 }
 
 Deno.serve(async (req) => {
