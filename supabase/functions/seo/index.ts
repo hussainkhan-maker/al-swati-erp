@@ -182,7 +182,7 @@ async function profile() {
 async function weekly(s: any) {
   const a = s.summary, urls = await sitemap();
   const { data: posts } = await db.from("blog_posts").select("title, lang, keywords").order("created_at", { ascending: false }).limit(60);
-  const out = asJson(await write("weekly", `Google Search Console for al-swaticontracting.com${a?.totals?.days ? "" : " (NOT linked yet or no data: say so, do not invent numbers)"}:
+  const out = asJson(await write("weekly", `${s.google?.linked && a?.totals?.days ? "Google Search Console for al-swaticontracting.com:" : "Google Search Console is NOT linked to the ERP yet: there are NO Google numbers. Never write 0 clicks or 0 impressions; say in one line that Google numbers start once it is linked, and ignore the empty Google lines below:"}
 Last 28 days vs the 28 days before: ${JSON.stringify(a?.totals || {})}
 Searches close to page 1 (average position 4-30): ${JSON.stringify(a?.striking || [])}
 Rising: ${JSON.stringify(a?.up || [])} Falling: ${JSON.stringify(a?.down || [])}
@@ -191,7 +191,7 @@ Website quote-form leads and WhatsApp/call/email clicks (last 7 days, last 28 da
 Pages already on the website: ${urls.join(" ").slice(0, 3000)}
 Blog posts already written: ${JSON.stringify((posts || []).map((p: any) => p.title)).slice(0, 2500)}
 
-1) Write the owner's weekly SEO report in simple Roman Urdu, numbers as digits, at most 5 short lines: how the website did (clicks, impressions, average position, change), the 2-3 searches closest to page 1, website leads, and what you will do this week. Use only the numbers above.
+1) Write the owner's weekly SEO report in ROMAN URDU (Urdu written in English letters, like \"Is hafte Google par 12 clicks aaye, pichle mahine se 3 zyada\"), never in English sentences. Numbers as digits, at most 5 short lines: how the website did (clicks, impressions, average position, change), the 2-3 searches closest to page 1, website leads, and the 2 blog drafts you will write this week. Do not promise any other work. Use only the numbers above.
 2) Choose exactly 2 new blog topics, 1 English and 1 Arabic, that target real searches above (prefer phrases with impressions at position 5-30) and are not already covered by a page or post. With no data yet, choose phrases clients in Riyadh really type when they need a stone, marble, granite or porcelain cladding / flooring contractor. Practical and useful, never clickbait.
 Return JSON only: {"report":"<lines separated by \\n>","topics":[{"title":"","lang":"en|ar","keyword":"<main search phrase>","why":"<one line, Roman Urdu>"}]}`, { max: 1500 }));
   s.report = { at: new Date().toISOString(), text: String(out.report || "").slice(0, 1200) };
