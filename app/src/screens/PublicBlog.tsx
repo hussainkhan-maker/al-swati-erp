@@ -1,7 +1,7 @@
 // Public blog page (no sign-in): …/al-swati-erp/blog/ lists the published posts, …/blog/?p=<link-name> shows one.
 // Only posts the owner pressed "Publish" on can be read here (database rule), plus the company's contact card.
 import React, { useEffect, useState } from "react";
-import { Linking, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
+import { Image, Linking, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
 import { supabase } from "../lib/supabase";
 
 const C = { bg: "#F4F8F6", card: "#FFFFFF", ink: "#18211E", muted: "#4F5C57", accent: "#0E6B5C", line: "#D6DCD7", deep: "#0F3B31" };
@@ -35,7 +35,7 @@ export default function PublicBlog() {
   const [posts, setPosts] = useState<any[] | null>(null), [co, setCo] = useState<any>({}), [slug, setSlug] = useState<string | null>(slugNow());
   const w = useWindowDimensions().width;
   useEffect(() => {
-    supabase.from("blog_posts").select("title, slug, lang, meta_description, body, published_at").eq("status", "Published").order("published_at", { ascending: false }).limit(200).then(({ data }) => setPosts(data || []));
+    supabase.from("blog_posts").select("id, title, slug, lang, meta_description, body, published_at, image_url, image_alt, twin_id").eq("status", "Published").order("published_at", { ascending: false }).limit(200).then(({ data }) => setPosts(data || []));
     supabase.from("preferences").select("value").eq("key", "company_profile").maybeSingle().then(({ data }) => setCo(data?.value || {}));
     const onPop = () => setSlug(slugNow());
     if (typeof window !== "undefined") window.addEventListener("popstate", onPop);
@@ -43,6 +43,7 @@ export default function PublicBlog() {
   }, []);
   const go = (s: string | null) => { if (typeof history !== "undefined") history.pushState({}, "", base() + (s ? "?p=" + encodeURIComponent(s) : "")); setSlug(s); if (typeof window !== "undefined") window.scrollTo(0, 0); };
   const post = slug ? (posts || []).find((p) => p.slug === slug) : null;
+  const twin = post?.twin_id ? (posts || []).find((p) => p.id === post.twin_id) : null;
   const name = co.name || "Al-Swati Contracting";
   useEffect(() => {
     if (post) setHead(`${post.title} | ${name}`, post.meta_description || "", post.lang === "ar" ? "ar" : "en");
@@ -60,7 +61,11 @@ export default function PublicBlog() {
       <View style={{ width: "100%", maxWidth: 820, paddingHorizontal: pad, paddingTop: 26, gap: 18 }}>
         {posts === null ? <Text style={{ color: C.muted }}>Loading…</Text>
           : post ? <View style={{ gap: 16, backgroundColor: C.card, borderRadius: 18, padding: pad, borderWidth: 1, borderColor: C.line }}>
-              <Pressable onPress={() => go(null)}><Text style={{ color: C.accent, fontWeight: "700" }}>‹ All articles</Text></Pressable>
+              <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                <Pressable onPress={() => go(null)}><Text style={{ color: C.accent, fontWeight: "700" }}>‹ All articles</Text></Pressable>
+                {twin ? <Pressable onPress={() => go(twin.slug)}><Text style={{ color: C.accent, fontWeight: "700" }}>{twin.lang === "ar" ? "اقرأ بالعربية ›" : "Read in English ›"}</Text></Pressable> : null}
+              </View>
+              {post.image_url ? <Image source={{ uri: post.image_url }} accessibilityLabel={post.image_alt || post.title} resizeMode="cover" style={{ width: "100%", aspectRatio: 16 / 9, borderRadius: 12, backgroundColor: C.line }} /> : null}
               <Text accessibilityRole="header" style={{ fontSize: w > 800 ? 34 : 26, fontWeight: "800", color: C.ink, textAlign: post.lang === "ar" ? "right" : "left" }}>{post.title}</Text>
               <Text style={{ color: C.muted }}>{String(post.published_at || "").slice(0, 10)}</Text>
               <Md text={post.body} rtl={post.lang === "ar"} />
@@ -71,6 +76,7 @@ export default function PublicBlog() {
               {!posts.length && <Text style={{ color: C.muted }}>No articles yet.</Text>}
               {posts.map((p) => (
                 <Pressable key={p.slug} onPress={() => go(p.slug)} style={{ backgroundColor: C.card, borderRadius: 18, padding: 20, borderWidth: 1, borderColor: C.line, gap: 6 }}>
+                  {p.image_url ? <Image source={{ uri: p.image_url }} accessibilityLabel={p.image_alt || p.title} resizeMode="cover" style={{ width: "100%", aspectRatio: 16 / 9, borderRadius: 10, marginBottom: 6, backgroundColor: C.line }} /> : null}
                   <Text style={{ fontSize: 20, fontWeight: "800", color: C.ink, textAlign: p.lang === "ar" ? "right" : "left" }}>{p.title}</Text>
                   <Text style={{ fontSize: 15, color: C.muted, lineHeight: 22, textAlign: p.lang === "ar" ? "right" : "left" }}>{p.meta_description}</Text>
                   <Text style={{ fontSize: 13, color: C.accent, fontWeight: "700" }}>Read ›</Text>
