@@ -5,7 +5,7 @@ import { Linking, Platform, View } from "react-native";
 import { useData } from "../lib/data";
 import { day, stamp } from "../lib/fmt";
 import { ai, supabase } from "../lib/supabase";
-import { Btn, Card, Empty, Field, H1, H2, Icon, Pill, Row, Screen, Select, Sheet, T, useColors } from "../ui";
+import { Btn, Card, Empty, Field, H1, H2, Icon, Pill, Row, Screen, Select, Sheet, StatStrip, Table, T, useColors } from "../ui";
 
 export const BLOG_URL = "https://hussainkhan-maker.github.io/al-swati-erp/blog/";
 const CITIES = ["Riyadh", "Dammam", "Al-Khobar", "Al-Hassa", "Jeddah", "Other"];
@@ -46,6 +46,55 @@ function CompanyProfile() {
   );
 }
 
+/** SEO autopilot (server function "seo"): Google Search Console numbers, website leads, the weekly report, blog drafts and
+ *  Google review messages. It runs every morning by itself; "Run now" is only for checking. Nothing goes out without the owner. */
+function SeoAutopilot() {
+  const { d, reload } = useData(); const c = useColors();
+  const s: any = (d.preferences || []).find((p: any) => p.key === "seo_state")?.value || null;
+  const [busy, setBusy] = useState(""), [msg, setMsg] = useState("");
+  const run = async (force?: string) => {
+    setBusy(force || "run"); setMsg("");
+    try {
+      const { data, error } = await supabase.functions.invoke("seo", { body: { action: "run", force } });
+      if (error) { let m = error.message; try { const j = await (error as any).context?.json?.(); if (j?.error) m = j.error; } catch {} throw new Error(m); }
+      await reload(["preferences", "blog_posts"]); setMsg((data?.done || []).join(" · ") || "Done.");
+    } catch (e: any) { setMsg(e.message); } finally { setBusy(""); }
+  };
+  const t = s?.summary?.totals || {}, web = s?.summary?.web?.week || {};
+  const ch = (a: number, b: number) => (b ? ` (${a >= b ? "+" : ""}${Math.round(((a - b) / b) * 100)}%)` : "");
+  const wa = (text: string) => Linking.openURL("https://wa.me/?text=" + encodeURIComponent(text));
+  return (
+    <Card>
+      <Row wrap><H2>SEO autopilot</H2><View style={{ flex: 1 }} />
+        {s?.google?.linked ? <Pill kind="good" text="Google linked" /> : <Pill kind="warn" text="Google Search Console not linked yet" />}</Row>
+      <T size={13} muted>Every morning it reads Google's numbers for al-swaticontracting.com, finds searches close to page 1, writes 2 blog drafts a week from them, counts website leads and WhatsApp clicks, and tells the main agent. You only read and press Publish.{s?.last_tick ? ` Last run ${stamp(s.last_tick)}.` : ""}</T>
+      {s?.summary && <StatStrip items={[
+        { label: "Google clicks · 28 days", value: `${t.clicks ?? 0}${ch(t.clicks || 0, t.clicks_before || 0)}` },
+        { label: "Seen in Google · 28 days", value: `${t.impressions ?? 0}${ch(t.impressions || 0, t.impressions_before || 0)}` },
+        { label: "Average position", value: t.position ? `${t.position}${t.position_before ? ` (was ${t.position_before})` : ""}` : "-" },
+        { label: "Website leads · 7 days", value: String(web.lead || 0) },
+        { label: "WhatsApp / call clicks · 7 days", value: `${web.whatsapp || 0} / ${web.call || 0}` },
+      ]} />}
+      {s?.report?.text ? <Card><T bold>This week's report · {day(s.report.at)}</T>{String(s.report.text).split("\n").map((l: string, i: number) => <T key={i} size={14}>{l}</T>)}</Card> : null}
+      {(s?.summary?.striking || []).length > 0 && <>
+        <T bold>Close to page 1 (the next posts aim at these)</T>
+        <Table cols={["Search", "Position", "Seen", "Clicks", "Page"]} numeric={[1, 2, 3]} rows={s.summary.striking.slice(0, 8).map((x: any) => [x.q, String(x.pos), String(x.impr), String(x.clicks), x.page])} />
+      </>}
+      {(s?.queue || []).length > 0 && <T size={13} muted>Next drafts: {s.queue.map((q: any) => `${q.title} (${q.lang === "ar" ? "AR" : "EN"})`).join(" · ")}</T>}
+      {(s?.review_msgs || []).length > 0 && <>
+        <T bold>Ask finished clients for a Google review</T>
+        {s.review_msgs.slice(0, 6).map((r: any, i: number) => (
+          <Row key={i} wrap><View style={{ flex: 1, minWidth: 200 }}><T size={14}>{r.project}{r.client ? ` · ${r.client}` : ""}</T></View>
+            <Btn kind="ghost" title="WhatsApp (EN)" onPress={() => wa(r.en)} /><Btn kind="ghost" title="واتساب (AR)" onPress={() => wa(r.ar)} /></Row>))}
+      </>}
+      {s?.error ? <T color={c.warn} size={13}>Last problem: {s.error}</T> : null}
+      {msg ? <T size={13} muted>{msg}</T> : null}
+      <Row wrap><Btn icon={<Icon name="spark" />} title="Run now" busy={busy === "run"} disabled={!!busy} onPress={() => run()} />
+        <Btn kind="ghost" title="Redo this week's report" busy={busy === "weekly"} disabled={!!busy} onPress={() => run("weekly")} /></Row>
+    </Card>
+  );
+}
+
 function Blog() {
   const { d, reload } = useData(); const c = useColors(); const profile = useProfile();
   const posts = d.blog_posts || [];
@@ -69,9 +118,10 @@ function Blog() {
   };
   return (
     <>
+      <SeoAutopilot />
       <Card>
-        <Row><H2>Today's blog post</H2><View style={{ flex: 1 }} />{today ? <Pill kind="good" text="written today" /> : <Pill kind="warn" text="not written yet" />}</Row>
-        <T size={13} muted>One useful post a day helps people searching Google for stone and marble work in your cities find you. The AI drafts it; you read it and press Publish.</T>
+        <Row><H2>Write a post yourself</H2><View style={{ flex: 1 }} />{today ? <Pill kind="good" text="written today" /> : null}</Row>
+        <T size={13} muted>The autopilot already drafts 2 posts a week from real Google searches. Use this for an extra topic of your own. The AI drafts it; you read it and press Publish.</T>
         <Row wrap>
           <Field label="Topic (or pick an idea below)" value={topic} onChange={setTopic} placeholder="e.g. Choosing marble for villa floors in Riyadh heat" />
           <Field label="Main search phrase" value={kw} onChange={setKw} placeholder="e.g. marble flooring Riyadh" style={{ maxWidth: 240 }} />
@@ -94,7 +144,7 @@ function Blog() {
       {posts.map((p: any) => (
         <Card key={p.id} onPress={() => setEd(p)}>
           <Row><View style={{ flex: 1 }}><T bold>{p.title}</T><T size={12} muted>{p.lang === "ar" ? "العربية" : "English"} · {day(p.created_at)}{p.published_at ? ` · published ${day(p.published_at)}` : ""}</T></View>
-            <Pill kind={p.status === "Published" ? "good" : p.status === "Draft" ? "warn" : "plain"} text={p.status} /></Row>
+            {p.source === "autopilot" ? <Pill kind="acc" text="autopilot" /> : null}<Pill kind={p.status === "Published" ? "good" : p.status === "Draft" ? "warn" : "plain"} text={p.status} /></Row>
         </Card>))}
       {ed && <PostEditor p={ed} onClose={() => setEd(null)} />}
     </>
