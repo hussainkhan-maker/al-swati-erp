@@ -279,6 +279,7 @@ function QuerySheet({ q, onClose }: { q: any; onClose: () => void }) {
 /** Reply to the client: the owner picks what to say, the AI writes it, it goes into his Gmail as a draft (or opens in email). */
 function ReplyBox({ q, gates, rfis }: { q: any; gates: any[]; rfis: string[] }) {
   const { d, profile, reload } = useData(); const c = useColors();
+  const co = ((d.preferences || []).find((p: any) => p.key === "company_profile")?.value || {}) as any; // Google reviews link goes under the name
   const quote = (d.quotes || []).find((x: any) => x.id === q.quote_id);
   const missing = gates.filter((g: any) => g.s !== "good").flatMap((g: any) => g.d).slice(0, 8);
   const preset: Record<string, string> = {
@@ -294,7 +295,7 @@ function ReplyBox({ q, gates, rfis }: { q: any; gates: any[]; rfis: string[] }) 
   const gmailId = q.dedupe_key && !String(q.dedupe_key).startsWith("manual-") && !String(q.dedupe_key).includes("|") ? q.dedupe_key : null;
   const write = async () => {
     setBusy("write"); setMsg("");
-    try { setM(await ai("query_reply", { inquiry_id: q.id, kind, details, lang, signature: `${profile.name}, Al-Swati Contracting` })); } catch (e: any) { setMsg(e.message); } finally { setBusy(""); }
+    try { setM(await ai("query_reply", { inquiry_id: q.id, kind, details, lang, signature: `${profile.name}, Al-Swati Contracting${co.google_reviews ? `\nOur Google reviews: ${co.google_reviews}` : ""}` })); } catch (e: any) { setMsg(e.message); } finally { setBusy(""); }
   };
   const toDrafts = async () => {
     setBusy("draft"); setMsg("");
