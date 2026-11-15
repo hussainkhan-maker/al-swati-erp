@@ -1,0 +1,349 @@
+// Edge Function "seo": the SEO autopilot for al-swaticontracting.com. It reports to the main agent (morning briefing).
+//  • "tick"  (server clock, every morning; harmless to call more often): pulls Google Search Console numbers, works out which
+//            searches are close to page 1, writes the weekly report, drafts one blog post a day from the week's 2 topics
+//            (the owner reads it and presses Publish), and reminds about Google reviews for finished projects.
+//  • "lead"  (public, from the website quote form): the request goes straight into Queries, source "website".
+//  • "event" (public, from the website): counts WhatsApp / call / email clicks per page. No names are kept.
+//  • "run"   (Super-Admin): run the tick now ({force:"weekly"} also redoes the weekly report and topics).
+// Nothing is ever published or sent by itself: posts wait for Publish, review messages wait for the owner to send them.
+import { createClient } from "npm:@supabase/supabase-js@2.45.4";
+
+const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, apikey, content-type, x-client-info" };
+const URL_ = Deno.env.get("SUPABASE_URL")!, ANON = Deno.env.get("SUPABASE_ANON_KEY")!;
+const db = createClient(URL_, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+const SITE = "https://al-swaticontracting.com";
+const GSC_SITE = Deno.env.get("GSC_SITE") ?? "sc-domain:al-swaticontracting.com";
+const REVIEW_LINK = "https://search.google.com/local/writereview?placeid=ChIJAZHiKg0cOaoRQl8W3DNsZ9I";
+const GEMINI_KEY = Deno.env.get("GEMINI_API_KEY") ?? "";
+const FAST = Deno.env.get("AI_MODEL_FAST") ?? "claude-haiku-5-5";
+// Free Gemini (with Google Search) when it is set up, else the cheap Claude model. AI_MODEL_SEO can choose another.
+const SEO_MODEL = Deno.env.get("AI_MODEL_SEO") ?? (FAST.startsWith("gemini") ? FAST : "claude-haiku-5-5");
+const MAX_WAITING_DRAFTS = 4; // the owner has not read these yet: stop writing more until he does
+
+type Item = { level: "bad" | "warn"; text: string };
+const H = 3600e3, D = 864e5;
+const riyadhDay = (t = Date.now()) => new Date(t + 3 * H).toISOString().slice(0, 10);
+const daysAgo = (n: number) => new Date(Date.now() - n * D).toISOString().slice(0, 10);
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const b64url = (b: Uint8Array) => btoa(String.fromCharCode(...b)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+const sha256 = async (s: string) => [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s)))].map((b) => b.toString(16).padStart(2, "0")).join("");
+const clean = (v: unknown, n: number) => String(v ?? "").replace(/[\u0000-\u0008\u000b-\u001f]/g, "").trim().slice(0, n);
+const r1 = (n: number) => Math.round(n * 10) / 10;
+const pct = (a: number, b: number) => (b ? Math.round(((a - b) / b) * 100) : null);
+
+async function getState(): Promise<any> {
+  const { data } = await db.from("preferences").select("value").eq("key", "seo_state").maybeSingle();
+  return (data?.value as any) || {};
+}
+async function saveState(s: any) {
+  const { error } = await db.from("preferences").upsert({ key: "seo_state", value: s, updated_at: new Date().toISOString() });
+  if (error) throw new Error("save: " + error.message);
+}
+
+// ───────── AI: Gemini first (free), Claude Haiku if Gemini is busy or not set up ─────────
+async function write(task: string, prompt: string, o: { max?: number; search?: boolean } = {}): Promise<string> {
+  const system = "You work for Al-Swati Contracting, a natural stone, marble, granite and porcelain cladding and flooring contractor in Riyadh, Saudi Arabia (website al-swaticontracting.com, English and Arabic). Never invent facts about the company.";
+  const log = (model: string, i: number, out: number) => db.from("ai_usage").insert({ task: "seo_" + task, model, input_tokens: i || 0, output_tokens: out || 0 }).then(() => {}, () => {});
+  if (GEMINI_KEY && SEO_MODEL.startsWith("gemini")) {
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${SEO_MODEL}:generateContent`, {
+          method: "POST", signal: AbortSignal.timeout(90000),
+          headers: { "x-goog-api-key": GEMINI_KEY, "content-type": "application/json" },
+          body: JSON.stringify({ system_instruction: { parts: [{ text: system }] }, contents: [{ role: "user", parts: [{ text: prompt }] }],
+            ...(o.search ? { tools: [{ google_search: {} }] } : {}), generationConfig: { maxOutputTokens: Math.max(o.max ?? 2000, 8192) } }),
+        });
+        if (r.ok) {
+          const j = await r.json(), u = j.usageMetadata || {};
+          await log(SEO_MODEL, u.promptTokenCount, (u.candidatesTokenCount || 0) + (u.thoughtsTokenCount || 0));
+          const text = (j.candidates?.[0]?.content?.parts ?? []).map((p: { text?: string }) => p.text ?? "").join("").trim();
+          if (text) return text;
+        } else if (![429, 500, 503].includes(r.status)) { console.error("Gemini", r.status, (await r.text()).slice(0, 200)); break; }
+      } catch (e) { console.error("Gemini failed:", e); }
+      await sleep(2000);
+    }
+  }
+  const model = SEO_MODEL.startsWith("gemini") ? "claude-haiku-5-5" : SEO_MODEL;
+  const call = (noThink: boolean) => fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST", headers: { "x-api-key": Deno.env.get("ANTHROPIC_API_KEY")!, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+    body: JSON.stringify({ model, max_tokens: o.max ?? 2000, system, messages: [{ role: "user", content: prompt }], ...(noThink ? { thinking: { type: "disabled" } } : {}) }),
+  });
+  let r = await call(true);
+  if (r.status === 400 && /thinking/i.test(await r.clone().text())) r = await call(false);
+  if (!r.ok) throw new Error(`AI ${r.status}: ${(await r.text()).slice(0, 200)}`);
+  const j = await r.json();
+  await log(model, j.usage?.input_tokens, j.usage?.output_tokens);
+  return (j.content ?? []).filter((c: any) => c.type === "text").map((c: any) => c.text).join("").trim();
+}
+function asJson(t: string) {
+  const fence = t.match(/```(?:json)?\s*([\s\S]*?)```/), s = fence ? fence[1] : t.slice(t.indexOf("{"));
+  return JSON.parse(s.slice(0, s.lastIndexOf("}") + 1));
+}
+
+// ───────── Google Search Console (service account; read-only) ─────────
+async function googleToken(): Promise<string | null> {
+  const raw = Deno.env.get("GOOGLE_SERVICE_ACCOUNT");
+  if (!raw) return null;
+  const sa = JSON.parse(raw), now = Math.floor(Date.now() / 1000);
+  const enc = (o: unknown) => b64url(new TextEncoder().encode(JSON.stringify(o)));
+  const unsigned = enc({ alg: "RS256", typ: "JWT" }) + "." + enc({ iss: sa.client_email, scope: "https://www.googleapis.com/auth/webmasters.readonly", aud: "https://oauth2.googleapis.com/token", iat: now, exp: now + 3600 });
+  const der = Uint8Array.from(atob(String(sa.private_key).replace(/-----[^-]+-----/g, "").replace(/\s+/g, "")), (c) => c.charCodeAt(0));
+  const key = await crypto.subtle.importKey("pkcs8", der, { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["sign"]);
+  const sig = new Uint8Array(await crypto.subtle.sign("RSASSA-PKCS1-v1_5", key, new TextEncoder().encode(unsigned)));
+  const r = await fetch("https://oauth2.googleapis.com/token", { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion: unsigned + "." + b64url(sig) }) });
+  if (!r.ok) throw new Error("Google sign-in " + r.status + ": " + (await r.text()).slice(0, 160));
+  return (await r.json()).access_token;
+}
+type GRow = { keys: string[]; clicks: number; impressions: number; position: number };
+async function gsc(token: string, body: unknown): Promise<GRow[]> {
+  const r = await fetch(`https://searchconsole.googleapis.com/webmasters/v3/sites/${encodeURIComponent(GSC_SITE)}/searchAnalytics/query`, {
+    method: "POST", headers: { authorization: "Bearer " + token, "content-type": "application/json" }, body: JSON.stringify(body) });
+  if (!r.ok) throw new Error("Search Console " + r.status + ": " + (await r.text()).slice(0, 160));
+  return (await r.json()).rows || [];
+}
+/** Brings in the last days (the first time: 4 months). Google keeps changing the newest 2-3 days, so they are fetched again. */
+async function pull(s: any): Promise<number> {
+  const token = await googleToken();
+  if (!token) { s.google = { linked: false }; return 0; }
+  const from = s.last_pull ? daysAgo(7) : daysAgo(120), to = daysAgo(0);
+  const [rows, days] = await Promise.all([
+    gsc(token, { startDate: from, endDate: to, dimensions: ["date", "query", "page"], rowLimit: 25000, dataState: "all" }),
+    gsc(token, { startDate: from, endDate: to, dimensions: ["date"], rowLimit: 500, dataState: "all" }),
+  ]);
+  for (let i = 0; i < rows.length; i += 1000) {
+    const { error } = await db.from("seo_rows").upsert(rows.slice(i, i + 1000).map((r) => ({ day: r.keys[0], query: r.keys[1].slice(0, 300), page: r.keys[2].slice(0, 300), clicks: r.clicks, impressions: r.impressions, position: Math.round(r.position * 100) / 100 })));
+    if (error) throw new Error("seo_rows: " + error.message);
+  }
+  if (days.length) {
+    const { error } = await db.from("seo_days").upsert(days.map((r) => ({ day: r.keys[0], clicks: r.clicks, impressions: r.impressions, position: Math.round(r.position * 100) / 100 })));
+    if (error) throw new Error("seo_days: " + error.message);
+  }
+  s.google = { linked: true };
+  s.last_pull = new Date().toISOString();
+  return rows.length;
+}
+
+// ───────── The numbers the agent works from (last 28 days against the 28 before) ─────────
+async function all(table: string, cols: string, since: string, dayCol = "day") {
+  const out: any[] = [];
+  for (let i = 0; ; i += 1000) {
+    const { data, error } = await db.from(table).select(cols).gte(dayCol, since).order(dayCol).range(i, i + 999);
+    if (error) throw new Error(table + ": " + error.message);
+    out.push(...(data || []));
+    if (!data || data.length < 1000) return out;
+  }
+}
+async function analyse() {
+  const cut = daysAgo(28), short = (u: string) => u.replace(SITE, "") || "/";
+  const [rows, days, ev] = await Promise.all([
+    all("seo_rows", "day, query, page, clicks, impressions, position", daysAgo(56)),
+    all("seo_days", "day, clicks, impressions, position", daysAgo(56)),
+    all("web_events", "at, kind, page, ref", new Date(Date.now() - 28 * D).toISOString(), "at"),
+  ]);
+  type Agg = { c: number; i: number; p: number; pages: Record<string, number> };
+  const now: Record<string, Agg> = {}, before: Record<string, Agg> = {}, pages: Record<string, { c: number; i: number }> = {};
+  for (const r of rows) {
+    const m = r.day >= cut ? now : before, a = (m[r.query] ??= { c: 0, i: 0, p: 0, pages: {} });
+    a.c += r.clicks; a.i += r.impressions; a.p += Number(r.position) * r.impressions; a.pages[r.page] = (a.pages[r.page] || 0) + r.impressions;
+    if (r.day >= cut) { const g = (pages[short(r.page)] ??= { c: 0, i: 0 }); g.c += r.clicks; g.i += r.impressions; }
+  }
+  const pos = (a?: Agg) => (a && a.i ? r1(a.p / a.i) : null);
+  const list = Object.entries(now).map(([q, a]) => ({ q, clicks: a.c, impr: a.i, pos: pos(a)!, was: pos(before[q]),
+    page: short(Object.entries(a.pages).sort((x, y) => y[1] - x[1])[0]?.[0] || "") }));
+  const sum = (xs: any[], k: string) => xs.reduce((t, x) => t + Number(x[k] || 0), 0);
+  const dn = days.filter((x) => x.day >= cut), db4 = days.filter((x) => x.day < cut);
+  const avgPos = (xs: any[]) => { const i = sum(xs, "impressions"); return i ? r1(xs.reduce((t, x) => t + Number(x.position) * x.impressions, 0) / i) : null; };
+  const recent = ev.filter((e) => Date.parse(e.at) > Date.now() - 7 * D);
+  const count = (xs: any[], k: string) => xs.reduce((m: Record<string, number>, x) => { m[x[k] || "?"] = (m[x[k] || "?"] || 0) + 1; return m; }, {});
+  return {
+    at: new Date().toISOString(),
+    totals: { clicks: sum(dn, "clicks"), impressions: sum(dn, "impressions"), position: avgPos(dn),
+      clicks_before: sum(db4, "clicks"), impressions_before: sum(db4, "impressions"), position_before: avgPos(db4), days: dn.length },
+    striking: list.filter((x) => x.pos >= 4 && x.pos <= 30 && x.impr >= 3).sort((a, b) => b.impr - a.impr).slice(0, 12),
+    top: [...list].sort((a, b) => b.clicks - a.clicks || b.impr - a.impr).slice(0, 10),
+    up: list.filter((x) => x.was != null && x.was - x.pos >= 3).sort((a, b) => (b.was! - b.pos) - (a.was! - a.pos)).slice(0, 5),
+    down: list.filter((x) => x.was != null && x.pos - x.was >= 3 && x.impr >= 3).sort((a, b) => (b.pos - b.was!) - (a.pos - a.was!)).slice(0, 5),
+    pages: Object.entries(pages).map(([p, g]) => ({ p, clicks: g.c, impr: g.i })).sort((a, b) => b.clicks - a.clicks || b.impr - a.impr).slice(0, 8),
+    web: { week: count(recent, "kind"), month: count(ev, "kind"), by_page: Object.entries(count(ev, "page")).sort((a, b) => b[1] - a[1]).slice(0, 6), by_ref: count(ev, "ref") },
+  };
+}
+
+async function sitemap(): Promise<string[]> {
+  try { const t = await (await fetch(SITE + "/sitemap.xml", { signal: AbortSignal.timeout(8000) })).text(); return [...t.matchAll(/<loc>\s*([^<\s]+)\s*<\/loc>/g)].map((m) => m[1]); }
+  catch { return []; }
+}
+async function profile() {
+  const { data } = await db.from("preferences").select("value").eq("key", "company_profile").maybeSingle();
+  return { name: "Al-Swati Contracting", phone: "+966 51 182 6313 (call / WhatsApp)", email: "info@al-swaticontracting.com", website: SITE, ...((data?.value as any) || {}) };
+}
+
+/** Weekly: the report for the owner and the 2 blog topics (1 English, 1 Arabic) taken from real searches. */
+async function weekly(s: any) {
+  const a = s.summary, urls = await sitemap();
+  const { data: posts } = await db.from("blog_posts").select("title, lang, keywords").order("created_at", { ascending: false }).limit(60);
+  const out = asJson(await write("weekly", `Google Search Console for al-swaticontracting.com${a?.totals?.days ? "" : " (NOT linked yet or no data: say so, do not invent numbers)"}:
+Last 28 days vs the 28 days before: ${JSON.stringify(a?.totals || {})}
+Searches close to page 1 (average position 4-30): ${JSON.stringify(a?.striking || [])}
+Rising: ${JSON.stringify(a?.up || [])} Falling: ${JSON.stringify(a?.down || [])}
+Pages with most clicks: ${JSON.stringify(a?.pages || [])}
+Website quote-form leads and WhatsApp/call/email clicks (last 7 days, last 28 days): ${JSON.stringify(a?.web || {})}
+Pages already on the website: ${urls.join(" ").slice(0, 3000)}
+Blog posts already written: ${JSON.stringify((posts || []).map((p: any) => p.title)).slice(0, 2500)}
+
+1) Write the owner's weekly SEO report in simple Roman Urdu, numbers as digits, at most 5 short lines: how the website did (clicks, impressions, average position, change), the 2-3 searches closest to page 1, website leads, and what you will do this week. Use only the numbers above.
+2) Choose exactly 2 new blog topics, 1 English and 1 Arabic, that target real searches above (prefer phrases with impressions at position 5-30) and are not already covered by a page or post. With no data yet, choose phrases clients in Riyadh really type when they need a stone, marble, granite or porcelain cladding / flooring contractor. Practical and useful, never clickbait.
+Return JSON only: {"report":"<lines separated by \\n>","topics":[{"title":"","lang":"en|ar","keyword":"<main search phrase>","why":"<one line, Roman Urdu>"}]}`, { max: 1500 }));
+  s.report = { at: new Date().toISOString(), text: String(out.report || "").slice(0, 1200) };
+  s.queue = (out.topics || []).filter((t: any) => t?.title).slice(0, 2).map((t: any) => ({ title: clean(t.title, 120), lang: t.lang === "ar" ? "ar" : "en", keyword: clean(t.keyword || t.title, 100), why: clean(t.why, 200) }));
+  s.last_week = new Date().toISOString();
+}
+
+/** One blog draft from the queue. It stays a Draft until the owner reads it and presses Publish in Growth. */
+async function draftOne(s: any) {
+  const t = s.queue?.[0];
+  if (!t) return null;
+  const urls = (await sitemap()).filter((u) => (t.lang === "ar") === u.includes("/ar/") || (t.lang === "ar" && /\/ar$/.test(u)));
+  const p = await profile();
+  const txt = await write("blog", `Write a helpful blog post in ${t.lang === "ar" ? "Arabic (Modern Standard Arabic, natural for Saudi readers)" : "English"} for the website of this company.
+Company facts (the ONLY facts you may state about the company; never invent projects, clients, years, numbers, certificates, awards or prices): ${JSON.stringify(p)}
+Topic: "${t.title}". Main search phrase (people really search this on Google): "${t.keyword}".
+Rules: 700-1000 words, clear headings (##), short paragraphs, practical advice for Saudi conditions (heat, sand, Saudi Building Code where relevant - only say what you are sure of; if you mention a standard or figure, check it with search). Use the search phrase naturally in the title, the first paragraph and one heading; no keyword stuffing. Where it truly helps the reader, link 2-3 of these pages of the company website as markdown links with the exact URL: ${urls.slice(0, 40).join(" ")}. End with a short, honest call to contact the company with the phone/WhatsApp and email above. Plain, human tone; no hype words like "best", "No. 1", "leading".
+Answer in exactly this format and nothing else:
+TITLE: <max 60 characters>
+SLUG: <latin lowercase words with dashes, in English even for Arabic posts>
+META: <max 155 characters>
+KEYWORDS: <3-6 search phrases, comma separated>
+---
+<the post in markdown>`, { max: 6000, search: true });
+  const head = (k: string) => ((txt.match(new RegExp("^[*#\\s]*" + k + "[*\\s]*:[*\\s]*(.+)$", "mi")) || [])[1] || "").replace(/\*+$/, "").trim();
+  const body = txt.split(/^---\s*$/m).slice(1).join("---").trim();
+  if (body.split(/\s+/).length < 300) throw new Error("The AI's post was too short; it will try again tomorrow.");
+  let slug = (head("SLUG") || t.keyword).toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 70) || "post-" + Date.now().toString(36);
+  const { data: same } = await db.from("blog_posts").select("id").eq("slug", slug).maybeSingle();
+  if (same) slug += "-" + Date.now().toString(36).slice(-4);
+  const { error } = await db.from("blog_posts").insert({ slug, lang: t.lang, title: (head("TITLE") || t.title).slice(0, 90), meta_description: head("META").slice(0, 170),
+    keywords: (head("KEYWORDS") || t.keyword).split(/[,،]/).map((k: string) => k.trim()).filter(Boolean).slice(0, 8), body, status: "Draft", source: "autopilot" });
+  if (error) throw new Error("blog_posts: " + error.message);
+  s.queue = s.queue.slice(1);
+  s.last_draft = new Date().toISOString();
+  return t.title;
+}
+
+/** Google reviews: when a project is closed, the owner gets a ready message for the client (he sends it himself). */
+async function reviews(s: any, items: Item[]) {
+  const { data: closed } = await db.from("projects").select("id, name, client").eq("status", "closed");
+  const seen = (s.reviews ??= {}), first = !s.reviews_started;
+  const msgs: any[] = [];
+  for (const p of closed || []) {
+    if (!seen[p.id]) seen[p.id] = new Date().toISOString();
+    if (first || Date.now() - Date.parse(seen[p.id]) < 14 * D) msgs.push({ project: p.name, client: p.client || "",
+      en: `Thank you for choosing Al-Swati Contracting for ${p.name}. If you are happy with our work, a short Google review would help us a lot: ${REVIEW_LINK}`,
+      ar: `شكراً لاختياركم السواتي للمقاولات لمشروع ${p.name}. إذا كنتم راضين عن عملنا، يسعدنا تقييمكم على جوجل: ${REVIEW_LINK}` });
+  }
+  const fresh = (closed || []).filter((p: any) => Date.now() - Date.parse(seen[p.id]) < 3 * D && !first);
+  fresh.forEach((p: any) => items.push({ level: "warn", text: `Project "${p.name}" band hua: ${p.client || "client"} se Google review maangein (Growth → SEO mein message tayyar hai)` }));
+  if (first && msgs.length) items.push({ level: "warn", text: `${msgs.length} band projects ke clients se Google review maangein - abhi 0 reviews hain (Growth → SEO mein messages tayyar hain)` });
+  s.reviews_started = true;
+  s.review_msgs = msgs.slice(0, 20);
+}
+
+async function tick(force: string | false) {
+  const s = await getState(), items: Item[] = [], done: string[] = [];
+  if (!force && s.last_tick && Date.now() - Date.parse(s.last_tick) < 10 * 60e3) return { skipped: "ran less than 10 minutes ago" };
+  s.last_tick = new Date().toISOString();
+  // 1. Google's numbers, once a day
+  if (force || !s.last_pull || Date.now() - Date.parse(s.last_pull) > 20 * H || !s.google?.linked) {
+    try { done.push(`search console rows: ${await pull(s)}`); s.error = null; }
+    catch (e) { s.error = String((e as Error).message || e).slice(0, 300); items.push({ level: "warn", text: "SEO: Google Search Console se aaj data nahi aaya - " + s.error.slice(0, 120) }); }
+  }
+  // 2. Where the website stands
+  const before = s.summary;
+  s.summary = await analyse();
+  const a = s.summary;
+  for (const x of a.striking) if (x.pos <= 10 && (before?.striking || []).some((b: any) => b.q === x.q && b.pos > 10)) items.push({ level: "warn", text: `SEO: "${x.q}" ab Google ke page 1 par (position ${x.pos})` });
+  for (const x of a.down.slice(0, 2)) items.push({ level: "warn", text: `SEO: "${x.q}" neeche gaya ${x.was} → ${x.pos} (page ${x.page})` });
+  // 3. Website leads and clicks since the last run
+  const since = before?.at || new Date(Date.now() - D).toISOString();
+  const { data: ev } = await db.from("web_events").select("kind").gt("at", since);
+  const n = (k: string) => (ev || []).filter((e: any) => e.kind === k).length;
+  if ((ev || []).length) items.push({ level: n("lead") ? "bad" : "warn", text: `Website: ${n("lead")} form query, ${n("whatsapp")} WhatsApp, ${n("call")} call click${n("lead") ? " - Queries mein dekhein aur aaj jawab dein" : ""}` });
+  // 4. Weekly report + 2 topics (not on the same run as a long blog draft: the server gives each run about 2 minutes)
+  let busy = false;
+  if (force === "weekly" || !s.last_week || Date.now() - Date.parse(s.last_week) > 6.5 * D) {
+    try { await weekly(s); busy = true; done.push("weekly report"); items.push({ level: "warn", text: "SEO hafta report: " + s.report.text.split("\n").slice(0, 2).join(" · ") }); }
+    catch (e) { items.push({ level: "warn", text: "SEO: weekly report nahi ban saki - " + String((e as Error).message).slice(0, 100) }); }
+  }
+  // 5. One blog draft a day from the queue, while the owner keeps up with reading them
+  const { count: waiting } = await db.from("blog_posts").select("id", { count: "exact", head: true }).eq("status", "Draft").eq("source", "autopilot");
+  if (!busy && s.queue?.length && (waiting ?? 0) < MAX_WAITING_DRAFTS && (force || !s.last_draft || Date.now() - Date.parse(s.last_draft) > 20 * H)) {
+    try { const t = await draftOne(s); if (t) { done.push("draft: " + t); } }
+    catch (e) { items.push({ level: "warn", text: "SEO: blog draft nahi bana - " + String((e as Error).message).slice(0, 100) }); }
+  }
+  const { count: drafts } = await db.from("blog_posts").select("id", { count: "exact", head: true }).eq("status", "Draft").eq("source", "autopilot");
+  if (drafts) items.push({ level: (drafts ?? 0) >= MAX_WAITING_DRAFTS ? "bad" : "warn", text: `SEO: ${drafts} blog draft tayyar - Growth mein parh kar Publish dabayen${(drafts ?? 0) >= MAX_WAITING_DRAFTS ? " (naye tab tak nahi likhe jayenge)" : ""}` });
+  // 6. Google reviews for finished projects
+  try { await reviews(s, items); } catch { /* projects table not readable: skip */ }
+  s.items = items.slice(0, 10);
+  s.done = done;
+  await saveState(s);
+  return { ok: true, done, items: s.items.length };
+}
+
+async function isAdmin(req: Request) {
+  const u = createClient(URL_, ANON, { global: { headers: { Authorization: req.headers.get("Authorization") ?? "" } } });
+  const { data } = await u.auth.getUser();
+  if (!data?.user) return false;
+  const { data: prof } = await db.from("profiles").select("role, active").eq("id", data.user.id).single();
+  return prof?.role === "admin" && !!prof?.active;
+}
+
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
+  const json = (b: unknown, st = 200) => new Response(JSON.stringify(b), { status: st, headers: { ...cors, "content-type": "application/json" } });
+  try {
+    const p = await req.json().catch(() => ({}));
+    if (p.action === "tick") return json(await tick(false));
+    if (p.action === "run") {
+      if (!(await isAdmin(req))) return json({ error: "Only Super-Admin" }, 403);
+      return json(await tick(p.force === "weekly" ? "weekly" : "now"));
+    }
+    // From the website (public). A daily-salted fingerprint of the visitor's address stops floods; nothing else is kept.
+    if (p.action === "lead" || p.action === "event") {
+      const ip = (req.headers.get("x-forwarded-for") || "").split(",")[0].trim();
+      const ip_hash = (await sha256(ip + "|" + riyadhDay() + "|" + URL_)).slice(0, 16);
+      const { count } = await db.from("web_events").select("id", { count: "exact", head: true }).eq("ip_hash", ip_hash).gte("at", new Date(Date.now() - 10 * 60e3).toISOString());
+      if ((count ?? 0) >= 8) return json({ ok: true });
+      const row = { page: clean(p.page, 200), lang: p.lang === "ar" ? "ar" : "en", ref: clean(p.ref, 100), utm: clean(p.utm, 200), ip_hash };
+      if (p.action === "event") {
+        if (!["whatsapp", "call", "email"].includes(p.kind)) return json({ error: "Unknown kind" }, 400);
+        await db.from("web_events").insert({ ...row, kind: p.kind });
+        return json({ ok: true });
+      }
+      if (p.hp) return json({ ok: true }); // the hidden field was filled: a bot
+      const name = clean(p.name, 80), phone = clean(p.phone, 30), email = clean(p.email, 120).toLowerCase(), type = clean(p.projectType, 60), msg = clean(p.message, 3000);
+      if (!name || !(phone || email) || !msg) return json({ error: "Name, phone or email, and the details are needed." }, 400);
+      if (phone && !/^[+\d\s()\-]{7,22}$/.test(phone)) return json({ error: "Check the phone number." }, 400);
+      if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return json({ error: "Check the email." }, 400);
+      await db.from("web_events").insert({ ...row, kind: "lead" });
+      // Into Queries as "Under Review": a short form message has no BOQ for the AI readers, so the autopilot leaves it to the owner.
+      const { data, error } = await db.from("inquiries").insert({
+        source: "website", status: "Under Review", from_name: name + (phone ? " · " + phone : ""), from_email: email || null,
+        subject: `Website: ${type || "quote request"} - ${name}`,
+        body: `${msg}\n\n— Website quote form —\nName: ${name}\nPhone: ${phone || "-"}\nEmail: ${email || "-"}\nProject type: ${type || "-"}\nPage: ${row.page || "-"} (${row.lang})\nCame from: ${row.ref || "direct"}${row.utm ? "\nCampaign: " + row.utm : ""}`,
+        dedupe_key: `web|${phone.replace(/\D/g, "") || email}|${riyadhDay()}`,
+      }).select("ref").single();
+      if (error && !/duplicate|unique/i.test(error.message)) throw new Error(error.message);
+      if (data?.ref) { // the main agent hears about it straight away
+        const s = await getState();
+        s.items = [{ level: "bad", text: `Website query ${data.ref}: ${name}${phone ? " " + phone : ""}${type ? " - " + type : ""}. Aaj call ya WhatsApp karein` }, ...(s.items || [])].slice(0, 10);
+        await saveState(s);
+      }
+      return json({ ok: true, ref: data?.ref || null });
+    }
+    return json({ error: "Unknown action" }, 400);
+  } catch (e) {
+    console.error(e);
+    return json({ error: String((e as Error).message ?? e) }, 500);
+  }
+});
