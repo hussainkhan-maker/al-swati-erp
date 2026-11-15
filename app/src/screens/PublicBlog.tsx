@@ -80,7 +80,8 @@ export default function PublicBlog() {
           <Text style={{ color: "#F2FBF7", fontSize: 18, fontWeight: "800" }}>Have a project? Ask us for a quotation.</Text>
           {co.phone ? <Text style={{ color: "#A9CFC2", fontSize: 16 }} onPress={() => Linking.openURL("tel:" + co.phone)}>{co.phone}</Text> : null}
           {co.email ? <Text style={{ color: "#A9CFC2", fontSize: 16 }} onPress={() => Linking.openURL("mailto:" + co.email)}>{co.email}</Text> : null}
-        </View> : null}
+          {co.google_reviews ? <Text style={{ color: "#F2FBF7", fontSize: 16, fontWeight: "700", marginTop: 6 }} onPress={() => Linking.openURL(co.google_reviews)}>★ Read what our clients say on Google ›</Text> : null}
+        </View> : co.google_reviews ? <Text style={{ color: C.accent, fontSize: 16, fontWeight: "700" }} onPress={() => Linking.openURL(co.google_reviews)}>★ Read what our clients say on Google ›</Text> : null}
       </View>
     </ScrollView>
   );
