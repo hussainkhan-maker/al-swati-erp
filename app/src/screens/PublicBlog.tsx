@@ -47,7 +47,7 @@ export default function PublicBlog() {
   const name = co.name || "Al-Swati Contracting";
   useEffect(() => {
     if (post) setHead(`${post.title} | ${name}`, post.meta_description || "", post.lang === "ar" ? "ar" : "en");
-    else setHead(`Blog | ${name}`, `${name}: ${co.services || "marble, granite, stone and porcelain flooring and cladding"} in ${co.cities || "Saudi Arabia"}.`, "en");
+    else setHead(`Blog | ${name}`, `${name}: ${co.services || "natural stone, marble, granite and porcelain cladding with mechanical fixing systems"} in ${co.cities || "Saudi Arabia"}.`, "en");
   }, [post?.slug, name]);
   const pad = w > 800 ? 40 : 18;
   return (
