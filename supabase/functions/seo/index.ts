@@ -50,7 +50,7 @@ async function saveState(s: any) {
 
 // ───────── AI: Gemini first (free), Claude Haiku if Gemini is busy or not set up ─────────
 async function write(task: string, prompt: string, o: { max?: number; search?: boolean } = {}): Promise<string> {
-  const system = "You work for Al-Swati Contracting, a natural stone, marble, granite and porcelain cladding and flooring contractor in Riyadh, Saudi Arabia (website al-swaticontracting.com, English and Arabic). Never invent facts about the company.";
+  const system = "You work for Al-Swati Contracting, a contractor for natural stone, marble, granite and porcelain cladding of facades and walls, installed with mechanical (dry-fix) fixing systems, in Riyadh, Saudi Arabia (website al-swaticontracting.com, English and Arabic). The company does NOT do flooring, floor tiles or paving: never write about them as its work. Never invent facts about the company.";
   const log = (model: string, i: number, out: number) => db.from("ai_usage").insert({ task: "seo_" + task, model, input_tokens: i || 0, output_tokens: out || 0 }).then(() => {}, () => {});
   if (GEMINI_KEY && SEO_MODEL.startsWith("gemini")) {
     for (let attempt = 1; attempt <= 2; attempt++) {
@@ -238,7 +238,7 @@ Pages already on the website: ${urls.join(" ").slice(0, 3000)}
 Blog posts already written: ${JSON.stringify((posts || []).map((p: any) => p.title)).slice(0, 2500)}
 
 1) Write the owner's weekly SEO report in ROMAN URDU (Urdu written in English letters, like \"Is hafte Google par 12 clicks aaye, pichle mahine se 3 zyada\"), never in English sentences. Numbers as digits, at most 5 short lines: how the website did (clicks, impressions, average position, change), the 2-3 searches closest to page 1, website leads, and the 2 blog drafts you will write this week. Do not promise any other work. Use only the numbers above.
-2) Choose exactly 2 new blog topics, 1 English and 1 Arabic, that target real searches above (prefer phrases with impressions at position 5-30) and are not already covered by a page or post. With no data yet, choose phrases clients in Riyadh really type when they need a stone, marble, granite or porcelain cladding / flooring contractor. Practical and useful, never clickbait.
+2) Choose exactly 2 new blog topics, 1 English and 1 Arabic, that target real searches above (prefer phrases with impressions at position 5-30) and are not already covered by a page or post. With no data yet, choose phrases clients in Riyadh really type when they need a stone, marble, granite or porcelain cladding contractor (facades and walls, mechanical dry-fix fixing). Every topic must be about cladding of facades or walls with natural stone, marble, granite or porcelain, or about mechanical (dry-fix) fixing - never about flooring, floor tiles, paving, stairs or countertops, even if such searches appear above. Practical and useful, never clickbait.
 Return JSON only: {"report":"<lines separated by \\n>","topics":[{"title":"","lang":"en|ar","keyword":"<main search phrase>","why":"<one line, Roman Urdu>"}]}`, { max: 1500 }));
   s.report = { at: new Date().toISOString(), text: String(out.report || "").slice(0, 1200) };
   s.queue = (out.topics || []).filter((t: any) => t?.title).slice(0, 2).map((t: any) => ({ title: clean(t.title, 120), lang: t.lang === "ar" ? "ar" : "en", keyword: clean(t.keyword || t.title, 100), why: clean(t.why, 200) }));
@@ -254,7 +254,7 @@ async function draftOne(s: any) {
   const txt = await write("blog", `Write a helpful blog post in ${t.lang === "ar" ? "Arabic (Modern Standard Arabic, natural for Saudi readers)" : "English"} for the website of this company.
 Company facts (the ONLY facts you may state about the company; never invent projects, clients, years, numbers, certificates, awards or prices): ${JSON.stringify(p)}
 Topic: "${t.title}". Main search phrase (people really search this on Google): "${t.keyword}".
-Rules: 700-1000 words, clear headings (##), short paragraphs, practical advice for Saudi conditions (heat, sand, Saudi Building Code where relevant - only say what you are sure of; if you mention a standard or figure, check it with search). Use the search phrase naturally in the title, the first paragraph and one heading; no keyword stuffing. Where it truly helps the reader, link 2-3 of these pages of the company website as markdown links with the exact URL: ${urls.slice(0, 40).join(" ")}. End with a short, honest call to contact the company with the phone/WhatsApp and email above. Plain, human tone; no hype words like "best", "No. 1", "leading".
+Rules: stay on cladding of facades and walls and its mechanical fixing; never present flooring, floor tiles or paving as the company's work. 700-1000 words, clear headings (##), short paragraphs, practical advice for Saudi conditions (heat, sand, Saudi Building Code where relevant - only say what you are sure of; if you mention a standard or figure, check it with search). Use the search phrase naturally in the title, the first paragraph and one heading; no keyword stuffing. Where it truly helps the reader, link 2-3 of these pages of the company website as markdown links with the exact URL: ${urls.slice(0, 40).join(" ")}. End with a short, honest call to contact the company with the phone/WhatsApp and email above. Plain, human tone; no hype words like "best", "No. 1", "leading".
 Answer in exactly this format and nothing else:
 TITLE: <max 60 characters>
 SLUG: <latin lowercase words with dashes, in English even for Arabic posts>
@@ -266,8 +266,9 @@ KEYWORDS: <3-6 search phrases, comma separated>
   const body = txt.split(/^---\s*$/m).slice(1).join("---").trim();
   if (body.split(/\s+/).length < 300) throw new Error("The AI's post was too short; it will try again tomorrow.");
   let slug = (head("SLUG") || t.keyword).toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 70) || "post-" + Date.now().toString(36);
+  if (t.lang === "ar") slug = slug.replace(/-ar$/, "").slice(0, 67) + "-ar"; // Arabic page /ar/blog/<name>/, its English twin later /blog/<name>/
   const { data: same } = await db.from("blog_posts").select("id").eq("slug", slug).maybeSingle();
-  if (same) slug += "-" + Date.now().toString(36).slice(-4);
+  if (same) slug = slug.replace(/-ar$/, "") + "-" + Date.now().toString(36).slice(-4) + (t.lang === "ar" ? "-ar" : "");
   const { error } = await db.from("blog_posts").insert({ slug, lang: t.lang, title: (head("TITLE") || t.title).slice(0, 90), meta_description: head("META").slice(0, 170),
     keywords: (head("KEYWORDS") || t.keyword).split(/[,،]/).map((k: string) => k.trim()).filter(Boolean).slice(0, 8), body, status: "Draft", source: "autopilot" });
   if (error) throw new Error("blog_posts: " + error.message);
