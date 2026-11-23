@@ -1,9 +1,12 @@
 // Edge Function "blog-media": when the owner publishes a blog post, this gives it
 //  • "image":  a picture for its topic, made by Google's image AI (Gemini), saved in the public "blog" storage, and
-//  • "arabic": its Arabic twin, written the way Saudi companies write (clear Arabic with the words Saudi clients use and search),
-//              saved as a second post linked by twin_id, with the same picture and the same status.
+//  • "arabic" (or "twin"): its twin in the other language - an English post gets its Arabic version (written the way Saudi
+//              companies write, with the words Saudi clients use and search), an Arabic post gets its English version -
+//              saved as a second post linked by twin_id, with the same picture and the same status. Every post goes out in both languages.
 // Only Super-Admin can call it (same sign-in rules as the "ai" function). Nothing here invents facts: the Arabic keeps the
-// English post's facts, and the picture is an illustration of the topic (never shown as "our project").
+// original post's facts, and the picture is an illustration of the topic (never shown as "our project").
+// The company does facade and wall cladding only (natural stone, marble, granite, porcelain, fixed with mechanical systems):
+// nothing here may present flooring as its work.
 import { createClient } from "npm:@supabase/supabase-js@2.45.4";
 
 const URL_ = Deno.env.get("SUPABASE_URL")!;
@@ -53,13 +56,25 @@ async function geminiText(prompt: string, max: number) {
   return (j.candidates?.[0]?.content?.parts ?? []).map((p: any) => p.text ?? "").join("");
 }
 
-// ───────── Arabic twin ─────────
+const COMPANY = "Al-Swati Contracting, a contractor for natural stone, marble, granite and porcelain cladding of facades and walls, installed with mechanical (dry-fix) fixing systems, in Saudi Arabia (Riyadh, Dammam, Al-Hassa). The company does NOT do flooring";
+const NO_FLOORING = "- The company does not do flooring, floor tiles or paving. If the article offers flooring as a service of the company, leave that part out; never add anything about flooring.";
+
+async function twinWrite(prompt: string) {
+  let out: any;
+  try { out = parsePost(await (CLAUDE_KEY ? claude(prompt, 8000) : geminiText(prompt, 8000))); }
+  catch (e) { if (!GEMINI_KEY || !CLAUDE_KEY) throw e; out = parsePost(await geminiText(prompt, 8000)); } // second chance with the other AI
+  if (!out?.title || String(out.body || "").length < 400) throw new Error("The other-language version came back too short. Try again.");
+  return out;
+}
+
+// ───────── Arabic twin of an English post ─────────
 async function arabic(post: any) {
-  const prompt = `You write Arabic web content for Al-Swati Contracting, a natural stone, marble, granite and porcelain cladding and flooring contractor in Saudi Arabia (Riyadh, Dammam, Al-Hassa).
+  const prompt = `You write Arabic web content for ${COMPANY}.
 Rewrite the article below in Arabic for clients in Saudi Arabia (villa owners, developers, consultants, project managers).
 Language: clear, simple Arabic the way Saudi companies write on their own websites - fluent Modern Standard Arabic with the words Saudi clients really use and search for (for example: تكسيات حجر، تكسية واجهات، واجهات حجر طبيعي، تركيب حجر ميكانيكي، تركيب رخام، جرانيت، بورسلان، مقاول حجر، فلل، الرياض، الدمام، الأحساء، ريال). Not spoken dialect, not stiff word-for-word translation: it must read as if a Saudi writer wrote it.
 Rules:
 - Keep every fact, figure and piece of advice. Add NO new facts about the company (no projects, years, clients, prices, certificates).
+${NO_FLOORING}
 - Keep the markdown: "## " headings, "- " bullets, **bold**. Short paragraphs.
 - Phone numbers, emails and website links stay exactly as they are (digits stay Western, e.g. 0511826313).
 - Title: at most 60 characters, with the main Arabic search phrase. Search description: 120-155 characters.
@@ -77,12 +92,37 @@ DESCRIPTION: ${post.meta_description || ""}
 KEYWORDS: ${(post.keywords || []).join(", ")}
 ---
 ${String(post.body || "").slice(0, 16000)}`;
-  let out: any;
-  try { out = parsePost(await (CLAUDE_KEY ? claude(prompt, 8000) : geminiText(prompt, 8000))); }
-  catch (e) { if (!GEMINI_KEY || !CLAUDE_KEY) throw e; out = parsePost(await geminiText(prompt, 8000)); } // second chance with the other AI
-  if (!out?.title || String(out.body || "").length < 400) throw new Error("The Arabic version came back too short. Try again.");
-  return out;
+  return twinWrite(prompt);
 }
+
+// ───────── English twin of an Arabic post ─────────
+async function english(post: any) {
+  const prompt = `You write English web content for ${COMPANY}.
+Rewrite the Arabic article below in English for clients in Saudi Arabia (villa owners, developers, consultants, project managers, many of them expatriates).
+Language: clear, natural, professional English, the way a good Riyadh contractor writes on its own website - not a stiff word-for-word translation. Use the words people in Saudi Arabia search in English (for example: stone cladding Riyadh, facade cladding, mechanical stone fixing, dry-fix cladding, marble cladding, granite cladding, porcelain facade, villa facade, SAR).
+Rules:
+- Keep every fact, figure and piece of advice. Add NO new facts about the company (no projects, years, clients, prices, certificates).
+${NO_FLOORING}
+- Keep the markdown: "## " headings, "- " bullets, **bold**. Short paragraphs.
+- Phone numbers, emails and website links stay exactly as they are; a link to an Arabic page (/ar/...) may become the same page without /ar.
+- Title: at most 60 characters, with the main English search phrase. Search description: 120-155 characters.
+- keywords: 3-6 English phrases people in Saudi Arabia type into Google for this topic.
+Answer in exactly this form and nothing else:
+TITLE: <English title>
+META: <English search description>
+KEYWORDS: <phrase>, <phrase>, <phrase>
+---
+<the whole English article in markdown>
+
+ARTICLE (Arabic):
+TITLE: ${post.title}
+DESCRIPTION: ${post.meta_description || ""}
+KEYWORDS: ${(post.keywords || []).join("، ")}
+---
+${String(post.body || "").slice(0, 16000)}`;
+  return twinWrite(prompt);
+}
+const slugify = (s: string) => s.toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 70);
 
 // ───────── Picture ─────────
 let imageModels: string[] | null = null;
@@ -105,10 +145,10 @@ async function findImageModels(): Promise<string[]> {
 
 async function makePicture(post: any): Promise<{ bytes: Uint8Array; mime: string; model: string }> {
   if (!GEMINI_KEY) throw new Error("No Google AI key on the server (GEMINI_API_KEY).");
-  const prompt = `A realistic, professional photograph to illustrate a blog article for a natural stone, marble, granite and porcelain cladding and flooring contractor in Saudi Arabia.
+  const prompt = `A realistic, professional photograph to illustrate a blog article for a natural stone, marble, granite and porcelain facade and wall cladding contractor (mechanical dry-fix systems) in Saudi Arabia.
 Article title: "${post.title}". Topic words: ${(post.keywords || []).join(", ")}.
 What the article is about: ${String(post.body || "").replace(/[#*\-]/g, " ").replace(/\s+/g, " ").slice(0, 600)}
-Show the subject of the article clearly and accurately (for example the right kind of stone, facade, floor or fixing work), in a setting that fits Saudi Arabia (modern Riyadh villa or building, bright desert daylight) when a setting is shown.
+Show the subject of the article clearly and accurately (for example the right kind of stone, a clad facade or wall, or mechanical fixing work). Never show floors or floor tiles as the subject. Use a setting that fits Saudi Arabia (modern Riyadh villa or building, bright desert daylight) when a setting is shown.
 Wide landscape picture (16:9). Natural colours, sharp, like a good architecture or construction photo.
 No text, no letters, no numbers, no logos, no watermarks, no flags. No recognisable faces.`;
   let last = "";
@@ -143,9 +183,7 @@ const PHOTOS: { path: string; en: string; ar: string; tags: string[] }[] = [
   { path: "/images/pages/home/hero.webp", en: "Porcelain and stone cladding on a residential tower", ar: "تكسية بورسلان وحجر على برج سكني", tags: ["porcelain", "tower", "high-rise", "apartment", "panel", "بورسلان", "برج"] },
   { path: "/images/pages/projects/commercial-1.webp", en: "Commercial tower with a light-coloured facade", ar: "برج تجاري بواجهة فاتحة", tags: ["commercial", "office", "tower", "developer", "تجاري", "مكاتب", "مطور"] },
   { path: "/images/pages/projects/commercial-2.webp", en: "Marble cladding at a building entrance", ar: "تكسية رخام عند مدخل مبنى", tags: ["marble", "entrance", "lobby", "wall", "granite", "رخام", "جرانيت", "مدخل"] },
-  { path: "/images/pages/home/project-3.webp", en: "Polished marble flooring in a bright interior", ar: "أرضيات رخام لامعة في مساحة داخلية", tags: ["floor", "flooring", "tiles", "interior", "polished", "marble floor", "أرضيات", "بلاط", "داخلي"] },
   { path: "/images/pages/projects/residential-1.webp", en: "Villa with a decorative stone facade", ar: "فيلا بواجهة حجرية مزخرفة", tags: ["villa", "residential", "home", "house", "najdi", "classic", "فيلا", "فلل", "سكني"] },
-  { path: "/images/pages/home/project-1.webp", en: "Villa entrance with natural stone paving", ar: "مدخل فيلا بأرضيات من الحجر الطبيعي", tags: ["paving", "landscape", "outdoor", "garden", "pool", "courtyard", "ممرات", "حديقة", "خارجي"] },
 ];
 async function sitePhoto(post: any) {
   const text = `${post.title} ${post.title} ${post.title} ${(post.keywords || []).join(" ")} ${(post.keywords || []).join(" ")} ${String(post.body || "").slice(0, 3000)}`.toLowerCase();
@@ -211,21 +249,25 @@ Deno.serve(async (req) => {
 
     if (body.action === "image") return json(await picture(post));
 
-    if (body.action === "arabic") {
-      if (post.lang === "ar") return json({ error: "This post is already in Arabic." }, 400);
+    if (body.action === "arabic" || body.action === "twin") {
       if (post.twin_id) { const { data: tw } = await db.from("blog_posts").select("*").eq("id", post.twin_id).maybeSingle(); if (tw) return json({ post: tw, existed: true }); }
-      const a = await arabic(post);
-      let slug = `${post.slug || "post"}-ar`.slice(0, 80);
+      const toAr = post.lang !== "ar";
+      const a = toAr ? await arabic(post) : await english(post);
+      // the Arabic page lives at /ar/blog/<slug without -ar>/, the English one at /blog/<slug>/
+      // (an Arabic original named "x-ar" gives its English twin "x"; otherwise the English name comes from the English title)
+      const base = String(post.slug || "").replace(/-ar$/, "");
+      let slug = toAr ? `${post.slug || "post"}-ar`.slice(0, 80)
+        : (String(post.slug).endsWith("-ar") && /^[a-z0-9-]+$/.test(base) ? base : slugify(a.title)) || "post-" + Date.now().toString(36);
       const { data: same } = await db.from("blog_posts").select("id").eq("slug", slug).maybeSingle();
-      if (same) slug += "-" + Date.now().toString(36).slice(-4);
+      if (same) slug = toAr ? `${base || "post"}-${Date.now().toString(36).slice(-4)}-ar`.slice(0, 80) : slug.slice(0, 74) + "-" + Date.now().toString(36).slice(-4);
       const now = new Date().toISOString();
       const { data: tw, error } = await db.from("blog_posts").insert({
-        slug, lang: "ar", title: String(a.title).slice(0, 90), meta_description: String(a.meta_description || "").slice(0, 170),
+        slug, lang: toAr ? "ar" : "en", title: String(a.title).slice(0, 90), meta_description: String(a.meta_description || "").slice(0, 170),
         keywords: (Array.isArray(a.keywords) ? a.keywords : []).map((k: any) => String(k).trim()).filter(Boolean).slice(0, 8), body: String(a.body),
         status: post.status, published_at: post.status === "Published" ? (post.published_at || now) : null, source: post.source || "manual",
         image_url: post.image_url, image_alt: post.image_url ? String(a.title).slice(0, 120) : null, twin_id: post.id, created_by: USER_ID,
       }).select().single();
-      if (error) throw new Error("Saving the Arabic post: " + error.message);
+      if (error) throw new Error(`Saving the ${toAr ? "Arabic" : "English"} post: ` + error.message);
       await db.from("blog_posts").update({ twin_id: tw.id }).eq("id", post.id);
       return json({ post: tw });
     }
