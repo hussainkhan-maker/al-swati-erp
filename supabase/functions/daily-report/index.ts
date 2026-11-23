@@ -38,7 +38,7 @@ Deno.serve(async (req) => {
       method: "POST",
       headers: { "x-api-key": Deno.env.get("ANTHROPIC_API_KEY")!, "anthropic-version": "2023-06-01", "content-type": "application/json" },
       body: JSON.stringify({ model: Deno.env.get("AI_MODEL") ?? "claude-sonnet-5-5", max_tokens: 600, messages: [{ role: "user", content:
-        `You are the main agent of a stone and flooring contractor's ERP in Saudi Arabia. Write the owner's morning briefing in simple Roman Urdu, numbers as digits, exactly these 5 lines:
+        `You are the main agent of a stone cladding contractor's ERP in Saudi Arabia. Write the owner's morning briefing in simple Roman Urdu, numbers as digits, exactly these 5 lines:
 Projects: <which projects need attention>
 Alerts: <data errors or anomalies caught, or "Koi nahi">
 Procurement: <supplier/price item to act on, one sentence>
