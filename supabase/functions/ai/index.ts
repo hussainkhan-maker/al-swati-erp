@@ -21,6 +21,7 @@ const GEMINI_KEY = Deno.env.get("GEMINI_API_KEY") ?? "";
 const CLAUDE_FALLBACK = "claude-sonnet-5-5";
 const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, content-type, apikey, x-client-info" };
 const LANG: Record<string, string> = { ar: "Arabic", ur: "Urdu", en: "English" };
+const AR_WORDS = `In Arabic, cladding work is always called تركيب (تركيب حجر، تركيب رخام، تركيب جرانيت، تركيب بورسلان، تركيب واجهات حجر) - never تكسية or تكسيات, because Saudi clients search for تركيب. The company's Arabic name is "شركة السواطي للمقاولات".`;
 
 type Img = { media_type: string; data: string };
 // Fixed company guide + the owner's learned rules, sent once as a cached system prompt (cheaper on every call after the first).
@@ -512,7 +513,7 @@ Return JSON only: {"topics":[{"title":"","lang":"en|ar","keyword":"<main search 
     if (task === "blog") {
       if (role !== "admin") return json({ error: "Only Super-Admin" }, 403);
       const lang = p.lang === "ar" ? "Arabic" : "English";
-      return json(asJson(await claude(`Write a helpful blog post in ${lang} for the website of this company. Company profile (the ONLY facts you may state about the company; never invent projects, clients, years, numbers, certificates, awards or prices): ${JSON.stringify(p.profile || {})}
+      return json(asJson(await claude(`${p.lang === "ar" ? AR_WORDS + "\n" : ""}Write a helpful blog post in ${lang} for the website of this company. Company profile (the ONLY facts you may state about the company; never invent projects, clients, years, numbers, certificates, awards or prices): ${JSON.stringify(p.profile || {})}
 Topic: "${p.topic}". Main search phrase: "${p.keyword || p.topic}".
 Rules: the company only does cladding of facades and walls (natural stone, marble, granite, porcelain) with mechanical dry-fix systems - never present flooring, floor tiles or paving as its work. 700-1000 words, clear headings (##), short paragraphs, practical advice for Saudi conditions (heat, sand, Saudi Building Code where relevant - only say what you are sure of; if you mention a standard or figure, check it with search). Use the search phrase naturally in the title, the first paragraph and one heading; no keyword stuffing. End with a short, honest call to contact the company using the phone/email in the profile (if given). Plain, human tone; no hype words like "best", "No. 1", "leading".
 Return JSON only: {"title":"<max 60 chars>","slug":"<latin lowercase words with dashes>","meta_description":"<max 155 chars>","keywords":["",""],"body":"<markdown>"}`, { max: 5000, webSearch: 3, model: SEO_MODEL, fallback: MODEL })));
@@ -523,7 +524,7 @@ Return JSON only: {"title":"<max 60 chars>","slug":"<latin lowercase words with 
       if (role !== "admin") return json({ error: "Only Super-Admin" }, 403);
       const c = p.contact || {};
       const lang = p.lang === "ar" ? "Arabic" : "English";
-      return json(asJson(await claude(`Write a short personal ${p.kind === "follow-up" ? "follow-up " : ""}email in ${lang} from ${p.signature || "the owner of Al-Swati Contracting"} to ${c.name}${c.role ? `, ${c.role}` : ""}${c.company ? ` at ${c.company}` : ""}${c.city ? ` in ${c.city}` : ""}.
+      return json(asJson(await claude(`${p.lang === "ar" ? AR_WORDS + "\n" : ""}Write a short personal ${p.kind === "follow-up" ? "follow-up " : ""}email in ${lang} from ${p.signature || "the owner of Al-Swati Contracting"} to ${c.name}${c.role ? `, ${c.role}` : ""}${c.company ? ` at ${c.company}` : ""}${c.city ? ` in ${c.city}` : ""}.
 How we know them: ${c.source || "not stated"}. Notes: ${c.notes || "-"}. ${p.kind === "follow-up" ? `Earlier email(s): ${JSON.stringify((c.emails || []).slice(-2)).slice(0, 3000)}` : ""}
 Company profile (the ONLY facts you may state about the company; never invent projects, clients, numbers or claims): ${JSON.stringify(p.profile || {})}
 Purpose: introduce our stone / marble / granite / porcelain cladding work for facades and walls (mechanical dry-fix systems) and ask if they have current or upcoming projects where we could quote (BOQ / drawings welcome). 90-140 words, specific to their role and city, plain and respectful, one clear question, no hype, no pressure, no fake urgency. ${p.kind === "follow-up" ? "One short gentle reminder only." : ""}
@@ -567,7 +568,7 @@ Return JSON only: {"subject":"<short, specific, not salesy>","body":""}`, { max:
         custom: "Write what the owner asks for below.",
       };
       const lang = p.lang === "ar" ? "Arabic" : "English";
-      return json(asJson(await claude(`Write an email reply in ${lang} from "${p.signature || "Al-Swati Contracting"}" to ${q.from_name || "the client"} about their enquiry "${q.subject || q.ref}" (our ref ${q.ref}).
+      return json(asJson(await claude(`${p.lang === "ar" ? AR_WORDS + "\n" : ""}Write an email reply in ${lang} from "${p.signature || "Al-Swati Contracting"}" to ${q.from_name || "the client"} about their enquiry "${q.subject || q.ref}" (our ref ${q.ref}).
 Purpose: ${KINDS[p.kind] || KINDS.custom}
 Details from the owner (use exactly, never change numbers): ${String(p.details || "-").slice(0, 4000)}
 Their email (for context only): """${String(q.body || "").slice(0, 3000)}"""
