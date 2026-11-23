@@ -27,7 +27,7 @@ const log = (model: string, inp: number, out: number) =>
 function parsePost(t: string) {
   const i = t.search(/^---\s*$/m);
   if (i < 0) throw new Error("The AI did not return the post. Try again.");
-  const top = t.slice(0, i), body = t.slice(i).replace(/^---\s*\n?/, "").trim();
+  const top = t.slice(0, i), body = t.slice(i).replace(/^---\s*\n?/, "").replace(/<\/?cite[^>]*>/gi, "").trim();
   const head = (k: string) => (top.match(new RegExp("^\\s*\\**" + k + "\\**\\s*:\\s*(.+)$", "mi"))?.[1] ?? "").replace(/^\*+\s*|\s*\*+$/g, "").trim();
   return { title: head("TITLE"), meta_description: head("META"), keywords: head("KEYWORDS").split(/[,،]/).map((s) => s.trim()).filter(Boolean), body };
 }
@@ -75,6 +75,7 @@ Language: clear, simple Arabic the way Saudi companies write on their own websit
 Rules:
 - Keep every fact, figure and piece of advice. Add NO new facts about the company (no projects, years, clients, prices, certificates).
 ${NO_FLOORING}
+- Keep the FAQ section: its heading becomes "## الأسئلة الشائعة" in Arabic or "## Frequently asked questions" in English, and every question stays a "### " heading followed by its answer.
 - Keep the markdown: "## " headings, "- " bullets, **bold**. Short paragraphs.
 - Phone numbers, emails and website links stay exactly as they are (digits stay Western, e.g. 0511826313).
 - Title: at most 60 characters, with the main Arabic search phrase. Search description: 120-155 characters.
@@ -103,6 +104,7 @@ Language: clear, natural, professional English, the way a good Riyadh contractor
 Rules:
 - Keep every fact, figure and piece of advice. Add NO new facts about the company (no projects, years, clients, prices, certificates).
 ${NO_FLOORING}
+- Keep the FAQ section: its heading becomes "## الأسئلة الشائعة" in Arabic or "## Frequently asked questions" in English, and every question stays a "### " heading followed by its answer.
 - Keep the markdown: "## " headings, "- " bullets, **bold**. Short paragraphs.
 - Phone numbers, emails and website links stay exactly as they are; a link to an Arabic page (/ar/...) may become the same page without /ar.
 - Title: at most 60 characters, with the main English search phrase. Search description: 120-155 characters.
