@@ -351,8 +351,11 @@ async function siteRebuild() {
     headers: { Authorization: `Bearer ${tok}`, Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "al-swati-erp" },
     body: JSON.stringify({ event_type: "erp-publish" }),
   });
-  if (r.status === 204) return { started: true };
-  return { started: false, why: `GitHub answered ${r.status}: ${(await r.text()).slice(0, 160)}` };
+  const out = r.status === 204 ? { started: true } : { started: false, why: `GitHub answered ${r.status}: ${(await r.text()).slice(0, 160)}` };
+  // For the logs: never the token itself, only its length and kind.
+  const kind = tok.startsWith("github_pat_") ? "fine-grained" : tok.startsWith("ghp_") ? "classic" : "unknown kind";
+  console.log("site_rebuild", JSON.stringify({ ...out, token: `${tok.length} characters, ${kind}` }));
+  return out;
 }
 
 async function isAdmin(req: Request) {
