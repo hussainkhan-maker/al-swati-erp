@@ -5,6 +5,8 @@
 //  • "lead"  (public, from the website quote form): the request goes straight into Queries, source "website".
 //  • "event" (public, from the website): counts WhatsApp / call / email clicks per page. No names are kept.
 //  • "run"   (Super-Admin): run the tick now ({force:"weekly"} also redoes the weekly report and topics).
+//  • "google_status" / "google_start" / "google_finish" / "google_disconnect" (Super-Admin): the owner's own "Sign in with Google"
+//            for Search Console (read-only), used when no service-account key exists (the company's Google blocks those keys).
 // Nothing is ever published or sent by itself: posts wait for Publish, review messages wait for the owner to send them.
 import { createClient } from "npm:@supabase/supabase-js@2.45.4";
 
@@ -13,6 +15,12 @@ const URL_ = Deno.env.get("SUPABASE_URL")!, ANON = Deno.env.get("SUPABASE_ANON_K
 const db = createClient(URL_, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 const SITE = "https://al-swaticontracting.com";
 const GSC_SITE = Deno.env.get("GSC_SITE") ?? "sc-domain:al-swaticontracting.com";
+// The owner's own "Sign in with Google" (Search Console, read-only). The client id is public (it is in every sign-in link);
+// the client secret lives only in the server's secrets (GOOGLE_OAUTH_SECRET); the renewable sign-in sits in the locked table google_link.
+const G_CLIENT = Deno.env.get("GOOGLE_OAUTH_CLIENT_ID") ?? "479124517333-jc3h1mj0gr1hstpkf8aorg2jof0efa04.apps.googleusercontent.com";
+const G_SECRET = Deno.env.get("GOOGLE_OAUTH_SECRET") ?? "";
+const APP_URL = "https://hussainkhan-maker.github.io/al-swati-erp/";
+const G_SCOPE = "openid email https://www.googleapis.com/auth/webmasters.readonly";
 const REVIEW_LINK = "https://search.google.com/local/writereview?placeid=ChIJAZHiKg0cOaoRQl8W3DNsZ9I";
 const GEMINI_KEY = Deno.env.get("GEMINI_API_KEY") ?? "";
 const FAST = Deno.env.get("AI_MODEL_FAST") ?? "claude-haiku-5-5";
@@ -80,10 +88,10 @@ function asJson(t: string) {
   return JSON.parse(s.slice(0, s.lastIndexOf("}") + 1));
 }
 
-// ───────── Google Search Console (service account; read-only) ─────────
+// ───────── Google Search Console (read-only: a service-account key if one exists, else the owner's own Google sign-in) ─────────
 async function googleToken(): Promise<string | null> {
   const raw = Deno.env.get("GOOGLE_SERVICE_ACCOUNT");
-  if (!raw) return null;
+  if (!raw) return ownerToken();
   const sa = JSON.parse(raw), now = Math.floor(Date.now() / 1000);
   const enc = (o: unknown) => b64url(new TextEncoder().encode(JSON.stringify(o)));
   const unsigned = enc({ alg: "RS256", typ: "JWT" }) + "." + enc({ iss: sa.client_email, scope: "https://www.googleapis.com/auth/webmasters.readonly", aud: "https://oauth2.googleapis.com/token", iat: now, exp: now + 3600 });
@@ -94,6 +102,44 @@ async function googleToken(): Promise<string | null> {
     body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion: unsigned + "." + b64url(sig) }) });
   if (!r.ok) throw new Error("Google sign-in " + r.status + ": " + (await r.text()).slice(0, 160));
   return (await r.json()).access_token;
+}
+const gLink = async () => (await db.from("google_link").select("*").eq("id", 1).maybeSingle()).data || null;
+const saveGLink = async (patch: Record<string, unknown>) => { await db.from("google_link").upsert({ id: 1, ...patch, updated_at: new Date().toISOString() }); };
+async function gTokenCall(params: Record<string, string>) {
+  const r = await fetch("https://oauth2.googleapis.com/token", { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ client_id: G_CLIENT, client_secret: G_SECRET, ...params }) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error("Google sign-in " + r.status + ": " + String(j.error_description || j.error || "").slice(0, 160));
+  return j;
+}
+/** The owner's Google sign-in, renewed for each run. */
+async function ownerToken(): Promise<string | null> {
+  const L = await gLink();
+  if (!L?.refresh_token || !G_SECRET) return null;
+  try { return (await gTokenCall({ grant_type: "refresh_token", refresh_token: L.refresh_token })).access_token; }
+  catch (e) { await saveGLink({ last_error: String((e as Error).message).slice(0, 300) }); throw e; }
+}
+async function googleStart() {
+  if (!G_SECRET) throw new Error("One step is left: the Google client secret must be saved in Supabase (Edge Functions → Secrets → GOOGLE_OAUTH_SECRET).");
+  const state = "g." + b64url(crypto.getRandomValues(new Uint8Array(16))), verifier = b64url(crypto.getRandomValues(new Uint8Array(32)));
+  const challenge = b64url(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier))));
+  await saveGLink({ pkce: JSON.stringify({ state, verifier }), pkce_expires: new Date(Date.now() + 15 * 60e3).toISOString() });
+  const q = new URLSearchParams({ client_id: G_CLIENT, redirect_uri: APP_URL, response_type: "code", scope: G_SCOPE, state, code_challenge: challenge,
+    code_challenge_method: "S256", access_type: "offline", prompt: "consent" });
+  return { url: "https://accounts.google.com/o/oauth2/v2/auth?" + q };
+}
+async function googleFinish(p: any) {
+  if (p.error) throw new Error("Google: " + clean(p.error_description || p.error, 200));
+  const L = await gLink(), k = L?.pkce ? JSON.parse(L.pkce) : null;
+  if (!k || k.state !== p.state || !L?.pkce_expires || Date.parse(L.pkce_expires) < Date.now()) throw new Error('This Google sign-in has expired. Press "Sign in with Google" again.');
+  const j = await gTokenCall({ grant_type: "authorization_code", code: clean(p.code, 2000), code_verifier: k.verifier, redirect_uri: APP_URL });
+  if (!j.refresh_token) throw new Error('Google did not give a lasting sign-in. Press "Sign in with Google" again.');
+  let account = "";
+  try { const x = String(j.id_token).split(".")[1].replace(/-/g, "+").replace(/_/g, "/"); account = JSON.parse(atob(x + "===".slice((x.length + 3) % 4))).email || ""; } catch { /* no email in the answer */ }
+  const r = await fetch(`https://searchconsole.googleapis.com/webmasters/v3/sites/${encodeURIComponent(GSC_SITE)}`, { headers: { authorization: "Bearer " + j.access_token } });
+  if (!r.ok) throw new Error(`${account || "This Google account"} cannot open ${GSC_SITE.replace("sc-domain:", "")} in Search Console. Sign in with the account that has it.`);
+  await saveGLink({ account, refresh_token: j.refresh_token, pkce: null, pkce_expires: null, connected_at: new Date().toISOString(), last_error: null });
+  return { done: true, account };
 }
 type GRow = { keys: string[]; clicks: number; impressions: number; position: number };
 async function gsc(token: string, body: unknown): Promise<GRow[]> {
@@ -307,6 +353,19 @@ Deno.serve(async (req) => {
     if (p.action === "run") {
       if (!(await isAdmin(req))) return json({ error: "Only Super-Admin" }, 403);
       return json(await tick(p.force === "weekly" ? "weekly" : "now"));
+    }
+    if (String(p.action || "").startsWith("google_")) {
+      if (!(await isAdmin(req))) return json({ error: "Only Super-Admin" }, 403);
+      if (p.action === "google_status") { const L = await gLink(); return json({ linked: !!(L?.refresh_token || Deno.env.get("GOOGLE_SERVICE_ACCOUNT")), account: L?.account || null, error: L?.last_error || null, ready: !!G_SECRET }); }
+      if (p.action === "google_start") return json(await googleStart());
+      if (p.action === "google_finish") return json(await googleFinish(p));
+      if (p.action === "google_disconnect") {
+        const L = await gLink();
+        if (L?.refresh_token) await fetch("https://oauth2.googleapis.com/revoke?token=" + encodeURIComponent(L.refresh_token), { method: "POST" }).catch(() => {});
+        await saveGLink({ refresh_token: null, account: null, last_error: null });
+        const st = await getState(); st.google = { linked: false }; await saveState(st);
+        return json({ ok: true });
+      }
     }
     // From the website (public). A daily-salted fingerprint of the visitor's address stops floods; nothing else is kept.
     if (p.action === "lead" || p.action === "event") {
