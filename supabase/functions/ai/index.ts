@@ -24,12 +24,12 @@ const LANG: Record<string, string> = { ar: "Arabic", ur: "Urdu", en: "English" }
 
 type Img = { media_type: string; data: string };
 // Fixed company guide + the owner's learned rules, sent once as a cached system prompt (cheaper on every call after the first).
-const GUIDE = `You work inside the ERP of Al-Swati Contracting, a stone, marble, granite and porcelain flooring and facade cladding contractor in Saudi Arabia (Riyadh, Dammam, Al-Hassa).
+const GUIDE = `You work inside the ERP of Al-Swati Contracting, a natural stone, marble, granite and porcelain cladding contractor in Saudi Arabia (Riyadh, Dammam, Al-Hassa): facades and walls, installed with mechanical (dry-fix) fixing systems. The company does NOT do flooring, floor tiles or paving - never offer or market them as its work.
 Ground rules for every task:
 - Never invent facts, quantities, prices, names, projects or clients. If something is missing or unreadable, say so (null / "unclear").
 - Digits 0-9 only. Money in SAR. Saudi VAT is 15%, shown separately. Calculations are done by the app's code, not by you: give raw quantities and facts.
 - Materials: Arabic and English names refer to the same thing (رخام = marble, جرانيت = granite, بورسلان = porcelain, حجر رياض = Riyadh stone, ترافرتين = travertine). Keep size and thickness with the name; a different size or thickness is a different product.
-- Normal values: facade cladding stone 20-30 mm (30-40 mm heavy panels), floor marble/granite 20 mm, porcelain 9-20 mm; common tile sizes 60x60, 60x120, 80x80, 120x120 cm, stone panels 30x60, 40x80, 60x90 cm; cutting waste 10-15% for normal work, 15-20% for book-match, many cuts or curves, and 15-18% at bid stage when no engineer has checked the drawings.
+- Normal values: facade cladding stone 20-30 mm (30-40 mm heavy panels), marble/granite wall cladding usually 20-30 mm, porcelain 9-20 mm; common tile sizes 60x60, 60x120, 80x80, 120x120 cm, stone panels 30x60, 40x80, 60x90 cm; cutting waste 10-15% for normal work, 15-20% for book-match, many cuts or curves, and 15-18% at bid stage when no engineer has checked the drawings.
 - Dry-fix cladding needs stainless steel anchors/brackets (count per panel, typically 4 per panel); wet-fix needs adhesive/mortar. Flag missing skirting, risers, steps, sills, coping, cut edges, sealant, mock-up and protection.
 - Plain, professional language. Roman Urdu only where the task asks for it.`;
 let TASK = ""; // which task is running, for the usage log
@@ -161,7 +161,7 @@ async function readInquiry(admin: any, p: any) {
     }
   }
   if (p.path) imgs.push(await imageFrom(admin, "documents", p.path));
-  const prompt = `You read a construction RFQ / BOQ for a stone, marble, granite, porcelain and flooring contractor in Saudi Arabia. Extract every priced line exactly as given. Return JSON only:
+  const prompt = `You read a construction RFQ / BOQ for a stone, marble, granite and porcelain cladding contractor in Saudi Arabia. Extract every priced line exactly as given. Return JSON only:
 {"lines":[{"ref":"<item no>","desc":"<full description incl. material, size, thickness, finish>","qty":<number>,"unit":"sqm|rft|lm|no|ton|ls","category":"Marble|Granite|Porcelain|Ceramic|Civil|Fixing|Other"}],
  "documents":[{"name":"<file or section>","kind":"drawing|boq|specification|letter|other","summary":"<one line: what it contains>"}],
  "specs":["<each requirement from specifications: material grade, thickness, finish, fixing method, standards, samples, warranty>"],
@@ -274,7 +274,7 @@ Deno.serve(async (req) => {
     if (task === "parse") {
       const lang = LANG[p.lang] ?? "Urdu";
       const allowed = role === "supervisor" ? "purchase|expense|progress|statement|unknown" : "purchase|expense|income|loan|subpay|rate|mrn|progress|statement|unknown";
-      const prompt = `You turn one spoken or typed note from a stone, marble and flooring contractor in Saudi Arabia into ONE JSON action. The note may mix Urdu, Arabic and English and may come from speech recognition, so spelling can be rough.
+      const prompt = `You turn one spoken or typed note from a stone, marble and granite cladding contractor in Saudi Arabia into ONE JSON action. The note may mix Urdu, Arabic and English and may come from speech recognition, so spelling can be rough.
 Context (JSON): ${JSON.stringify(p.context ?? {})}
 Note: """${String(p.text ?? "").slice(0, 2000)}"""
 Return JSON only:
@@ -286,7 +286,7 @@ Return JSON only:
  "supplier":"<or null>", "sub_name":"<or null>",
  "description":"<short, in ${lang}>",
  "lines":[{"name":"<material>","qty":<n>,"unit":"<bag|sqm|rft|ton|pcs|...>","price":<n|null>}],
- "progress":[{"sub_name":"<name>","qty":<n>,"unit":"sqm|rft|pcs","work":"<flooring|cladding|skirting|...>"}],
+ "progress":[{"sub_name":"<name>","qty":<n>,"unit":"sqm|rft|pcs","work":"<cladding|facade|wall|coping|...>"}],
  "statement":{"kind":"project|sub|supplier|material|vat","target":"<name>"},
  "heard":"<one short sentence in ${lang} restating what you understood, numbers as digits>",
  "questions":["<short question in ${lang} for anything missing or unclear>"]}
@@ -315,7 +315,7 @@ Digits 0-9. Read EVERY line: the same stone or tile often appears 2-4 times with
     if (task === "supplier_msg") {
       if (!["admin", "abu"].includes(role)) return json({ error: "Not allowed" }, 403);
       const lang = LANG[p.lang] ?? "Arabic";
-      const text = await claude(`Write a short, polite WhatsApp message in ${lang} from a stone and flooring contractor in Saudi Arabia to a supplier named "${p.supplier}", asking for their best price (before VAT), stock availability and delivery time for these items in ${p.city || "Riyadh"}:
+      const text = await claude(`Write a short, polite WhatsApp message in ${lang} from a stone cladding contractor in Saudi Arabia to a supplier named "${p.supplier}", asking for their best price (before VAT), stock availability and delivery time for these items in ${p.city || "Riyadh"}:
 ${JSON.stringify(p.items)}
 List each item on its own line with size and quantity. Ask them to reply with unit prices. Sign as "${p.signature || "Al-Swati"}". Plain text only, no markdown. Do not invent anything not given.`, { max: 800 });
       if (!p.withEmail) return json({ text: text.trim() });
@@ -330,7 +330,7 @@ Return JSON only: {"subject":"","body":""}`, { max: 1200 }));
       if (!["admin", "abu"].includes(role)) return json({ error: "Not allowed" }, 403);
       const imgs: Img[] = [];
       for (const path of (p.paths || []).slice(0, 6)) { try { const f = await imageFrom(admin, "documents", path); if (/\.pdf$/i.test(path)) f.media_type = "application/pdf"; imgs.push(f); } catch { /* skip */ } }
-      return json(asJson(await claude(`You are the cost controller of a stone and flooring contractor in Saudi Arabia. Compare these supplier quotations for the same need${p.need ? ` (${p.need})` : ""}.
+      return json(asJson(await claude(`You are the cost controller of a stone cladding contractor in Saudi Arabia. Compare these supplier quotations for the same need${p.need ? ` (${p.need})` : ""}.
 QUOTATIONS (text and/or attached files):
 ${String(p.text || "").slice(0, 30000)}
 Use only what is written. Prices in SAR. If VAT 15% is not stated say "VAT unclear".
@@ -354,7 +354,7 @@ Return JSON only: {"summary_en":"<5 short lines>","summary_ur":"<5 short lines i
     if (task === "learn") {
       // Memory agent: turns the owner's feedback into a rule every agent follows; saved in preferences ("rules").
       if (role !== "admin") return json({ error: "Only Super-Admin" }, 403);
-      const rule = asJson(await claude(`The owner of a stone and flooring contractor in Saudi Arabia gave this feedback to his AI assistants: "${String(p.text).slice(0, 1000)}".
+      const rule = asJson(await claude(`The owner of a stone cladding contractor in Saudi Arabia gave this feedback to his AI assistants: "${String(p.text).slice(0, 1000)}".
 Turn it into one rule. Return JSON only: {"category":"supplier|price|material|tone|process|other","observed_rule":"<the rule, one line>","action_for_agents":"<what the agents must do differently, one line>"}`, { max: 400, model: MODEL_FAST }));
       const { data: cur } = await admin.from("preferences").select("value").eq("key", "rules").maybeSingle();
       const list = [...((cur?.value as any)?.list || []), { ...rule, at: new Date().toISOString() }].slice(-60);
@@ -374,7 +374,7 @@ Return JSON only: {"suppliers":[{"name":"","city":"","phone":"","whatsapp":"","e
       // Second AI (the auditor): checks the estimator's lines against what was read from the BOQ / drawings / specs.
       // It only checks and flags; the app's own code does every calculation (waste, cost, margin).
       if (role !== "admin") return json({ error: "Only Super-Admin" }, 403);
-      return json(asJson(await claude(`You are a senior quantity surveyor for a stone, marble, granite and porcelain cladding and flooring contractor in Riyadh.
+      return json(asJson(await claude(`You are a senior quantity surveyor for a stone, marble, granite and porcelain cladding contractor (mechanical dry-fix systems) in Riyadh.
 A junior estimator prepared these quotation lines: ${JSON.stringify(p.lines).slice(0, 30000)}
 What was read from the client's BOQ / drawings / specs (may be empty): ${JSON.stringify(p.source || {}).slice(0, 40000)}
 Check every line, strictly and without guessing:
@@ -391,7 +391,7 @@ Return JSON only: {"lines":[{"i":<line index>,"level":"ok|warn|high","issue":"<s
       if (role !== "admin") return json({ error: "Only Super-Admin" }, 403);
       const { data: prefs } = await admin.from("preferences").select("key, value");
       const { data: hist } = await admin.from("quotes").select("title, status, lost_reason, lines").in("status", ["Approved", "Lost", "Sent to Client"]).order("updated_at", { ascending: false }).limit(40);
-      const text = await claude(`You advise the owner of a stone and flooring contractor in Saudi Arabia on quotation rates (SAR, before VAT).
+      const text = await claude(`You advise the owner of a stone cladding contractor in Saudi Arabia on quotation rates (SAR, before VAT).
 Owner's preferences: ${JSON.stringify(prefs)}
 Past quotations with outcome (learn which margins win and which lose): ${JSON.stringify(hist).slice(0, 60000)}
 This quotation, with the known cost / last quoted / AI-estimate price for each line: ${JSON.stringify(p.quote).slice(0, 30000)}
@@ -402,7 +402,7 @@ Return JSON only: {"lines":[{"i":<line index>,"rate":<number or null>,"reason":"
 
     if (task === "ask") {
       // Every account has its own assistant. The data comes from the phone, which only ever holds what that role may see.
-      const text = await claude(`You are the personal assistant of a ${role} inside a stone and flooring contractor's ERP in Saudi Arabia. Explain simply, like to someone new to apps. Answer using ONLY this data. Numbers with digits and SAR. If the data does not hold the answer, say what is missing. Short and plain, in the language of the question: at most 8 short lines or 6 numbered steps, no long introduction.
+      const text = await claude(`You are the personal assistant of a ${role} inside a stone cladding contractor's ERP in Saudi Arabia. Explain simply, like to someone new to apps. Answer using ONLY this data. Numbers with digits and SAR. If the data does not hold the answer, say what is missing. Short and plain, in the language of the question: at most 8 short lines or 6 numbered steps, no long introduction.
 DATA: ${JSON.stringify(p.data).slice(0, 150000)}
 QUESTION: ${String(p.question).slice(0, 1000)}`, { model: Deno.env.get("AI_MODEL_ASK") ?? "claude-haiku-5-5", max: 1200 }) // the page assistant answers fast with the small model; set AI_MODEL_ASK to change it;
       return json({ text });
@@ -414,7 +414,7 @@ QUESTION: ${String(p.question).slice(0, 1000)}`, { model: Deno.env.get("AI_MODEL
     }
 
     if (task === "match") {
-      return json(asJson(await claude(`A user of a stone & flooring price list searches: "${p.query}". Items: ${JSON.stringify(p.items).slice(0, 40000)}. Return JSON only: {"ids":["<best matching item ids, best first, max 8>"],"why":"<short>"}`)));
+      return json(asJson(await claude(`A user of a stone cladding price list searches: "${p.query}". Items: ${JSON.stringify(p.items).slice(0, 40000)}. Return JSON only: {"ids":["<best matching item ids, best first, max 8>"],"why":"<short>"}`)));
     }
     // ───────── Morning briefing (main agent). Runs when Super-Admin opens the app: once a day, no secret key needed. ─────────
     if (task === "briefing") {
@@ -461,7 +461,7 @@ QUESTION: ${String(p.question).slice(0, 1000)}`, { model: Deno.env.get("AI_MODEL
       if (!seo && !(posts || []).some((x: any) => Date.now() - Date.parse(x.created_at) < 7 * 864e5)) items.push({ level: "warn", text: "No blog post this week - write one (SEO)" });
       let summary = items.length ? `${items.filter((i) => i.level === "bad").length} urgent, ${items.filter((i) => i.level === "warn").length} to check.` : "Sab theek hai. Koi khula masla nahi.";
       try {
-        summary = (await claude(`You are the main agent of a stone and flooring contractor's ERP in Saudi Arabia. Write the owner's morning briefing in simple Roman Urdu, numbers as digits, exactly these 6 lines:
+        summary = (await claude(`You are the main agent of a stone cladding contractor's ERP in Saudi Arabia. Write the owner's morning briefing in simple Roman Urdu, numbers as digits, exactly these 6 lines:
 Projects: <which projects need attention>
 Alerts: <data errors or anomalies caught, or "Koi nahi">
 Procurement: <supplier/price/RFI item to act on, one sentence>
@@ -478,7 +478,7 @@ Use only these items, never invent: ${JSON.stringify(items.slice(0, 80))}`, { ma
     if (task === "rfi_letter") {
       if (role !== "admin") return json({ error: "Only Super-Admin" }, 403);
       const lang = p.lang === "ar" ? "Arabic" : "English";
-      return json(asJson(await claude(`Write a formal Request for Information (RFI) email in ${lang} from "${p.signature || "Al-Swati Contracting"}" (stone, marble, granite and porcelain cladding and flooring contractor, Saudi Arabia) to ${p.to_name || "the consultant"} about the project / tender "${p.project || ""}". Reference: ${p.ref || ""}.
+      return json(asJson(await claude(`Write a formal Request for Information (RFI) email in ${lang} from "${p.signature || "Al-Swati Contracting"}" (stone, marble, granite and porcelain cladding contractor, mechanical dry-fix systems, Saudi Arabia) to ${p.to_name || "the consultant"} about the project / tender "${p.project || ""}". Reference: ${p.ref || ""}.
 Questions (keep every one, number them, keep BOQ item / drawing references exactly as given, do not add new questions, do not answer them): ${JSON.stringify(p.questions).slice(0, 12000)}
 Ask for a reply by ${p.due || "the date stated"} because the price depends on it. Polite, short, professional Saudi business tone. No invented facts.
 Return JSON only: {"subject":"<${p.ref || "RFI"} - short subject>","body":"<full email text>"}`, { max: 2500, model: MODEL_FAST })));
@@ -492,7 +492,7 @@ Return JSON only: {"subject":"","body":""}`, { max: 1200, model: MODEL_FAST })))
     if (task === "rfi_apply") {
       // Reads the consultant's answer and proposes exact changes to the quotation lines. Nothing is changed until the owner applies it.
       if (role !== "admin") return json({ error: "Only Super-Admin" }, 403);
-      return json(asJson(await claude(`A stone and flooring contractor in Saudi Arabia sent this RFI: ${JSON.stringify(p.questions).slice(0, 8000)}
+      return json(asJson(await claude(`A stone cladding contractor in Saudi Arabia sent this RFI: ${JSON.stringify(p.questions).slice(0, 8000)}
 The consultant answered: """${String(p.answer || "").slice(0, 12000)}"""
 Current quotation lines (index i): ${JSON.stringify(p.lines).slice(0, 20000)}
 For each question say what the answer is. Then propose ONLY the changes the answer clearly requires: a new quantity, a new description (material, finish, size, thickness), a line to add, or a line to remove. If the answer is unclear or does not answer a question, say so and propose no change for it. Never change a rate or cost: prices are re-checked by the owner. Material changes that need new supplier prices go in "supplier_items".
@@ -506,7 +506,7 @@ Return JSON only: {"answers":[{"q":"<question>","answer":"<short>","clear":true|
       if (role !== "admin") return json({ error: "Only Super-Admin" }, 403);
       return json(asJson(await claude(`Company profile (use only this about the company): ${JSON.stringify(p.profile || {})}
 Already written posts: ${JSON.stringify(p.done || []).slice(0, 4000)}
-Suggest 14 blog topics that people in Saudi Arabia actually search for when they need a stone, marble, granite or porcelain cladding / flooring contractor (owners, developers, project managers, consultants) in ${(p.cities || ["Riyadh", "Dammam", "Al-Hassa"]).join(", ")}. Mix English and Arabic topics. Practical and useful (choosing stone for Riyadh heat, dry-fix vs wet-fix cladding, maintenance, cost factors, approvals and samples), never clickbait, not already written.
+Suggest 14 blog topics that people in Saudi Arabia actually search for when they need a stone, marble, granite or porcelain cladding contractor (facades and walls, mechanical dry-fix fixing) (owners, developers, project managers, consultants) in ${(p.cities || ["Riyadh", "Dammam", "Al-Hassa"]).join(", ")}. Mix English and Arabic topics. Practical and useful (choosing stone for Riyadh heat, dry-fix vs wet-fix cladding, maintenance, cost factors, approvals and samples), only about cladding of facades and walls and its mechanical fixing - never flooring, floor tiles, paving or stairs - never clickbait, not already written.
 Return JSON only: {"topics":[{"title":"","lang":"en|ar","keyword":"<main search phrase>","why":"<one line>"}]}`, { max: 2500, webSearch: 3, model: SEO_MODEL })));
     }
     if (task === "blog") {
@@ -514,7 +514,7 @@ Return JSON only: {"topics":[{"title":"","lang":"en|ar","keyword":"<main search 
       const lang = p.lang === "ar" ? "Arabic" : "English";
       return json(asJson(await claude(`Write a helpful blog post in ${lang} for the website of this company. Company profile (the ONLY facts you may state about the company; never invent projects, clients, years, numbers, certificates, awards or prices): ${JSON.stringify(p.profile || {})}
 Topic: "${p.topic}". Main search phrase: "${p.keyword || p.topic}".
-Rules: 700-1000 words, clear headings (##), short paragraphs, practical advice for Saudi conditions (heat, sand, Saudi Building Code where relevant - only say what you are sure of; if you mention a standard or figure, check it with search). Use the search phrase naturally in the title, the first paragraph and one heading; no keyword stuffing. End with a short, honest call to contact the company using the phone/email in the profile (if given). Plain, human tone; no hype words like "best", "No. 1", "leading".
+Rules: the company only does cladding of facades and walls (natural stone, marble, granite, porcelain) with mechanical dry-fix systems - never present flooring, floor tiles or paving as its work. 700-1000 words, clear headings (##), short paragraphs, practical advice for Saudi conditions (heat, sand, Saudi Building Code where relevant - only say what you are sure of; if you mention a standard or figure, check it with search). Use the search phrase naturally in the title, the first paragraph and one heading; no keyword stuffing. End with a short, honest call to contact the company using the phone/email in the profile (if given). Plain, human tone; no hype words like "best", "No. 1", "leading".
 Return JSON only: {"title":"<max 60 chars>","slug":"<latin lowercase words with dashes>","meta_description":"<max 155 chars>","keywords":["",""],"body":"<markdown>"}`, { max: 5000, webSearch: 3, model: SEO_MODEL, fallback: MODEL })));
     }
 
@@ -526,7 +526,7 @@ Return JSON only: {"title":"<max 60 chars>","slug":"<latin lowercase words with 
       return json(asJson(await claude(`Write a short personal ${p.kind === "follow-up" ? "follow-up " : ""}email in ${lang} from ${p.signature || "the owner of Al-Swati Contracting"} to ${c.name}${c.role ? `, ${c.role}` : ""}${c.company ? ` at ${c.company}` : ""}${c.city ? ` in ${c.city}` : ""}.
 How we know them: ${c.source || "not stated"}. Notes: ${c.notes || "-"}. ${p.kind === "follow-up" ? `Earlier email(s): ${JSON.stringify((c.emails || []).slice(-2)).slice(0, 3000)}` : ""}
 Company profile (the ONLY facts you may state about the company; never invent projects, clients, numbers or claims): ${JSON.stringify(p.profile || {})}
-Purpose: introduce our stone / marble / granite / porcelain cladding and flooring work and ask if they have current or upcoming projects where we could quote (BOQ / drawings welcome). 90-140 words, specific to their role and city, plain and respectful, one clear question, no hype, no pressure, no fake urgency. ${p.kind === "follow-up" ? "One short gentle reminder only." : ""}
+Purpose: introduce our stone / marble / granite / porcelain cladding work for facades and walls (mechanical dry-fix systems) and ask if they have current or upcoming projects where we could quote (BOQ / drawings welcome). 90-140 words, specific to their role and city, plain and respectful, one clear question, no hype, no pressure, no fake urgency. ${p.kind === "follow-up" ? "One short gentle reminder only." : ""}
 Last line: "If you prefer not to receive emails from us, just reply 'no thanks' and we will not write again." (in ${lang}).
 Return JSON only: {"subject":"<short, specific, not salesy>","body":""}`, { max: 1200, model: MODEL_FAST })));
     }
@@ -584,7 +584,7 @@ Return JSON only: {"subject":"<Re: ... >","body":"<email text>"}`, { max: 1500, 
       if (q.rfq?.inquiry_id) { const { data: inq } = await admin.from("inquiries").select("reading").eq("id", q.rfq.inquiry_id).maybeSingle(); reading = inq?.reading?.a || null; }
       const { data: prof } = await admin.from("preferences").select("value").eq("key", "company_profile").maybeSingle();
       const lines = (q.lines || []).map((l: any, i: number) => ({ i: i + 1, desc: l.desc, qty: l.qty, unit: l.unit }));
-      return json(asJson(await claude(`Write the technical proposal (not the price) that a stone, marble, granite and porcelain cladding / flooring contractor in Saudi Arabia submits with its bid.
+      return json(asJson(await claude(`Write the technical proposal (not the price) that a stone, marble, granite and porcelain cladding contractor (facades and walls, mechanical dry-fix fixing) in Saudi Arabia submits with its bid.
 Project: "${q.title}" for ${q.client || "the client"}.
 Scope (quotation lines, quantities as given): ${JSON.stringify(lines).slice(0, 15000)}
 Specification points read from the tender documents: ${JSON.stringify(reading?.specs || []).slice(0, 8000)}
