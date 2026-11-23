@@ -8,6 +8,7 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+  actions: read
   pages: write
   id-token: write
 concurrency:
@@ -41,5 +42,25 @@ jobs:
       - uses: actions/upload-pages-artifact@v5
         if: steps.pages.outcome == 'success'
         with: { path: app/dist }
-      - uses: actions/deploy-pages@v5
+      # GitHub sometimes takes a while before it lists a new upload, and then deploy-pages
+      # stops with "No artifacts named github-pages were found". Wait for the listing,
+      # and if publishing still fails, wait a minute and try once more.
+      - name: Wait until GitHub lists the site upload
         if: steps.pages.outcome == 'success'
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: |
+          for i in $(seq 1 36); do
+            n=$(gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts?name=github-pages" --jq '.total_count' 2>/dev/null || echo 0)
+            if [ "${n:-0}" -ge 1 ]; then echo "GitHub lists the upload (after about $(( (i-1)*5 ))s)."; exit 0; fi
+            sleep 5
+          done
+          echo "::warning::GitHub has not listed the github-pages upload after 3 minutes; trying to publish anyway."
+      - uses: actions/deploy-pages@v5
+        id: deploy
+        if: steps.pages.outcome == 'success'
+        continue-on-error: true
+      - name: Wait a minute before trying again
+        if: steps.pages.outcome == 'success' && steps.deploy.outcome == 'failure'
+        run: sleep 60
+      - uses: actions/deploy-pages@v5
+        if: steps.pages.outcome == 'success' && steps.deploy.outcome == 'failure'
