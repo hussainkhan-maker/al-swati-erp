@@ -11,7 +11,8 @@ import { Btn, Card, Empty, Field, H1, H2, Icon, Pill, Row, Screen, Select, Sheet
 // "Blog from the ERP" workflow of the al-swati-website repository (English /blog/<slug>/, Arabic /ar/blog/<slug without -ar>/).
 export const SITE_URL = "https://al-swaticontracting.com";
 export const BLOG_URL = SITE_URL + "/blog/";
-export const postUrl = (p: { slug: string; lang?: string }) => SITE_URL + (p.lang === "ar" ? `/ar/blog/${String(p.slug).replace(/-ar$/, "")}/` : `/blog/${p.slug}/`);
+export const postUrl = (p: { slug: string; lang?: string; target_path?: string | null }) => SITE_URL + (p.target_path ? p.target_path : p.lang === "ar" ? `/ar/blog/${String(p.slug).replace(/-ar$/, "")}/` : `/blog/${p.slug}/`);
+const PRICE_BLANK = /\[SAR\s*_+|_{3,}\s*[–-]\s*_{3,}/; // the price table still has the owner's blanks
 /** Ask the website to rebuild now (it also rebuilds on its own schedule). Never blocks or fails the editor. */
 const siteRebuild = () => { supabase.functions.invoke("seo", { body: { action: "site_rebuild" } }).catch(() => {}); };
 const CITIES = ["Riyadh", "Dammam", "Al-Khobar", "Al-Hassa", "Jeddah", "Other"];
@@ -20,9 +21,10 @@ const SOURCES = ["Met on site", "Business card", "Referral", "Worked together be
 const DAILY_CAP = 15; // personal emails a day: enough for real conversations, low enough to stay personal
 const slugify = (s: string) => s.toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 70) || "post-" + Date.now().toString(36);
 
-/** The "blog-media" server function: "image" makes the post's picture, "arabic" writes its twin in the other language (English → Arabic, Arabic → English). */
-async function media(action: "image" | "arabic", id: string): Promise<any> {
-  const { data, error } = await supabase.functions.invoke("blog-media", { body: { action, id } });
+/** The "blog-media" server function: "image" makes the post's picture, "arabic" writes its twin in the other language
+ *  (English → Arabic, Arabic → English), "retwin" writes the twin again from new text, "boost" makes a Top-3 upgrade draft. */
+async function media(action: "image" | "arabic" | "retwin" | "boost", id?: string, extra: any = {}): Promise<any> {
+  const { data, error } = await supabase.functions.invoke("blog-media", { body: { action, id, ...extra } });
   if (error) {
     let msg = error.message;
     try { const j = await (error as any).context?.json?.(); if (j?.error) msg = j.error; } catch {}
@@ -47,6 +49,7 @@ function CompanyProfile() {
       <T size={13} muted>The AI writes only these facts about the company — never invented projects, clients or numbers.</T>
       <T size={14}>{cur.name} · {cur.services} · {cur.cities}{cur.phone ? ` · ${cur.phone}` : ""}{cur.email ? ` · ${cur.email}` : ""}{cur.google_reviews ? " · Google reviews linked" : ""}</T>
       {!cur.phone && !cur.email ? <T color={c.warn}>Add a phone or email so readers can contact you.</T> : null}
+      {!String(cur.price_table || "").trim() ? <T color={c.warn}>Add your price ranges (Edit): "Boost to Top 3" puts them in its price table. Until then the table has blanks to fill in.</T> : null}
     </Card>
   );
   const set = (k: string, v: string) => setF({ ...f, [k]: v });
@@ -59,6 +62,7 @@ function CompanyProfile() {
       <Row wrap><Field label="Phone / WhatsApp" value={f.phone} onChange={(v) => set("phone", v)} /><Field label="Email" value={f.email} onChange={(v) => set("email", v)} /><Field label="Website" value={f.website} onChange={(v) => set("website", v)} /></Row>
       <Field label="Google reviews link (Google Maps → your business → Share)" value={f.google_reviews} onChange={(v) => set("google_reviews", v.trim())} placeholder="https://maps.google.com/?cid=…" />
       <Field label="True facts the AI may use (experience, types of buildings done, approvals) — only what you can prove" value={f.about} multiline onChange={(v) => set("about", v)} />
+      <Field label="Your price ranges for the price table (SAR per m², supply + installation with mechanical fixing)" value={f.price_table} multiline onChange={(v) => set("price_table", v)} placeholder={"Natural Riyadh stone: 180–260\nMarble: 350–600\nGranite: 300–450\nPorcelain: 220–320"} />
       {msg ? <T color={c.bad}>{msg}</T> : null}
       <Row><Btn kind="primary" title="Save" onPress={async () => { const { error } = await supabase.from("preferences").upsert({ key: "company_profile", value: f, updated_at: new Date().toISOString() }); if (error) setMsg(error.message); else { await reload(["preferences"]); setF(null); } }} /><Btn kind="ghost" title="Cancel" onPress={() => setF(null)} /></Row>
     </Card>
@@ -67,7 +71,7 @@ function CompanyProfile() {
 
 /** SEO autopilot (server function "seo"): Google Search Console numbers, website leads, the weekly report, blog drafts and
  *  Google review messages. It runs every morning by itself; "Run now" is only for checking. Nothing goes out without the owner. */
-function SeoAutopilot() {
+function SeoAutopilot({ onDraft }: { onDraft?: (p: any) => void }) {
   const { d, reload } = useData(); const c = useColors();
   const s: any = (d.preferences || []).find((p: any) => p.key === "seo_state")?.value || null;
   const [busy, setBusy] = useState(""), [msg, setMsg] = useState("");
@@ -107,6 +111,15 @@ function SeoAutopilot() {
   const t = s?.summary?.totals || {}, web = s?.summary?.web?.week || {};
   const ch = (a: number, b: number) => (b ? ` (${a >= b ? "+" : ""}${Math.round(((a - b) / b) * 100)}%)` : "");
   const wa = (text: string) => Linking.openURL("https://wa.me/?text=" + encodeURIComponent(text));
+  const boost = async (x: any) => {
+    setBusy("boost:" + x.q); setMsg("Writing the upgraded page… (about a minute)");
+    try {
+      const r = await media("boost", undefined, { query: x.q, page: x.page, position: x.pos });
+      await reload(["blog_posts"]);
+      setMsg(`Draft ready for "${x.q}": ${r.note}${r.prices_missing ? " Fill in your prices in the price table before you publish." : ""}`);
+      if (r.post) onDraft?.(r.post);
+    } catch (e: any) { setMsg(e.message); } finally { setBusy(""); }
+  };
   return (
     <Card>
       <Row wrap><H2>SEO autopilot</H2><View style={{ flex: 1 }} />
@@ -125,7 +138,9 @@ function SeoAutopilot() {
       {s?.report?.text ? <Card><T bold>This week's report · {day(s.report.at)}</T>{String(s.report.text).split("\n").map((l: string, i: number) => <T key={i} size={14}>{l}</T>)}</Card> : null}
       {(s?.summary?.striking || []).length > 0 && <>
         <T bold>Close to page 1 (the next posts aim at these)</T>
-        <Table cols={["Search", "Position", "Seen", "Clicks", "Page"]} numeric={[1, 2, 3]} rows={s.summary.striking.slice(0, 8).map((x: any) => [x.q, String(x.pos), String(x.impr), String(x.clicks), x.page])} />
+        <Table cols={["Search", "Position", "Seen", "Clicks", "Page", ""]} numeric={[1, 2, 3]} rows={s.summary.striking.slice(0, 8).map((x: any) => [x.q, String(x.pos), String(x.impr), String(x.clicks), x.page,
+          <Btn key="b" kind="ghost" icon={<Icon name="spark" />} title="Boost to Top 3" busy={busy === "boost:" + x.q} disabled={!!busy || !x.page} onPress={() => boost(x)} />])} />
+        <T size={12} muted>Boost to Top 3: the AI rewrites and expands that page for the search, with your company facts, a price and material table, 5 local questions and links to your service and quote pages. It becomes a draft for you to read — the website changes only when you press Publish. Takes about a minute.</T>
       </>}
       {(s?.queue || []).length > 0 && <T size={13} muted>Next drafts: {s.queue.map((q: any) => `${q.title} (${q.lang === "ar" ? "AR" : "EN"})`).join(" · ")}</T>}
       {(s?.review_msgs || []).length > 0 && <>
@@ -165,7 +180,7 @@ function Blog() {
   };
   return (
     <>
-      <SeoAutopilot />
+      <SeoAutopilot onDraft={setEd} />
       <Card>
         <Row><H2>Write a post yourself</H2><View style={{ flex: 1 }} />{today ? <Pill kind="good" text="written today" /> : null}</Row>
         <T size={13} muted>The autopilot already drafts 2 posts a week from real Google searches. Use this for an extra topic of your own. The AI drafts it; you read it and press Publish.</T>
@@ -192,7 +207,7 @@ function Blog() {
         <Card key={p.id} onPress={() => setEd(p)}>
           <Row>{p.image_url ? <Image source={{ uri: p.image_url }} accessibilityLabel={p.image_alt || p.title} style={{ width: 72, height: 41, borderRadius: 6 }} /> : null}
             <View style={{ flex: 1 }}><T bold>{p.title}</T><T size={12} muted>{p.lang === "ar" ? "العربية" : "English"} · {day(p.created_at)}{p.published_at ? ` · published ${day(p.published_at)}` : ""}{p.twin_id ? (p.lang === "ar" ? " · English version too" : " · Arabic version too") : ""}</T></View>
-            {p.source === "autopilot" ? <Pill kind="acc" text="autopilot" /> : null}<Pill kind={p.status === "Published" ? "good" : p.status === "Draft" ? "warn" : "plain"} text={p.status} /></Row>
+            {p.source === "autopilot" ? <Pill kind="acc" text="autopilot" /> : p.source === "boost" ? <Pill kind="acc" text="Top-3 upgrade" /> : null}<Pill kind={p.status === "Published" ? "good" : p.status === "Draft" ? "warn" : "plain"} text={p.status} /></Row>
         </Card>))}
       {ed && <PostEditor p={ed} onClose={() => setEd(null)} />}
     </>
@@ -210,6 +225,7 @@ function PostEditor({ p: first, onClose }: { p: any; onClose: () => void }) {
     { ok: (f.meta_description || "").length >= 70 && (f.meta_description || "").length <= 160, text: `Search description ${(f.meta_description || "").length} characters (best 70–160)` },
     { ok: words >= 500, text: `${words} words (500+ ranks better)` },
     { ok: /^#{2}\s/m.test(f.body || ""), text: "Has headings" },
+    ...(PRICE_BLANK.test(f.body || "") ? [{ ok: false, text: "Price table: replace every [SAR ___–___] with your real price range" }] : []),
   ];
   const save = async (patch: any = {}) => {
     const { error } = await supabase.from("blog_posts").update({ title: f.title, meta_description: f.meta_description, keywords: String(f.keywords).split(/[,،]/).map((s) => s.trim()).filter(Boolean), body: f.body, slug: f.slug, updated_at: new Date().toISOString(), ...patch }).eq("id", p.id);
@@ -217,11 +233,31 @@ function PostEditor({ p: first, onClose }: { p: any; onClose: () => void }) {
     if (p.status === "Published" || patch.status) siteRebuild(); // the public page changes too
     await reload(["blog_posts"]); return true;
   };
-  const link = postUrl({ slug: f.slug, lang: p.lang });
+  const live = p.revision_of ? (d.blog_posts || []).find((x: any) => x.id === p.revision_of) : null; // the post this upgrade goes into
+  const link = postUrl(live || { slug: f.slug, lang: p.lang, target_path: p.target_path });
+  const upgrade = !!(p.target_path || p.revision_of);
   // Publish = this post goes public, gets its picture, and its twin in the other language (Arabic for English, English for Arabic) goes public with it.
   const other = p.lang === "ar" ? "English" : "Arabic";
   const publish = async () => {
     setErr("");
+    if (PRICE_BLANK.test(f.body || "")) { setErr("Fill in your real prices in the price table first (replace every [SAR ___–___])."); return; }
+    if (p.revision_of) { // a Top-3 upgrade of a published post: its text goes into that post, at the same address
+      const now = new Date().toISOString();
+      const { error } = await supabase.from("blog_posts").update({ title: f.title, meta_description: f.meta_description, keywords: String(f.keywords).split(/[,،]/).map((s) => s.trim()).filter(Boolean), body: f.body, updated_at: now, ...(p.image_url ? { image_url: p.image_url, image_alt: p.image_alt } : {}) }).eq("id", p.revision_of);
+      if (error) { setErr(error.message); return; }
+      await supabase.from("blog_posts").delete().eq("id", p.id);
+      setStep("Updating the other-language version…");
+      let problem = "";
+      try { await media("retwin", p.revision_of); } catch (e: any) { problem = e.message; }
+      setStep(""); siteRebuild(); await reload(["blog_posts"]);
+      if (problem) { setErr("The upgrade is live. The other-language version was not updated: " + problem); return; }
+      onClose(); return;
+    }
+    if (p.target_path) { // a Top-3 upgrade of a hand-made page: it takes that page's place (the old page comes back on Unpublish)
+      await supabase.from("blog_posts").update({ status: "Archived", updated_at: new Date().toISOString() }).eq("target_path", p.target_path).eq("status", "Published").neq("id", p.id);
+      if (!(await save({ status: "Published", published_at: new Date().toISOString() }))) return;
+      siteRebuild(); onClose(); return;
+    }
     if (!(await save({ status: "Published", published_at: p.published_at || new Date().toISOString() }))) return;
     const problems: string[] = [];
     if (!p.image_url) {
@@ -257,9 +293,10 @@ function PostEditor({ p: first, onClose }: { p: any; onClose: () => void }) {
         : <T size={13} muted>No picture yet. The AI makes one for this topic when you press Publish.</T>}
       <Row wrap>
         <Btn kind="ghost" icon={<Icon name="spark" />} title={p.image_url ? "Make a new picture" : "Make the picture now"} busy={step.startsWith("Making")} disabled={!!step} onPress={() => redo("image")} />
-        {!twin && p.status === "Published" ? <Btn kind="ghost" icon={<Icon name="spark" />} title={`Make the ${other} version`} busy={step.startsWith("Writing")} disabled={!!step} onPress={() => redo("arabic")} /> : null}
+        {!twin && !upgrade && p.status === "Published" ? <Btn kind="ghost" icon={<Icon name="spark" />} title={`Make the ${other} version`} busy={step.startsWith("Writing")} disabled={!!step} onPress={() => redo("arabic")} /> : null}
       </Row>
-      <T size={13} muted>{twin ? `${other} version: ${twin.title} (${twin.status === "Published" ? "public" : "draft"}) — open it from the list to read it.` : p.lang === "ar" ? "The English version is written and published together with this post when you press Publish." : "The Arabic version (clear Arabic the way Saudi companies write) is written and published together with this post when you press Publish."}</T>
+      {upgrade ? <T size={13} color={c.accent}>Top-3 upgrade{p.boost_query ? ` for "${p.boost_query}"` : ""} of {link}. {p.revision_of ? "Publish copies this text into the live post (same address) and refreshes its other-language version." : "Publish replaces that page with this version (same address). Unpublish puts the old page back."}</T> : null}
+      {upgrade ? null : <T size={13} muted>{twin ? `${other} version: ${twin.title} (${twin.status === "Published" ? "public" : "draft"}) — open it from the list to read it.` : p.lang === "ar" ? "The English version is written and published together with this post when you press Publish." : "The Arabic version (clear Arabic the way Saudi companies write) is written and published together with this post when you press Publish."}</T>}
       <Field label="Title" value={f.title} onChange={(v) => setF({ ...f, title: v })} />
       <Field label="Search description (shown under the title on Google)" value={f.meta_description} multiline onChange={(v) => setF({ ...f, meta_description: v })} />
       <Field label="Keywords" value={f.keywords} onChange={(v) => setF({ ...f, keywords: v })} />
@@ -271,7 +308,7 @@ function PostEditor({ p: first, onClose }: { p: any; onClose: () => void }) {
       {step ? <T color={c.accent}>{step} (up to a minute)</T> : null}
       <Row wrap>
         <Btn title="Save" disabled={!!step} onPress={async () => { if (await save()) onClose(); }} />
-        {p.status !== "Published" || err ? <Btn kind="primary" title={p.status === "Published" ? "Finish publishing" : "Publish"} busy={!!step} disabled={!!step} onPress={publish} />
+        {p.status !== "Published" || err ? <Btn kind="primary" title={p.status === "Published" ? "Finish publishing" : upgrade ? "Publish (replace the live page)" : "Publish"} busy={!!step} disabled={!!step} onPress={publish} />
           : <Btn title={twin ? "Unpublish (both languages)" : "Unpublish"} disabled={!!step} onPress={unpublish} />}
         {p.status === "Published" && <Btn kind="ghost" icon={<Icon name="share" />} title="Open public page" onPress={() => Linking.openURL(link)} />}
         <Btn kind="ghost" title="Delete" onPress={async () => { const { error } = await supabase.from("blog_posts").delete().eq("id", p.id); if (error) setErr(error.message); else { await reload(["blog_posts"]); onClose(); } }} />
