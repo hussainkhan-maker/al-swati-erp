@@ -14,7 +14,7 @@ const SOURCES = ["Met on site", "Business card", "Referral", "Worked together be
 const DAILY_CAP = 15; // personal emails a day: enough for real conversations, low enough to stay personal
 const slugify = (s: string) => s.toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 70) || "post-" + Date.now().toString(36);
 
-/** The "blog-media" server function: "image" makes the post's picture, "arabic" writes its Arabic twin. */
+/** The "blog-media" server function: "image" makes the post's picture, "arabic" writes its twin in the other language (English → Arabic, Arabic → English). */
 async function media(action: "image" | "arabic", id: string): Promise<any> {
   const { data, error } = await supabase.functions.invoke("blog-media", { body: { action, id } });
   if (error) {
@@ -28,7 +28,7 @@ async function media(action: "image" | "arabic", id: string): Promise<any> {
 
 function useProfile() {
   const { d } = useData();
-  return { name: "Al-Swati Contracting", services: "Supply and installation of marble, granite, natural stone and porcelain for flooring and facade cladding", cities: "Riyadh, Dammam, Al-Hassa", phone: "", email: "", website: "", about: "",
+  return { name: "Al-Swati Contracting", services: "Supply and installation of natural stone, marble, granite and porcelain cladding for facades and walls, with mechanical (dry-fix) fixing systems", cities: "Riyadh, Dammam, Al-Hassa", phone: "", email: "", website: "", about: "",
     ...((d.preferences || []).find((p: any) => p.key === "company_profile")?.value || {}) };
 }
 
@@ -164,8 +164,8 @@ function Blog() {
         <Row><H2>Write a post yourself</H2><View style={{ flex: 1 }} />{today ? <Pill kind="good" text="written today" /> : null}</Row>
         <T size={13} muted>The autopilot already drafts 2 posts a week from real Google searches. Use this for an extra topic of your own. The AI drafts it; you read it and press Publish.</T>
         <Row wrap>
-          <Field label="Topic (or pick an idea below)" value={topic} onChange={setTopic} placeholder="e.g. Choosing marble for villa floors in Riyadh heat" />
-          <Field label="Main search phrase" value={kw} onChange={setKw} placeholder="e.g. marble flooring Riyadh" style={{ maxWidth: 240 }} />
+          <Field label="Topic (or pick an idea below)" value={topic} onChange={setTopic} placeholder="e.g. Choosing stone for villa facades in Riyadh heat" />
+          <Field label="Main search phrase" value={kw} onChange={setKw} placeholder="e.g. mechanical stone cladding Riyadh" style={{ maxWidth: 240 }} />
           <Select label="Language" value={lang} options={[{ value: "en", label: "English" }, { value: "ar", label: "العربية" }]} onChange={setLang} style={{ maxWidth: 150 }} />
         </Row>
         <Row wrap>
@@ -210,7 +210,8 @@ function PostEditor({ p: first, onClose }: { p: any; onClose: () => void }) {
     if (error) { setErr(error.message); return false; } await reload(["blog_posts"]); return true;
   };
   const link = BLOG_URL + "?p=" + encodeURIComponent(f.slug);
-  // Publish = this post goes public, gets its picture, and (for an English post) its Arabic twin goes public with it.
+  // Publish = this post goes public, gets its picture, and its twin in the other language (Arabic for English, English for Arabic) goes public with it.
+  const other = p.lang === "ar" ? "English" : "Arabic";
   const publish = async () => {
     setErr("");
     if (!(await save({ status: "Published", published_at: p.published_at || new Date().toISOString() }))) return;
@@ -219,19 +220,17 @@ function PostEditor({ p: first, onClose }: { p: any; onClose: () => void }) {
       setStep("Making the picture…");
       try { await media("image", p.id); } catch (e: any) { problems.push("Picture: " + e.message); }
     }
-    if (p.lang !== "ar") {
-      setStep("Writing the Arabic version…");
-      try {
-        const r = await media("arabic", p.id);
-        if (r?.post && r.post.status !== "Published") await supabase.from("blog_posts").update({ status: "Published", published_at: r.post.published_at || new Date().toISOString() }).eq("id", r.post.id);
-      } catch (e: any) { problems.push("Arabic version: " + e.message); }
-    }
+    setStep(`Writing the ${other} version…`);
+    try {
+      const r = await media("arabic", p.id);
+      if (r?.post && r.post.status !== "Published") await supabase.from("blog_posts").update({ status: "Published", published_at: r.post.published_at || new Date().toISOString() }).eq("id", r.post.id);
+    } catch (e: any) { problems.push(`${other} version: ` + e.message); }
     setStep(""); await reload(["blog_posts"]);
     if (problems.length) { setErr("The post is public. Not finished: " + problems.join(" · ") + " Press the button below to try again."); return; }
     onClose();
   };
   const redo = async (what: "image" | "arabic") => {
-    setErr(""); setStep(what === "image" ? "Making the picture…" : "Writing the Arabic version…");
+    setErr(""); setStep(what === "image" ? "Making the picture…" : `Writing the ${other} version…`);
     try {
       const r = await media(what, p.id);
       if (what === "arabic" && r?.post && p.status === "Published" && r.post.status !== "Published") await supabase.from("blog_posts").update({ status: "Published", published_at: new Date().toISOString() }).eq("id", r.post.id);
@@ -250,9 +249,9 @@ function PostEditor({ p: first, onClose }: { p: any; onClose: () => void }) {
         : <T size={13} muted>No picture yet. The AI makes one for this topic when you press Publish.</T>}
       <Row wrap>
         <Btn kind="ghost" icon={<Icon name="spark" />} title={p.image_url ? "Make a new picture" : "Make the picture now"} busy={step.startsWith("Making")} disabled={!!step} onPress={() => redo("image")} />
-        {p.lang !== "ar" && !twin && p.status === "Published" ? <Btn kind="ghost" icon={<Icon name="spark" />} title="Make the Arabic version" busy={step.startsWith("Writing")} disabled={!!step} onPress={() => redo("arabic")} /> : null}
+        {!twin && p.status === "Published" ? <Btn kind="ghost" icon={<Icon name="spark" />} title={`Make the ${other} version`} busy={step.startsWith("Writing")} disabled={!!step} onPress={() => redo("arabic")} /> : null}
       </Row>
-      {p.lang !== "ar" ? <T size={13} muted>{twin ? `Arabic version: ${twin.title} (${twin.status === "Published" ? "public" : "draft"}) — open it from the list to read it.` : "The Arabic version (clear Arabic the way Saudi companies write) is written and published together with this post when you press Publish."}</T> : null}
+      <T size={13} muted>{twin ? `${other} version: ${twin.title} (${twin.status === "Published" ? "public" : "draft"}) — open it from the list to read it.` : p.lang === "ar" ? "The English version is written and published together with this post when you press Publish." : "The Arabic version (clear Arabic the way Saudi companies write) is written and published together with this post when you press Publish."}</T>
       <Field label="Title" value={f.title} onChange={(v) => setF({ ...f, title: v })} />
       <Field label="Search description (shown under the title on Google)" value={f.meta_description} multiline onChange={(v) => setF({ ...f, meta_description: v })} />
       <Field label="Keywords" value={f.keywords} onChange={(v) => setF({ ...f, keywords: v })} />
