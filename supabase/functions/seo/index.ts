@@ -342,7 +342,9 @@ async function tick(force: string | false) {
  *  Needs the secret GITHUB_SITE_TOKEN: a fine-grained GitHub token for the al-swati-website repository only, with
  *  "Contents: Read and write". Without it the website still updates on its own schedule (about every 30-60 minutes). */
 async function siteRebuild() {
-  const tok = Deno.env.get("GITHUB_SITE_TOKEN");
+  // A pasted token can carry an invisible character (a space, line break or direction mark) that makes the request
+  // fail before it is sent; a GitHub token has only letters, digits and "_".
+  const tok = (Deno.env.get("GITHUB_SITE_TOKEN") || "").replace(/[^A-Za-z0-9_]/g, "");
   if (!tok) return { started: false, why: "no GITHUB_SITE_TOKEN secret yet - the website picks the change up on its next scheduled build" };
   const r = await fetch("https://api.github.com/repos/hussainkhan-maker/al-swati-website/dispatches", {
     method: "POST", signal: AbortSignal.timeout(15000),
