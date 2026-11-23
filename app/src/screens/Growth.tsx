@@ -7,7 +7,13 @@ import { day, stamp } from "../lib/fmt";
 import { ai, supabase } from "../lib/supabase";
 import { Btn, Card, Empty, Field, H1, H2, Icon, Pill, Row, Screen, Select, Sheet, StatStrip, Table, T, useColors } from "../ui";
 
-export const BLOG_URL = "https://hussainkhan-maker.github.io/al-swati-erp/blog/";
+// Published posts live on the company website, where they count for its Google ranking: built as real pages by the
+// "Blog from the ERP" workflow of the al-swati-website repository (English /blog/<slug>/, Arabic /ar/blog/<slug without -ar>/).
+export const SITE_URL = "https://al-swaticontracting.com";
+export const BLOG_URL = SITE_URL + "/blog/";
+export const postUrl = (p: { slug: string; lang?: string }) => SITE_URL + (p.lang === "ar" ? `/ar/blog/${String(p.slug).replace(/-ar$/, "")}/` : `/blog/${p.slug}/`);
+/** Ask the website to rebuild now (it also rebuilds on its own schedule). Never blocks or fails the editor. */
+const siteRebuild = () => { supabase.functions.invoke("seo", { body: { action: "site_rebuild" } }).catch(() => {}); };
 const CITIES = ["Riyadh", "Dammam", "Al-Khobar", "Al-Hassa", "Jeddah", "Other"];
 const ROLES = ["Project Manager", "Construction Manager", "Consultant", "Developer / Owner", "Main contractor", "Architect", "Other"];
 const SOURCES = ["Met on site", "Business card", "Referral", "Worked together before", "They contacted us", "Event / exhibition", "Their website contact page", "Other"];
@@ -180,7 +186,7 @@ function Blog() {
           </Row>))}
       </Card>
       <H2>Posts</H2>
-      <T size={13} muted>Published posts are public at {BLOG_URL} — share that link or add it to your website and Google Business profile.</T>
+      <T size={13} muted>Published posts are public at {BLOG_URL} (Arabic: {SITE_URL}/ar/blog/) and appear there a few minutes after you press Publish — share that link and add it to your Google Business profile.</T>
       {!posts.length && <Empty text="No posts yet." />}
       {posts.map((p: any) => (
         <Card key={p.id} onPress={() => setEd(p)}>
@@ -207,9 +213,11 @@ function PostEditor({ p: first, onClose }: { p: any; onClose: () => void }) {
   ];
   const save = async (patch: any = {}) => {
     const { error } = await supabase.from("blog_posts").update({ title: f.title, meta_description: f.meta_description, keywords: String(f.keywords).split(/[,،]/).map((s) => s.trim()).filter(Boolean), body: f.body, slug: f.slug, updated_at: new Date().toISOString(), ...patch }).eq("id", p.id);
-    if (error) { setErr(error.message); return false; } await reload(["blog_posts"]); return true;
+    if (error) { setErr(error.message); return false; }
+    if (p.status === "Published" || patch.status) siteRebuild(); // the public page changes too
+    await reload(["blog_posts"]); return true;
   };
-  const link = BLOG_URL + "?p=" + encodeURIComponent(f.slug);
+  const link = postUrl({ slug: f.slug, lang: p.lang });
   // Publish = this post goes public, gets its picture, and its twin in the other language (Arabic for English, English for Arabic) goes public with it.
   const other = p.lang === "ar" ? "English" : "Arabic";
   const publish = async () => {
@@ -225,7 +233,7 @@ function PostEditor({ p: first, onClose }: { p: any; onClose: () => void }) {
       const r = await media("arabic", p.id);
       if (r?.post && r.post.status !== "Published") await supabase.from("blog_posts").update({ status: "Published", published_at: r.post.published_at || new Date().toISOString() }).eq("id", r.post.id);
     } catch (e: any) { problems.push(`${other} version: ` + e.message); }
-    setStep(""); await reload(["blog_posts"]);
+    setStep(""); siteRebuild(); await reload(["blog_posts"]);
     if (problems.length) { setErr("The post is public. Not finished: " + problems.join(" · ") + " Press the button below to try again."); return; }
     onClose();
   };
@@ -235,12 +243,12 @@ function PostEditor({ p: first, onClose }: { p: any; onClose: () => void }) {
       const r = await media(what, p.id);
       if (what === "arabic" && r?.post && p.status === "Published" && r.post.status !== "Published") await supabase.from("blog_posts").update({ status: "Published", published_at: new Date().toISOString() }).eq("id", r.post.id);
     } catch (e: any) { setErr(e.message); }
-    setStep(""); await reload(["blog_posts"]);
+    setStep(""); if (p.status === "Published") siteRebuild(); await reload(["blog_posts"]);
   };
   const unpublish = async () => {
     if (!(await save({ status: "Draft" }))) return;
     if (p.twin_id) await supabase.from("blog_posts").update({ status: "Draft", updated_at: new Date().toISOString() }).eq("id", p.twin_id);
-    await reload(["blog_posts"]); onClose();
+    siteRebuild(); await reload(["blog_posts"]); onClose();
   };
   return (
     <Sheet open onClose={onClose} title={p.status === "Published" ? "Published post" : "Draft post"}>
