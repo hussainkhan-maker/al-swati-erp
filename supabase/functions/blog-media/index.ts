@@ -246,6 +246,16 @@ const pathOfPost = (p: any) => (p.target_path ? normPath(p.target_path) : p.lang
 const decode = (s: string) => s.replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#0?39;/g, "'");
 
 /** A live page's title, description, hero picture and main text as simple markdown, for the AI to start from. */
+// Page furniture that the website adds by itself: a "Back to Blog" link and the category / date / author line.
+const CHROME = /^\[[^\]]*\]\((?:https:\/\/al-swaticontracting\.com)?(?:\/ar)?\/blog\/\)$|[▣👤]/u;
+const tidyBody = (s: string, ar: boolean) => {
+  const l = s.split("\n");
+  while (l.length && (!l[0].trim() || /^# /.test(l[0]) || CHROME.test(l[0].trim()))) l.shift();
+  const out = l.filter((x) => !/^# /.test(x)).join("\n").trim(); // the page has its own title (h1)
+  return ar ? out.replace(/\[→\s*/g, "[").replace(/\s*→\]/g, "]") : out; // a right arrow points backwards in Arabic
+};
+const tidyTitle = (t: string) => String(t).replace(/\s*[|·–—-]\s*(?:شركة\s+)?(?:ال)?سواطي[^|]*$/u, "").replace(/\s*[|·–—-]\s*Al[- ]?Swati[^|]*$/i, "").trim(); // the website adds the name
+
 function pageText(html: string) {
   const meta = (n: string) => decode((html.match(new RegExp(`<meta (?:name|property)="${n}" content="([^"]*)"`, "i")) || [])[1] || "");
   const main = (html.match(/<main[\s\S]*?<\/main>/i) || [html.replace(/^[\s\S]*?<body[^>]*>/i, "")])[0];
@@ -255,7 +265,10 @@ function pageText(html: string) {
     .replace(/<h[34][^>]*>([\s\S]*?)<\/h[34]>/gi, "\n\n### $1\n\n").replace(/<summary[^>]*>([\s\S]*?)<\/summary>/gi, "\n\n### $1\n\n")
     .replace(/<a [^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi, (_m: string, h: string, t: string) => { const x = t.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim(); return x ? `[${x}](${h})` : ""; })
     .replace(/<li[^>]*>/gi, "\n- ").replace(/<br\s*\/?>/gi, "\n").replace(/<\/(p|div|li|ul|ol|section|article|details|figcaption|tr|td|th)>/gi, "\n").replace(/<[^>]+>/g, " ");
-  const body = decode(md).split("\n").map((l) => l.replace(/[ \t]+/g, " ").trim()).join("\n").replace(/\n{3,}/g, "\n\n").trim();
+  let lines = decode(md).split("\n").map((l) => l.replace(/[ \t]+/g, " ").trim());
+  const h1 = lines.findIndex((l) => /^# /.test(l)); // only the article: the build adds the title, date line and back link itself
+  if (h1 >= 0 && h1 < 15) lines = lines.slice(h1 + 1);
+  const body = lines.filter((l) => !CHROME.test(l)).join("\n").replace(/\n{3,}/g, "\n\n").trim();
   const title = decode((html.match(/<title>([^<]*)<\/title>/i) || [])[1] || "").replace(/\s*\|[^|]*$/, "").trim();
   return { title, meta_description: meta("description"), body, image: img ? (img.startsWith("/") ? SITE + img : img) : null, image_alt: title };
 }
@@ -295,7 +308,8 @@ ${NO_FLOORING}
 - Add a section "## ${faqHead}" with exactly 5 questions that Riyadh villa owners and commercial contractors really ask about this search, each written as "### <question>" followed by a 2-3 sentence answer (facts only from this page and the company facts).
 - Link from the text, with natural words, to: ${links.map(([p, t]) => `[${t}](${p})`).join(", ")} - use these exact paths.
 - End with a short contact paragraph (phone / WhatsApp / email from the facts).
-- Title: at most 60 characters, with the search phrase. Search description: 120-155 characters, with the search phrase. Keywords: 4-8 search phrases.
+- Start with the first paragraph of the article: no "# " title, no back link and no date, category or author line - the website adds those itself.
+- Title: at most 60 characters, with the search phrase, without the company name (the website adds it). Search description: 120-155 characters, with the search phrase. Keywords: 4-8 search phrases.
 Answer in exactly this form and nothing else:
 TITLE: <title>
 META: <search description>
@@ -311,7 +325,8 @@ ${String(cur.body || "").slice(0, 14000)}`;
   let out: any;
   try { out = parsePost(await (CLAUDE_KEY ? claude(prompt, 9000, 140000) : geminiText(prompt, 9000))); }
   catch (e) { if (!GEMINI_KEY || !CLAUDE_KEY) throw e; out = parsePost(await geminiText(prompt, 9000)); } // second chance with the other AI
-  const body = String(out.body || "");
+  const body = tidyBody(String(out.body || ""), ar);
+  out.title = tidyTitle(out.title || "");
   if (!out.title || body.split(/\s+/).length < 450) throw new Error("The upgraded page came back too short. Try again.");
   const rnd = Date.now().toString(36).slice(-4);
   let slug: string, target_path: string | null = null, revision_of: string | null = null, note: string;
