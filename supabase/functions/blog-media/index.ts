@@ -32,9 +32,9 @@ function parsePost(t: string) {
   return { title: head("TITLE"), meta_description: head("META"), keywords: head("KEYWORDS").split(/[,،]/).map((s) => s.trim()).filter(Boolean), body };
 }
 
-async function claude(prompt: string, max: number) {
+async function claude(prompt: string, max: number, ms = 120000) {
   const r = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST", signal: AbortSignal.timeout(120000),
+    method: "POST", signal: AbortSignal.timeout(ms),
     headers: { "x-api-key": CLAUDE_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
     body: JSON.stringify({ model: ARABIC_MODEL, max_tokens: max, messages: [{ role: "user", content: prompt }] }),
   });
@@ -233,6 +233,106 @@ async function useSitePhoto(post: any, why: string) {
   return { image_url: ph.url, image_alt: ph.alt, model: "website-photo", note: "Google AI pictures need billing on the Google key; a photo from the company website was used." };
 }
 
+
+// ───────── "Boost to Top 3": upgrade the page that is close to Google's top 3 for one search ─────────
+// The AI rewrites and expands the live page (an ERP post, or a hand-made page of the website) with the company profile's
+// facts, a price and material table (prices only from the owner), a 5-question FAQ and links to the main service pages.
+// The result is always a Draft: nothing changes on the website until the owner reads it and presses Publish.
+const AR_RULE = `In Arabic, cladding work is always called تركيب (تركيب حجر، تركيب رخام، تركيب جرانيت، تركيب بورسلان، تركيب واجهات حجر) - never تكسية or تكسيات, because Saudi clients search for تركيب. The company's Arabic name is "شركة السواطي للمقاولات".`;
+// main pages are never replaced by an article: a boost for them writes a new article aimed at the search instead
+const MAIN_PAGES = new Set(["/", "/ar/", "/blog/", "/ar/blog/", "/contact/", "/ar/contact/", "/about/", "/ar/about/", "/projects/", "/ar/projects/", "/privacy/", "/ar/privacy/", "/terms/", "/ar/terms/"]);
+const normPath = (t: string) => { let s = String(t || "").trim().replace(/^https?:\/\/[^/]+/i, "").split(/[?#]/)[0]; if (!s.startsWith("/")) s = "/" + s; if (!/\.[a-z0-9]+$/i.test(s) && !s.endsWith("/")) s += "/"; return s; };
+const pathOfPost = (p: any) => (p.target_path ? normPath(p.target_path) : p.lang === "ar" ? `/ar/blog/${String(p.slug).replace(/-ar$/, "")}/` : `/blog/${p.slug}/`);
+const decode = (s: string) => s.replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#0?39;/g, "'");
+
+/** A live page's title, description, hero picture and main text as simple markdown, for the AI to start from. */
+function pageText(html: string) {
+  const meta = (n: string) => decode((html.match(new RegExp(`<meta (?:name|property)="${n}" content="([^"]*)"`, "i")) || [])[1] || "");
+  const main = (html.match(/<main[\s\S]*?<\/main>/i) || [html.replace(/^[\s\S]*?<body[^>]*>/i, "")])[0];
+  const img = (main.match(/<img[^>]+src="([^"]+)"/i) || [])[1] || meta("og:image");
+  const md = main.replace(/<(script|style|svg|form|noscript|iframe|canvas)[\s\S]*?<\/\1>/gi, "")
+    .replace(/<h1[^>]*>([\s\S]*?)<\/h1>/gi, "\n\n# $1\n\n").replace(/<h2[^>]*>([\s\S]*?)<\/h2>/gi, "\n\n## $1\n\n")
+    .replace(/<h[34][^>]*>([\s\S]*?)<\/h[34]>/gi, "\n\n### $1\n\n").replace(/<summary[^>]*>([\s\S]*?)<\/summary>/gi, "\n\n### $1\n\n")
+    .replace(/<a [^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi, (_m: string, h: string, t: string) => { const x = t.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim(); return x ? `[${x}](${h})` : ""; })
+    .replace(/<li[^>]*>/gi, "\n- ").replace(/<br\s*\/?>/gi, "\n").replace(/<\/(p|div|li|ul|ol|section|article|details|figcaption|tr|td|th)>/gi, "\n").replace(/<[^>]+>/g, " ");
+  const body = decode(md).split("\n").map((l) => l.replace(/[ \t]+/g, " ").trim()).join("\n").replace(/\n{3,}/g, "\n\n").trim();
+  const title = decode((html.match(/<title>([^<]*)<\/title>/i) || [])[1] || "").replace(/\s*\|[^|]*$/, "").trim();
+  return { title, meta_description: meta("description"), body, image: img ? (img.startsWith("/") ? SITE + img : img) : null, image_alt: title };
+}
+
+async function boost(b: any) {
+  const q = String(b.query || "").trim().slice(0, 200), path = normPath(b.page || "");
+  if (!q || !b.page) throw new Error("Pick a search from the list first.");
+  const ar = path.startsWith("/ar/"), main = MAIN_PAGES.has(path);
+  const { data: live } = await db.from("blog_posts").select("*").eq("status", "Published");
+  const orig = (live || []).find((p: any) => pathOfPost(p) === path) || null;
+  let cur: any;
+  if (orig) cur = { title: orig.title, meta_description: orig.meta_description, body: orig.body, image: orig.image_url, image_alt: orig.image_alt };
+  else {
+    const r = await fetch(SITE + path, { signal: AbortSignal.timeout(20000) });
+    if (!r.ok) throw new Error(`The page ${path} could not be read (${r.status}).`);
+    cur = pageText(await r.text());
+  }
+  const { data: pr } = await db.from("preferences").select("value").eq("key", "company_profile").maybeSingle();
+  const co = pr?.value || {}, prices = String(co.price_table || "").trim();
+  const links = [["/stone-cladding-riyadh/", ar ? "تركيب الحجر في الرياض" : "stone cladding in Riyadh"], ["/marble-installation-riyadh/", ar ? "تركيب الرخام في الرياض" : "marble installation in Riyadh"], ["/contact/#contact-form", ar ? "اطلب عرض سعر مجاني" : "request a free quote"]]
+    .map(([p, t]) => [(ar ? "/ar" : "") + p, t]).filter(([p]) => p.split("#")[0] !== path); // no link from a page to itself
+  const year = new Date().getFullYear();
+  const priceHead = ar ? `أسعار ومقارنة مواد التركيب في الرياض ${year}` : `${year} Riyadh price and material comparison`;
+  const faqHead = ar ? "الأسئلة الشائعة" : "Frequently asked questions";
+  const cols = ar ? ["المادة", "التوريد والتركيب بالتثبيت الميكانيكي (ريال/م²)", "الأنسب لـ", "ملاحظات"] : ["Material", "Supply & installation with mechanical fixing (SAR/m²)", "Best for", "Notes"];
+  const prompt = `You improve one page of the website of ${COMPANY}, so it can reach the top 3 on Google in Saudi Arabia for the search "${q}" (its average position now: ${b.position ?? "unknown"}).
+Write the complete new version of the page in ${ar ? "Arabic: clear Modern Standard Arabic the way Saudi companies write on their own websites. " + AR_RULE : "English: clear, natural, professional English for clients in Saudi Arabia."}
+COMPANY FACTS (the ONLY facts you may state about the company; never invent projects, clients, numbers, years, certificates or prices):
+${JSON.stringify({ name: co.name, services: co.services, cities: co.cities, phone: co.phone, email: co.email, facts: co.about })}
+RULES
+- Keep what is true and useful on the current page and expand it to about 1100-1500 words of specific, practical help for villa owners, developers and commercial contractors in Riyadh. Use the search phrase "${q}" in the title, in the first paragraph and in one "## " heading, naturally - no keyword stuffing.
+${NO_FLOORING}
+- "## " headings and short paragraphs. Use the company facts where they help the reader decide, worded only as the facts say.
+- Add a section "## ${priceHead}" with a markdown table with exactly these columns: | ${cols.join(" | ")} | and these rows in this order: ${ar ? "حجر الرياض الطبيعي، الرخام، الجرانيت، البورسلان" : "Natural Riyadh stone, Marble, Granite, Porcelain"}.
+  ${prices ? `For the price cells use exactly these ranges from the owner, unchanged: ${prices}` : `The owner has not given prices yet: write exactly "[SAR ___–___]" in every price cell. Never guess or invent a price.`}
+  Under the table, one sentence: the final price depends on the stone grade, thickness, panel size, building height and quantity, and comes with a free site visit and written quote.
+- Add a section "## ${faqHead}" with exactly 5 questions that Riyadh villa owners and commercial contractors really ask about this search, each written as "### <question>" followed by a 2-3 sentence answer (facts only from this page and the company facts).
+- Link from the text, with natural words, to: ${links.map(([p, t]) => `[${t}](${p})`).join(", ")} - use these exact paths.
+- End with a short contact paragraph (phone / WhatsApp / email from the facts).
+- Title: at most 60 characters, with the search phrase. Search description: 120-155 characters, with the search phrase. Keywords: 4-8 search phrases.
+Answer in exactly this form and nothing else:
+TITLE: <title>
+META: <search description>
+KEYWORDS: <phrase>, <phrase>, <phrase>
+---
+<the whole page in markdown>
+
+CURRENT PAGE (${SITE}${path}):
+TITLE: ${cur.title}
+DESCRIPTION: ${cur.meta_description || ""}
+---
+${String(cur.body || "").slice(0, 14000)}`;
+  let out: any;
+  try { out = parsePost(await (CLAUDE_KEY ? claude(prompt, 9000, 140000) : geminiText(prompt, 9000))); }
+  catch (e) { if (!GEMINI_KEY || !CLAUDE_KEY) throw e; out = parsePost(await geminiText(prompt, 9000)); } // second chance with the other AI
+  const body = String(out.body || "");
+  if (!out.title || body.split(/\s+/).length < 450) throw new Error("The upgraded page came back too short. Try again.");
+  const rnd = Date.now().toString(36).slice(-4);
+  let slug: string, target_path: string | null = null, revision_of: string | null = null, note: string;
+  if (orig) { revision_of = orig.id; slug = `${String(orig.slug).replace(/-ar$/, "").slice(0, 60)}-top3-${rnd}${ar ? "-ar" : ""}`; note = "Publish copies this text into the live post (same address) and refreshes its other-language version."; }
+  else if (main) { slug = `${slugify(out.title) || "post-" + rnd}${ar ? "-ar" : ""}`; note = `${path} is a main page and stays as it is: this is a new article aimed at "${q}".`; }
+  else { target_path = path; slug = `upgrade-${path.replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "").slice(0, 60)}-${rnd}`; note = `Publish replaces the live page ${path} with this version (same address). Unpublish puts the old page back.`; }
+  if (!main) { // one waiting upgrade per page: a new boost replaces the older draft
+    const old = db.from("blog_posts").delete().eq("status", "Draft").eq("source", "boost");
+    await (target_path ? old.eq("target_path", target_path) : old.eq("revision_of", revision_of));
+  }
+  const { data: same } = await db.from("blog_posts").select("id").eq("slug", slug).maybeSingle();
+  if (same) slug = `${slug.replace(/-ar$/, "").slice(0, 70)}-${rnd}${ar ? "-ar" : ""}`;
+  const { data: row, error } = await db.from("blog_posts").insert({
+    slug, lang: ar ? "ar" : "en", title: String(out.title).slice(0, 90), meta_description: String(out.meta_description || "").slice(0, 170),
+    keywords: (out.keywords || []).slice(0, 8), body, status: "Draft", source: "boost", target_path, revision_of, boost_query: q,
+    image_url: main ? null : cur.image || null, image_alt: main ? null : String(cur.image_alt || out.title).slice(0, 120), created_by: USER_ID,
+  }).select().single();
+  if (error) throw new Error("Saving the upgrade: " + error.message);
+  return { post: row, note, prices_missing: !prices };
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   const json = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { ...cors, "content-type": "application/json" } });
@@ -246,8 +346,25 @@ Deno.serve(async (req) => {
     if (u.user.last_sign_in_at && Date.parse(u.user.last_sign_in_at) < Date.now() - 7 * 864e5) return json({ error: "Please sign in again." }, 401);
     USER_ID = u.user.id; TASK = "blog_" + String(body.action || "");
 
+    if (body.action === "boost") return json(await boost(body));
+
     const { data: post } = await db.from("blog_posts").select("*").eq("id", String(body.id || "")).maybeSingle();
     if (!post) return json({ error: "Post not found" }, 404);
+
+    // after a Top-3 upgrade was copied into a post: write its other-language version again from the new text
+    if (body.action === "retwin") {
+      if (!post.twin_id) return json({ skipped: true });
+      const { data: tw } = await db.from("blog_posts").select("*").eq("id", post.twin_id).maybeSingle();
+      if (!tw) return json({ skipped: true });
+      const a = post.lang !== "ar" ? await arabic(post) : await english(post);
+      const { data: up, error } = await db.from("blog_posts").update({
+        title: String(a.title).slice(0, 90), meta_description: String(a.meta_description || "").slice(0, 170),
+        keywords: (Array.isArray(a.keywords) ? a.keywords : []).map((k: any) => String(k).trim()).filter(Boolean).slice(0, 8), body: String(a.body),
+        image_url: post.image_url || tw.image_url, updated_at: new Date().toISOString(),
+      }).eq("id", tw.id).select().single();
+      if (error) throw new Error("Updating the other language: " + error.message);
+      return json({ post: up, refreshed: true });
+    }
 
     if (body.action === "image") return json(await picture(post));
 
