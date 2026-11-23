@@ -81,7 +81,7 @@ export function OutlookLink({ onLinked }: { onLinked?: (linked: boolean) => void
   // Back from Microsoft's sign-in page (…?code=…&state=…): hand the one-time code to the server, then look at the inbox.
   useEffect(() => {
     const u = Platform.OS === "web" ? new URLSearchParams(globalThis.location?.search || "") : null;
-    const back = u?.get("state") ? { code: u.get("code") || "", state: u.get("state") || "", error: u.get("error") || "", error_description: u.get("error_description") || "" } : null;
+    const back = u?.get("state") && !String(u.get("state")).startsWith("g.") ? { code: u.get("code") || "", state: u.get("state") || "", error: u.get("error") || "", error_description: u.get("error_description") || "" } : null;
     if (back) try { globalThis.history?.replaceState(null, "", globalThis.location.pathname); } catch { /* keep the address */ }
     if (!back) { load(); return; }
     setBusy("start");
