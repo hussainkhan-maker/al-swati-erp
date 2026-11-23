@@ -1,6 +1,6 @@
 // Growth: company profile, blog posts for search engines (SEO) and personal outreach to project managers.
 // The AI only drafts. Posts go public only when the owner presses Publish; every email is read and sent by the owner himself.
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Image, Linking, Platform, View } from "react-native";
 import { useData } from "../lib/data";
 import { day, stamp } from "../lib/fmt";
@@ -73,6 +73,31 @@ function SeoAutopilot() {
       await reload(["preferences", "blog_posts"]); setMsg((data?.done || []).join(" · ") || "Done.");
     } catch (e: any) { setMsg(e.message); } finally { setBusy(""); }
   };
+  // Search Console: the owner's own "Sign in with Google" (read-only). Google sends him back here with ?code=…&state=g.…
+  const [g, setG] = useState<any>(null);
+  const seo = async (action: string, body: any = {}) => {
+    const { data, error } = await supabase.functions.invoke("seo", { body: { action, ...body } });
+    if (error) { let m = error.message; try { const j = await (error as any).context?.json?.(); if (j?.error) m = j.error; } catch {} throw new Error(m); }
+    if (data?.error) throw new Error(data.error);
+    return data;
+  };
+  const gLoad = () => seo("google_status").then(setG).catch((e) => setMsg(e.message));
+  useEffect(() => {
+    const u = Platform.OS === "web" ? new URLSearchParams(globalThis.location?.search || "") : null;
+    const st = u?.get("state") || "";
+    if (!st.startsWith("g.")) { gLoad(); return; }
+    try { globalThis.history?.replaceState(null, "", globalThis.location.pathname); } catch { /* keep the address */ }
+    setBusy("google");
+    seo("google_finish", { code: u?.get("code") || "", state: st, error: u?.get("error") || "", error_description: u?.get("error_description") || "" })
+      .then(async (r) => { setMsg(`Google linked (${r.account}). Bringing in Google's numbers…`); await gLoad(); setBusy(""); await run(); })
+      .catch((e) => { setMsg(e.message); gLoad(); setBusy(""); });
+  }, []);
+  const gStart = async () => {
+    setBusy("google"); setMsg("");
+    try { const { url } = await seo("google_start"); if (Platform.OS === "web") globalThis.location.assign(url); else Linking.openURL(url); }
+    catch (e: any) { setMsg(e.message); setBusy(""); }
+  };
+  const gStop = async () => { setBusy("google"); try { await seo("google_disconnect"); await gLoad(); await reload(["preferences"]); } catch (e: any) { setMsg(e.message); } finally { setBusy(""); } };
   const t = s?.summary?.totals || {}, web = s?.summary?.web?.week || {};
   const ch = (a: number, b: number) => (b ? ` (${a >= b ? "+" : ""}${Math.round(((a - b) / b) * 100)}%)` : "");
   const wa = (text: string) => Linking.openURL("https://wa.me/?text=" + encodeURIComponent(text));
@@ -80,6 +105,9 @@ function SeoAutopilot() {
     <Card>
       <Row wrap><H2>SEO autopilot</H2><View style={{ flex: 1 }} />
         {s?.google?.linked ? <Pill kind="good" text="Google linked" /> : <Pill kind="warn" text="Google Search Console not linked yet" />}</Row>
+      {g && !g.linked ? <Row wrap><T size={14}>Link Google Search Console once, with the Google account that has al-swaticontracting.com (read-only).</T>
+        <Btn kind="primary" title="Sign in with Google" busy={busy === "google"} disabled={!!busy} onPress={gStart} /></Row> : null}
+      {g?.linked && g.account ? <Row wrap><T size={13} muted>Google: {g.account}{g.error ? ` · last problem: ${g.error}` : ""}</T><View style={{ flex: 1 }} /><Btn kind="ghost" title="Disconnect Google" disabled={!!busy} onPress={gStop} /></Row> : null}
       <T size={13} muted>Every morning it reads Google's numbers for al-swaticontracting.com, finds searches close to page 1, writes 2 blog drafts a week from them, counts website leads and WhatsApp clicks, and tells the main agent. You only read and press Publish.{s?.last_tick ? ` Last run ${stamp(s.last_tick)}.` : ""}</T>
       {s?.summary && <StatStrip items={[
         { label: "Google clicks · 28 days", value: `${t.clicks ?? 0}${ch(t.clicks || 0, t.clicks_before || 0)}` },
