@@ -198,7 +198,7 @@ export default function Queries() {
           <Field label="Client" value={add.from_name} onChange={(v) => setAdd({ ...add, from_name: v })} />
           <Field label="Project / subject" value={add.subject} onChange={(v) => setAdd({ ...add, subject: v })} />
           <Field label="Client email (for the reply)" value={add.from_email || ""} onChange={(v) => setAdd({ ...add, from_email: v.trim() })} />
-          <Field label="BOQ text" value={add.body} multiline onChange={(v) => setAdd({ ...add, body: v })} placeholder={"1. Supply & install Crema Marfil 60x60 polished floor — 450 Sqm\n2. Granite facade cladding 30mm with SS anchors — 320 Sqm"} />
+          <Field label="BOQ text" value={add.body} multiline onChange={(v) => setAdd({ ...add, body: v })} placeholder={"1. Supply & install Crema Marfil marble wall cladding 20mm, mechanical fixing — 450 Sqm\n2. Granite facade cladding 30mm with SS anchors — 320 Sqm"} />
           <Field label="File links (Google Drive, Google Sheets, Dropbox — one per line)" value={add.links || ""} multiline onChange={(v) => setAdd({ ...add, links: v })} />
           <T size={12} muted>Linked files are downloaded and read with the query. They must be shared as "Anyone with the link". DWG cannot be read: ask for PDF or DXF.</T>
           {add.err ? <T color={c.bad}>{add.err}</T> : null}
