@@ -255,7 +255,7 @@ async function draftOne(s: any) {
   const txt = await write("blog", `Write a helpful blog post in ${t.lang === "ar" ? "Arabic (Modern Standard Arabic, natural for Saudi readers)" : "English"} for the website of this company.
 Company facts (the ONLY facts you may state about the company; never invent projects, clients, years, numbers, certificates, awards or prices): ${JSON.stringify(p)}
 Topic: "${t.title}". Main search phrase (people really search this on Google): "${t.keyword}".
-Rules: stay on cladding of facades and walls and its mechanical fixing; never present flooring, floor tiles or paving as the company's work. 700-1000 words, clear headings (##), short paragraphs, practical advice for Saudi conditions (heat, sand, Saudi Building Code where relevant - only say what you are sure of; if you mention a standard or figure, check it with search). Use the search phrase naturally in the title, the first paragraph and one heading; no keyword stuffing. Where it truly helps the reader, link 2-3 of these pages of the company website as markdown links with the exact URL: ${urls.slice(0, 40).join(" ")}. End with a short, honest call to contact the company with the phone/WhatsApp and email above. Plain, human tone; no hype words like "best", "No. 1", "leading".
+Rules: stay on cladding of facades and walls and its mechanical fixing; never present flooring, floor tiles or paving as the company's work. Before the closing contact section, add a section "## Frequently asked questions" (in an Arabic post: "## الأسئلة الشائعة") with 3-4 questions clients really ask about this topic, each written as "### <question>" followed by a 1-3 sentence answer that repeats only facts from the article (the website turns this section into FAQ data for Google). 700-1000 words, clear headings (##), short paragraphs, practical advice for Saudi conditions (heat, sand, Saudi Building Code where relevant - only say what you are sure of; if you mention a standard or figure, check it with search). Use the search phrase naturally in the title, the first paragraph and one heading; no keyword stuffing. Where it truly helps the reader, link 2-3 of these pages of the company website as markdown links with the exact URL: ${urls.slice(0, 40).join(" ")}. End with a short, honest call to contact the company with the phone/WhatsApp and email above. Plain, human tone; no hype words like "best", "No. 1", "leading".
 Answer in exactly this format and nothing else:
 TITLE: <max 60 characters>
 SLUG: <latin lowercase words with dashes, in English even for Arabic posts>
@@ -264,7 +264,7 @@ KEYWORDS: <3-6 search phrases, comma separated>
 ---
 <the post in markdown>`, { max: 6000, search: true });
   const head = (k: string) => ((txt.match(new RegExp("^[*#\\s]*" + k + "[*\\s]*:[*\\s]*(.+)$", "mi")) || [])[1] || "").replace(/\*+$/, "").trim();
-  const body = txt.split(/^---\s*$/m).slice(1).join("---").trim();
+  const body = txt.split(/^---\s*$/m).slice(1).join("---").replace(/<\/?cite[^>]*>/gi, "").trim(); // web-search citation tags out
   if (body.split(/\s+/).length < 300) throw new Error("The AI's post was too short; it will try again tomorrow.");
   let slug = (head("SLUG") || t.keyword).toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 70) || "post-" + Date.now().toString(36);
   if (t.lang === "ar") slug = slug.replace(/-ar$/, "").slice(0, 67) + "-ar"; // Arabic page /ar/blog/<name>/, its English twin later /blog/<name>/
@@ -338,6 +338,21 @@ async function tick(force: string | false) {
   return { ok: true, done, items: s.items.length };
 }
 
+/** Asks GitHub to rebuild al-swaticontracting.com right away (the "Blog from the ERP" workflow, event erp-publish).
+ *  Needs the secret GITHUB_SITE_TOKEN: a fine-grained GitHub token for the al-swati-website repository only, with
+ *  "Contents: Read and write". Without it the website still updates on its own schedule (about every 30-60 minutes). */
+async function siteRebuild() {
+  const tok = Deno.env.get("GITHUB_SITE_TOKEN");
+  if (!tok) return { started: false, why: "no GITHUB_SITE_TOKEN secret yet - the website picks the change up on its next scheduled build" };
+  const r = await fetch("https://api.github.com/repos/hussainkhan-maker/al-swati-website/dispatches", {
+    method: "POST", signal: AbortSignal.timeout(15000),
+    headers: { Authorization: `Bearer ${tok}`, Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "al-swati-erp" },
+    body: JSON.stringify({ event_type: "erp-publish" }),
+  });
+  if (r.status === 204) return { started: true };
+  return { started: false, why: `GitHub answered ${r.status}: ${(await r.text()).slice(0, 160)}` };
+}
+
 async function isAdmin(req: Request) {
   const u = createClient(URL_, ANON, { global: { headers: { Authorization: req.headers.get("Authorization") ?? "" } } });
   const { data } = await u.auth.getUser();
@@ -355,6 +370,10 @@ Deno.serve(async (req) => {
     if (p.action === "run") {
       if (!(await isAdmin(req))) return json({ error: "Only Super-Admin" }, 403);
       return json(await tick(p.force === "weekly" ? "weekly" : "now"));
+    }
+    if (p.action === "site_rebuild") { // after Publish / Unpublish / Save of a public post: rebuild the website now
+      if (!(await isAdmin(req))) return json({ error: "Only Super-Admin" }, 403);
+      return json(await siteRebuild());
     }
     if (String(p.action || "").startsWith("google_")) {
       if (!(await isAdmin(req))) return json({ error: "Only Super-Admin" }, 403);
