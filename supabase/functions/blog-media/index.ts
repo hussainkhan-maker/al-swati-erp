@@ -5,6 +5,8 @@
 //              saved as a second post linked by twin_id, with the same picture and the same status. Every post goes out in both languages.
 //  • "area":   a Riyadh district page in English and Saudi Arabic (/stone-cladding-<district>-riyadh/ and /ar/…), from the
 //              district, the main stone and the owner's photos of his work there, saved as two linked drafts.
+//  • "case":   a project case study in English and Arabic (/projects/<slug>/ and /ar/…) from a project's real data
+//              (installed m², district, building, stone, fixing system, year, site photos), saved as two linked drafts.
 // Only Super-Admin can call it (same sign-in rules as the "ai" function). Nothing here invents facts: the Arabic keeps the
 // original post's facts, and the picture is an illustration of the topic (never shown as "our project").
 // The company does facade and wall cladding only (natural stone, marble, granite, porcelain, fixed with mechanical systems):
@@ -58,7 +60,7 @@ async function geminiText(prompt: string, max: number) {
   return (j.candidates?.[0]?.content?.parts ?? []).map((p: any) => p.text ?? "").join("");
 }
 
-const COMPANY = "Al-Swati Contracting, a contractor for natural stone, marble, granite and porcelain cladding of facades and walls, installed with mechanical (dry-fix) fixing systems, in Saudi Arabia (Riyadh, Dammam, Al-Hassa). The company does NOT do flooring";
+const COMPANY = "Al-Swati Contracting, a contractor for natural stone, marble, granite and porcelain cladding of facades and walls, installed with mechanical (dry-fix) fixing systems, in Saudi Arabia (Riyadh, Dammam, Al-Ahsa). The company does NOT do flooring";
 const NO_FLOORING = "- The company does not do flooring, floor tiles or paving. If the article offers flooring as a service of the company, leave that part out; never add anything about flooring.";
 
 async function twinWrite(prompt: string) {
@@ -478,6 +480,138 @@ async function area(b: any) {
   return { post: { ...e1, twin_id: a1.id }, twin: a1, place: d };
 }
 
+// ───────── SEO case studies from the ERP's projects ─────────
+// From a project (its installed m² from "Work done", and what the owner confirms once: district, building, stone, fixing
+// system, year, site photos, notes) the AI writes an English and a Saudi Arabic case study for /projects/<slug>/ and
+// /ar/projects/<slug>/, saved as two linked drafts. The client's name is used only when the owner says the client agreed.
+const BUILDINGS: Record<string, { en: string; ar: string; cat: string }> = {
+  villa: { en: "villa", ar: "فيلا", cat: "residential" },
+  compound: { en: "residential compound", ar: "مجمع سكني", cat: "residential" },
+  commercial: { en: "commercial building", ar: "مبنى تجاري", cat: "commercial" },
+  tower: { en: "tower", ar: "برج", cat: "commercial" },
+  government: { en: "government building", ar: "مبنى حكومي", cat: "institutional" },
+};
+const FIXINGS: Record<string, { en: string; ar: string }> = {
+  updown: { en: "Up-Down brackets", ar: "زوايا Up-Down" },
+  pen: { en: "PEN pins", ar: "مسامير PEN" },
+  cchannel: { en: "C-Channel rails", ar: "مجاري C-Channel" },
+  undercut: { en: "undercut anchors", ar: "مسامير الانكر ذات القطع الخلفي (Undercut)" },
+};
+
+function casePrompt(ar: boolean, f: any, co: any) {
+  const pre = ar ? "/ar" : "", d = f.place;
+  const place = ar ? (d.kind === "road" ? `على ${d.ar}` : d.kind === "town" ? `في ${d.ar}` : `في حي ${d.ar}`) : (d.kind === "road" ? `on ${d.en}` : `in ${d.en}`);
+  const facts = {
+    building: ar ? f.building.ar : f.building.en, place: ar ? `${place} بالرياض` : `${place}, Riyadh`, main_stone: ar ? f.stone.ar : f.stone.en,
+    area_m2: f.m2, fixing_system: f.fixing.map((x: any) => (ar ? x.ar : x.en)), completed: f.year, client: f.client || null,
+  };
+  const heat = ar ? "## مصممة لحرارة الرياض وغبارها" : "## Built for Riyadh's heat and dust";
+  const local = f.districtPage ? `[${ar ? `تركيب الحجر في ${d.ar}` : `stone cladding in ${d.en}`}](${f.districtPage})` : `[${ar ? "تركيب الحجر في الرياض" : "stone cladding in Riyadh"}](${pre}/stone-cladding-riyadh/)`;
+  return `You write a project case study for the website of ${COMPANY}, so the page ranks on Google in Saudi Arabia for people looking for ${f.stone.en} facade cladding for a ${f.building.en} ${d.kind === "road" ? "on" : "in"} ${d.en} (${d.ar}), Riyadh, and shows them real work.
+Write it in ${ar ? "Arabic: natural Modern Standard Arabic the way Saudi companies write on their own websites. " + AR_RULE : "English: clear, natural, professional English for clients in Saudi Arabia."}
+THE PROJECT - real data from the company's ERP; these are the ONLY facts about this project you may state:
+${JSON.stringify(facts)}
+${f.notes ? `THE OWNER'S OWN NOTES ABOUT THIS PROJECT (true; use them, worded as they are): ${f.notes}` : "The owner gave no extra notes: say nothing about this project beyond the data above."}
+COMPANY FACTS (the only facts you may state about the company): ${JSON.stringify({ name: co.name, cities: co.cities, phone: co.phone, email: co.email, facts: co.about })}
+${f.photos.length ? `PHOTOS: ${f.photos.length} site photo(s) of this project are attached, in order. In the alt texts describe only what you can really see.` : "There are no photos."}
+RULES
+- Never invent anything about the project: no durations, dates, budgets, prices, client wishes, problems, team sizes, floors or other numbers that are not in the data or the notes. ${f.client ? "You may name the client as given." : "Do not name or describe the client, and never say whose building it is."} Never give a street, plot or exact address: only the district.
+- No price table and no prices.
+${NO_FLOORING}
+- Start with the first paragraph: no "# " title, no back link, no date line - the website adds them, and it shows the project data in a facts box, so do not repeat it as a table.
+- "## " headings, short paragraphs, about 650-900 words. Sections, in this order:
+  1. Opening (2 short paragraphs): what the company did ${place}: the building, the stone, about ${f.m2} m² of facade cladding with mechanical fixing, completed in ${f.year}.
+  2. A "## " section on what a facade like this needs (for a ${f.building.en} in Riyadh), in general terms or from the notes - never as if the client said it.
+  3. A "## " section on the solution: why ${f.stone.en} and this fixing system (${f.fixing.map((x: any) => x.en).join(", ") || "mechanical fixing"}, Hilti and Fischer systems as in the facts), panel thickness from the facts.
+  4. A "## " section on how the company installs a facade like this, by its own team: site survey and measurement, the fixing design approved by the engineer, setting out, anchors and brackets, panels and movement joints, cleaning, inspection and handover with the written warranty. Present tense, as the company's method - no durations.
+  5. Exactly this heading: "${heat}" - 1 short paragraph: ventilated gap, movement joints, the stone in strong sun and dust (true in general).
+  6. A "## " section on the result: the finished facade (from the photos and the notes only) and the warranty from the facts.
+  7. "${ar ? "## الأسئلة الشائعة" : "## Frequently asked questions"}" with 3 questions someone planning a similar ${f.building.en} facade would ask, each as "### <question>" with a 2-3 sentence answer (facts only from this page and the company facts).
+  8. A short closing paragraph: a similar project? phone / WhatsApp and email from the facts.
+- Link from the text, with natural words, to: ${local}, [${ar ? "مشاريعنا" : "our projects"}](${pre}/projects/) and [${ar ? "اطلب عرض سعر مجاني" : "request a free quote"}](${pre}/contact/#contact-form) - use these exact paths.
+- TITLE: at most 60 characters: the building, the stone and the place, without the company name. META: 120-155 characters: what was done, the place, ${f.m2} m², mechanical fixing. H1: at most 70 characters, with the place. KEYWORDS: 4-8 search phrases${ar ? " in Arabic" : ""}.
+Answer in exactly this form and nothing else:
+TITLE: <title>
+META: <search description>
+H1: <main heading>
+KEYWORDS: <phrase>, <phrase>, <phrase>
+${f.photos.map((_: any, i: number) => `PHOTO ${i + 1}: <alt text, 6-14 words: what photo ${i + 1} shows${ar ? ", in Arabic" : ""}>`).join("\n")}${f.photos.length ? "\n" : ""}---
+<the page in markdown>`;
+}
+
+async function casePage(ar: boolean, f: any, co: any) {
+  const text = casePrompt(ar, f, co);
+  const content = [...f.photos.map((url: string) => ({ type: "image", source: { type: "url", url } })), { type: "text", text }];
+  let raw: string;
+  try { raw = CLAUDE_KEY ? await claude(f.photos.length ? content : text, 7000, 140000) : await geminiText(text, 7000); }
+  catch (e) { if (!GEMINI_KEY || !CLAUDE_KEY) throw e; raw = await geminiText(text, 7000); }
+  const out: any = parsePost(raw);
+  const top = raw.slice(0, Math.max(0, raw.search(/^---\s*$/m)));
+  const head = (k: string) => (top.match(new RegExp("^\\s*\\**" + k + "\\**\\s*:\\s*(.+)$", "mi"))?.[1] ?? "").replace(/^\*+\s*|\s*\*+$/g, "").trim();
+  out.h1 = tidyTitle(head("H1")) || out.title;
+  out.alts = f.photos.map((_: any, i: number) => head(`PHOTO ${i + 1}`));
+  out.body = tidyBody(out.body, ar);
+  out.title = tidyTitle(out.title);
+  if (!out.title || out.body.split(/\s+/).length < 350) throw new Error(`The ${ar ? "Arabic" : "English"} case study came back too short. Try again.`);
+  return out;
+}
+
+async function caseStudy(b: any) {
+  const { data: pj } = await db.from("projects").select("id, name, client, site").eq("id", String(b.project_id || "")).maybeSingle();
+  if (!pj) throw new Error("Project not found.");
+  const stone = STONES[String(b.stone || "")], building = BUILDINGS[String(b.building || "")];
+  if (!stone) throw new Error("Pick the main stone.");
+  if (!building) throw new Error("Pick the kind of building.");
+  const name = String(b.district || "").trim().slice(0, 80);
+  if (!name) throw new Error("Pick or type the Riyadh district of the project.");
+  const fixing = (Array.isArray(b.fixing) ? b.fixing : []).map((k: any) => FIXINGS[String(k)]).filter(Boolean);
+  const year = Math.round(Number(b.year) || 0);
+  if (year < 1994 || year > new Date().getFullYear()) throw new Error("Check the year the work was finished.");
+  // the installed area comes from the ERP's "Work done" entries; the owner may give the facade area instead
+  const { data: pr } = await db.from("progress").select("qty").eq("project_id", pj.id).eq("status", "active");
+  const installed = Math.round((pr || []).reduce((s: number, r: any) => s + (Number(r.qty) || 0), 0));
+  const m2 = Math.round(Number(b.m2) || installed);
+  if (!(m2 > 0)) throw new Error("Give the area in m² (no work done is recorded on this project yet).");
+  const mine = [`${URL_}/storage/v1/object/public/blog/cases/`, `${URL_}/storage/v1/object/public/blog/areas/`];
+  const photos: string[] = (Array.isArray(b.photos) ? b.photos : []).map((u: any) => String(u)).filter((u: string) => mine.some((m) => u.startsWith(m))).slice(0, 4);
+  const notes = String(b.notes || "").trim().slice(0, 800);
+  const place = await findDistrict(name);
+  const { data: pref } = await db.from("preferences").select("value").eq("key", "company_profile").maybeSingle();
+  const co = pref?.value || {};
+  const dp = `/stone-cladding-${place.slug}-riyadh/`;
+  const { count: hasDistrict } = await db.from("blog_posts").select("id", { count: "exact", head: true }).eq("target_path", dp).eq("status", "Published");
+  const f = { place, stone, building, fixing, year, m2, photos, notes, client: b.show_client && pj.client ? String(pj.client).slice(0, 80) : null };
+  const [en, ar] = await Promise.all([casePage(false, { ...f, districtPage: hasDistrict ? dp : null }, co), casePage(true, { ...f, districtPage: hasDistrict ? "/ar" + dp : null }, co)]);
+  // the address: building, stone, place and year; another project with the same address gets a number
+  let slug = slugify(`${building.en} ${b.stone} ${place.en} ${year}`);
+  for (let i = 2; i < 20; i++) {
+    const { data: same } = await db.from("blog_posts").select("area").eq("target_path", `/projects/${slug}/`).limit(1);
+    if (!same?.length || same[0].area?.project_id === pj.id) break;
+    slug = slugify(`${building.en} ${b.stone} ${place.en} ${year}`) + "-" + i;
+  }
+  const enPath = `/projects/${slug}/`, arPath = `/ar${enPath}`;
+  // one waiting pair per project: new drafts replace older drafts (a published case study stays live until the new one is published)
+  await db.from("blog_posts").delete().eq("status", "Draft").eq("source", "case").filter("area->>project_id", "eq", pj.id);
+  const site = { district: place.en, stone: String(b.stone), building: String(b.building), fixing: Array.isArray(b.fixing) ? b.fixing : [], year, m2, photos, notes, show_client: !!f.client };
+  await db.from("projects").update({ site }).eq("id", pj.id); // kept with the project for the next time
+  const rnd = Date.now().toString(36).slice(-4);
+  const info = (o: any, lang: string) => ({ type: "case", project_id: pj.id, slug, district: place.en, district_ar: place.ar, kind: place.kind, lat: place.lat, lng: place.lng,
+    stone: String(b.stone), building: String(b.building), cat: building.cat, fixing: fixing.map((x: any) => (lang === "ar" ? x.ar : x.en)), m2, year, client: f.client,
+    h1: String(o.h1).slice(0, 90), notes, photos: photos.map((url, i) => ({ url, alt: String(o.alts[i] || (lang === "ar" ? `${stone.ar} - ${building.ar} في ${place.ar}` : `${stone.en} facade, ${building.en} in ${place.en}`)).slice(0, 160) })) });
+  const row = (o: any, lang: string, path: string, s: string) => {
+    const a = info(o, lang);
+    return { slug: s, lang, title: String(o.title).slice(0, 90), meta_description: String(o.meta_description || "").slice(0, 170),
+      keywords: (o.keywords || []).slice(0, 8), body: o.body, status: "Draft", source: "case", target_path: path, area: a,
+      image_url: photos[0] || null, image_alt: photos[0] ? a.photos[0].alt : null, created_by: USER_ID };
+  };
+  const { data: e1, error: x1 } = await db.from("blog_posts").insert(row(en, "en", enPath, `case-${slug}-${rnd}`.slice(0, 80))).select().single();
+  if (x1) throw new Error("Saving the English case study: " + x1.message);
+  const { data: a1, error: x2 } = await db.from("blog_posts").insert({ ...row(ar, "ar", arPath, `case-${slug}-${rnd}-ar`.slice(0, 80)), twin_id: e1.id }).select().single();
+  if (x2) { await db.from("blog_posts").delete().eq("id", e1.id); throw new Error("Saving the Arabic case study: " + x2.message); }
+  await db.from("blog_posts").update({ twin_id: a1.id }).eq("id", e1.id);
+  return { post: { ...e1, twin_id: a1.id }, twin: a1 };
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   const json = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { ...cors, "content-type": "application/json" } });
@@ -493,6 +627,7 @@ Deno.serve(async (req) => {
 
     if (body.action === "boost") return json(await boost(body));
     if (body.action === "area") return json(await area(body));
+    if (body.action === "case") return json(await caseStudy(body));
 
     const { data: post } = await db.from("blog_posts").select("*").eq("id", String(body.id || "")).maybeSingle();
     if (!post) return json({ error: "Post not found" }, 404);
