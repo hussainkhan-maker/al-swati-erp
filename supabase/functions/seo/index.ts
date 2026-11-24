@@ -11,6 +11,7 @@
 //  • "index_ping" (public, from the website build once GitHub Pages has published): tells IndexNow (Bing, Yandex and the other
 //            IndexNow engines) about new or changed pages and resubmits the sitemap to Google Search Console.
 //  • "index_reping" / "index_check" (Super-Admin, Growth): ping one page again; read Google's own index status (URL Inspection).
+//  • "video_ideas" (Super-Admin, Growth → Videos): write video ideas now. The tick also writes 2 a week while fewer than 4 wait.
 // Nothing is ever published or sent by itself: posts wait for Publish, review messages wait for the owner to send them.
 import { createClient } from "npm:@supabase/supabase-js@2.45.4";
 
@@ -302,6 +303,35 @@ async function reviews(s: any, items: Item[]) {
   s.review_msgs = msgs.slice(0, 20);
 }
 
+// ───────── Videos (TikTok, YouTube Shorts, Instagram Reels): ideas with script and captions; the owner posts them himself ─────────
+const MIN_VIDEO_IDEAS = 4;
+async function videoIdeas(n: number, source: "weekly" | "manual", s: any): Promise<number> {
+  const { price_table, ...p } = await profile(); // prices change: never in a video
+  const { data: old } = await db.from("video_ideas").select("title_en, keyword").order("created_at", { ascending: false }).limit(40);
+  const out = asJson(await write("video_ideas", `${AR_WORDS}
+Plan ${n} short vertical videos (TikTok, YouTube Shorts, Instagram Reels; 20-40 seconds each) for this company.
+Company facts (the ONLY facts you may state; never invent projects, clients, numbers, prices, awards or guarantees): ${JSON.stringify(p).slice(0, 3000)}
+What people search on Google (close to page 1): ${JSON.stringify(s?.summary?.striking || []).slice(0, 1500)}
+Videos already planned or made (do not repeat them): ${JSON.stringify((old || []).map((o: any) => o.title_en)).slice(0, 1500)}
+Mix the kinds: "3d" = an animated 3D explainer (a fixing system step by step: Up-Down brackets, PEN pins, C-Channel rails, kerf rails, undercut anchors; or a villa facade going up panel by panel); "site" = filmed with a phone on a real AL-Swati site (panels going up, close-ups of brackets and anchors, the finished facade); "tips" = practical advice for villa owners in Riyadh (choosing the stone, heat, white stains, maintenance, what a quote must include).
+Each video: a hook in the first 2 seconds that makes a villa owner stop scrolling; 4-6 scenes; text on screen short (at most 7 words a line) in Arabic as Saudi clients read it, with English under it; facts only from the company facts. Stay on cladding of facades and walls (stone, marble, granite, porcelain) and mechanical fixing, never flooring or paving.
+Captions: TikTok caption in Arabic first, then one English line, at most 2 emoji, ending with 5-8 hashtags mixing Arabic and English (always #الرياض and #تركيب_حجر); YouTube Shorts title at most 90 characters (Arabic, then " | " and English); YouTube description 3-6 lines (Arabic, then English) with the website and the WhatsApp number from the company facts, ending with #shorts; YouTube tags comma separated.
+"why": one line in ROMAN URDU (Urdu in English letters): which search or which client question this video answers.
+Return JSON only: {"videos":[{"kind":"3d|site|tips","keyword":"","why":"","title_ar":"","title_en":"","hook_ar":"","hook_en":"","scenes":[{"sec":"0-3","visual":"<what we see, in English>","ar":"","en":""}],"voice_ar":"<voice-over in Saudi Arabic, 40-70 words>","voice_en":"<voice-over in English, 40-70 words>","shots":"<kind site: 4-6 shots to film on site, in Roman Urdu; otherwise empty>","tiktok_caption":"","youtube_title":"","youtube_description":"","youtube_tags":"","hashtags":""}]}`, { max: 7000 }));
+  const rows = (out.videos || []).filter((v: any) => v && (v.title_en || v.title_ar)).slice(0, n).map((v: any) => ({
+    source, status: "idea", kind: ["3d", "site", "tips"].includes(v.kind) ? v.kind : "3d",
+    keyword: clean(v.keyword, 120), why: clean(v.why, 300), title_ar: clean(v.title_ar, 200), title_en: clean(v.title_en, 200),
+    hook_ar: clean(v.hook_ar, 200), hook_en: clean(v.hook_en, 200),
+    scenes: (Array.isArray(v.scenes) ? v.scenes : []).slice(0, 8).map((x: any) => ({ sec: clean(x?.sec, 12), visual: clean(x?.visual, 300), ar: clean(x?.ar, 200), en: clean(x?.en, 200) })),
+    voice_ar: clean(v.voice_ar, 1500), voice_en: clean(v.voice_en, 1500), shots: clean(v.shots, 1500),
+    tiktok_caption: clean(v.tiktok_caption, 2200), youtube_title: clean(v.youtube_title, 100), youtube_description: clean(v.youtube_description, 3000),
+    youtube_tags: clean(v.youtube_tags, 500), hashtags: clean(v.hashtags, 400) }));
+  if (!rows.length) throw new Error("the AI returned no video ideas");
+  const { error } = await db.from("video_ideas").insert(rows);
+  if (error) throw new Error("video_ideas: " + error.message);
+  return rows.length;
+}
+
 async function tick(force: string | false) {
   const s = await getState(), items: Item[] = [], done: string[] = [];
   if (!force && s.last_tick && Date.now() - Date.parse(s.last_tick) < 10 * 60e3) return { skipped: "ran less than 10 minutes ago" };
@@ -331,13 +361,21 @@ async function tick(force: string | false) {
   // 5. One blog draft a day from the queue, while the owner keeps up with reading them
   const { count: waiting } = await db.from("blog_posts").select("id", { count: "exact", head: true }).eq("status", "Draft").eq("source", "autopilot");
   if (!busy && s.queue?.length && (waiting ?? 0) < MAX_WAITING_DRAFTS && (force || !s.last_draft || Date.now() - Date.parse(s.last_draft) > 20 * H)) {
-    try { const t = await draftOne(s); if (t) { done.push("draft: " + t); } }
+    try { const t = await draftOne(s); if (t) { done.push("draft: " + t); busy = true; } }
     catch (e) { items.push({ level: "warn", text: "SEO: blog draft nahi bana - " + String((e as Error).message).slice(0, 100) }); }
   }
   const { count: drafts } = await db.from("blog_posts").select("id", { count: "exact", head: true }).eq("status", "Draft").eq("source", "autopilot");
   if (drafts) items.push({ level: (drafts ?? 0) >= MAX_WAITING_DRAFTS ? "bad" : "warn", text: `SEO: ${drafts} blog draft tayyar - Growth mein parh kar Publish dabayen${(drafts ?? 0) >= MAX_WAITING_DRAFTS ? " (naye tab tak nahi likhe jayenge)" : ""}` });
   // 6. Google reviews for finished projects
   try { await reviews(s, items); } catch { /* projects table not readable: skip */ }
+  // 7. Videos: 2 new ideas a week while fewer than 4 wait (not on a run that already wrote a long text)
+  if (!busy && (!s.last_videos || Date.now() - Date.parse(s.last_videos) > 6.5 * D)) {
+    try {
+      const { count: open } = await db.from("video_ideas").select("id", { count: "exact", head: true }).eq("status", "idea");
+      s.last_videos = new Date().toISOString();
+      if ((open ?? 0) < MIN_VIDEO_IDEAS) { const k = await videoIdeas(2, "weekly", s); done.push(`video ideas: ${k}`); items.push({ level: "warn", text: `Videos: ${k} naye video ideas tayyar - Growth → Videos mein script aur caption dekhein` }); }
+    } catch (e) { items.push({ level: "warn", text: "Videos: ideas nahi bane - " + String((e as Error).message).slice(0, 100) }); }
+  }
   s.items = items.slice(0, 10);
   s.done = done;
   await saveState(s);
@@ -445,6 +483,10 @@ Deno.serve(async (req) => {
     if (p.action === "run") {
       if (!(await isAdmin(req))) return json({ error: "Only Super-Admin" }, 403);
       return json(await tick(p.force === "weekly" ? "weekly" : "now"));
+    }
+    if (p.action === "video_ideas") { // Growth → Videos: "Write 3 new ideas"
+      if (!(await isAdmin(req))) return json({ error: "Only Super-Admin" }, 403);
+      return json({ ok: true, added: await videoIdeas(Math.min(3, Math.max(1, Number(p.n) || 3)), "manual", await getState()) });
     }
     if (p.action === "site_rebuild") { // after Publish / Unpublish / Save of a public post: rebuild the website now
       if (!(await isAdmin(req))) return json({ error: "Only Super-Admin" }, 403);
