@@ -19,6 +19,7 @@ const siteRebuild = () => { supabase.functions.invoke("seo", { body: { action: "
 /** Instant indexing. After Publish the website build tells the seo function, which pings IndexNow (Bing, Yandex and the others)
  *  and resubmits the sitemap to Google Search Console; index_status keeps one row per address, with Google's own status. */
 const ixUrl = (u: string) => (/\.[a-z0-9]{2,5}$/i.test(u) || u.endsWith("/") ? u : u + "/");
+const riyadhTime = (t: string) => new Date(Date.parse(t) + 3 * 3600e3).toISOString().slice(0, 16).replace("T", " "); // Riyadh is UTC+3 all year
 /** Reads index_status every minute. Once per screen, Google's status is refreshed for up to 10 of these pages not checked for a day. */
 function useIndexStatus(urls: string[]) {
   const [rows, setRows] = useState<Record<string, any>>({}), [loaded, setLoaded] = useState(false), checked = useRef(false);
@@ -56,7 +57,7 @@ function IndexLine({ url: raw, rows, onRows, label }: { url: string; rows: Recor
     <View style={{ gap: 4 }}>
       <Row wrap>
         {label ? <T size={12} muted>{label}</T> : null}
-        {took(st?.indexnow_code) ? <Pill kind="good" text={`Indexed Ping Sent ✓ ${stamp(st.indexnow_at)}`} />
+        {took(st?.indexnow_code) ? <Pill kind="good" text={`Indexed Ping Sent ✓ ${riyadhTime(st.indexnow_at)}`} />
           : st?.indexnow_at ? <Pill kind="bad" text={`IndexNow answered ${st.indexnow_code || "nothing"}`} /> : <Pill text="Not pinged yet" />}
         {st?.google_verdict === "PASS" ? <Pill kind="good" text="Google: indexed ✓" />
           : st?.google_state ? <Pill kind="warn" text={"Google: " + st.google_state} />
