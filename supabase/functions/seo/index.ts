@@ -408,12 +408,18 @@ Deno.serve(async (req) => {
       if ((count ?? 0) >= 8) return json({ ok: true });
       const row = { page: clean(p.page, 200), lang: p.lang === "ar" ? "ar" : "en", ref: clean(p.ref, 100), utm: clean(p.utm, 200), ip_hash };
       if (p.action === "event") {
-        if (!["whatsapp", "call", "email"].includes(p.kind)) return json({ error: "Unknown kind" }, 400);
+        if (!["whatsapp", "call", "email", "estimate"].includes(p.kind)) return json({ error: "Unknown kind" }, 400); // estimate: the cost calculator was used
         await db.from("web_events").insert({ ...row, kind: p.kind });
         return json({ ok: true });
       }
       if (p.hp) return json({ ok: true }); // the hidden field was filled: a bot
       const name = clean(p.name, 80), phone = clean(p.phone, 30), email = clean(p.email, 120).toLowerCase(), type = clean(p.projectType, 60), msg = clean(p.message, 3000);
+      // from the website's cost calculator: what the visitor picked and the range the page showed them
+      const e = p.estimate && typeof p.estimate === "object" ? p.estimate : null;
+      const est = e ? { type: clean(e.type, 60), material: clean(e.material, 60), fixing: clean(e.fixing, 60), area: Math.round(Number(e.area) || 0),
+        lo: Math.round(Number(e.lo) || 0), hi: Math.round(Number(e.hi) || 0), weeks: clean(e.weeks, 12) } : null;
+      const hasEst = !!est && est.area > 0 && est.area <= 100000 && est.lo > 0 && est.hi >= est.lo && est.hi < 1e9;
+      const sar = (v: number) => v.toLocaleString("en-US");
       if (!name || !(phone || email) || !msg) return json({ error: "Name, phone or email, and the details are needed." }, 400);
       if (phone && !/^[+\d\s()\-]{7,22}$/.test(phone)) return json({ error: "Check the phone number." }, 400);
       if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return json({ error: "Check the email." }, 400);
@@ -421,14 +427,17 @@ Deno.serve(async (req) => {
       // Into Queries as "Under Review": a short form message has no BOQ for the AI readers, so the autopilot leaves it to the owner.
       const { data, error } = await db.from("inquiries").insert({
         source: "website", status: "Under Review", from_name: name + (phone ? " · " + phone : ""), from_email: email || null,
-        subject: `Website: ${type || "quote request"} - ${name}`,
-        body: `${msg}\n\n— Website quote form —\nName: ${name}\nPhone: ${phone || "-"}\nEmail: ${email || "-"}\nProject type: ${type || "-"}\nPage: ${row.page || "-"} (${row.lang})\nCame from: ${row.ref || "direct"}${row.utm ? "\nCampaign: " + row.utm : ""}`,
+        subject: hasEst ? `Website estimate: ${est!.type} · ${est!.material} · ${sar(est!.area)} m² - ${name}` : `Website: ${type || "quote request"} - ${name}`,
+        body: `${msg}\n\n— ${hasEst ? "Website cost calculator" : "Website quote form"} —\nName: ${name}\nPhone: ${phone || "-"}\nEmail: ${email || "-"}\nProject type: ${type || "-"}`
+          + (hasEst ? `\nEstimate shown: ${est!.type}, ${est!.material}, ${est!.fixing}, ${sar(est!.area)} m², SAR ${sar(est!.lo)} – ${sar(est!.hi)}, ${est!.weeks} weeks` : "")
+          + `\nPage: ${row.page || "-"} (${row.lang})\nCame from: ${row.ref || "direct"}${row.utm ? "\nCampaign: " + row.utm : ""}`,
         dedupe_key: `web|${phone.replace(/\D/g, "") || email}|${riyadhDay()}`,
       }).select("ref").single();
       if (error && !/duplicate|unique/i.test(error.message)) throw new Error(error.message);
       if (data?.ref) { // the main agent hears about it straight away
         const s = await getState();
-        s.items = [{ level: "bad", text: `Website query ${data.ref}: ${name}${phone ? " " + phone : ""}${type ? " - " + type : ""}. Aaj call ya WhatsApp karein` }, ...(s.items || [])].slice(0, 10);
+        const what = hasEst ? ` - estimate ${est!.material}, ${sar(est!.area)} m², SAR ${sar(est!.lo)}–${sar(est!.hi)}` : type ? " - " + type : "";
+        s.items = [{ level: "bad", text: `Website query ${data.ref}: ${name}${phone ? " " + phone : ""}${what}. Aaj call ya WhatsApp karein` }, ...(s.items || [])].slice(0, 10);
         await saveState(s);
       }
       return json({ ok: true, ref: data?.ref || null });
