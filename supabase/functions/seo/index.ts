@@ -420,24 +420,31 @@ Deno.serve(async (req) => {
         lo: Math.round(Number(e.lo) || 0), hi: Math.round(Number(e.hi) || 0), weeks: clean(e.weeks, 12) } : null;
       const hasEst = !!est && est.area > 0 && est.area <= 100000 && est.lo > 0 && est.hi >= est.lo && est.hi < 1e9;
       const sar = (v: number) => v.toLocaleString("en-US");
+      // from /technical-specs/: an engineering office asking for CAD details (.DWG) and a method statement
+      const company = clean(p.company, 120), role = clean(p.role, 40), system = clean(p.system, 60), project = clean(p.project, 160);
+      const docs: string[] = Array.isArray(p.docs) ? p.docs.map((d: unknown) => clean(d, 40)).filter(Boolean).slice(0, 5) : [];
+      const tech = !hasEst && (!!company || docs.length > 0);
       if (!name || !(phone || email) || !msg) return json({ error: "Name, phone or email, and the details are needed." }, 400);
       if (phone && !/^[+\d\s()\-]{7,22}$/.test(phone)) return json({ error: "Check the phone number." }, 400);
       if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return json({ error: "Check the email." }, 400);
       await db.from("web_events").insert({ ...row, kind: "lead" });
       // Into Queries as "Under Review": a short form message has no BOQ for the AI readers, so the autopilot leaves it to the owner.
       const { data, error } = await db.from("inquiries").insert({
-        source: "website", status: "Under Review", from_name: name + (phone ? " · " + phone : ""), from_email: email || null,
-        subject: hasEst ? `Website estimate: ${est!.type} · ${est!.material} · ${sar(est!.area)} m² - ${name}` : `Website: ${type || "quote request"} - ${name}`,
-        body: `${msg}\n\n— ${hasEst ? "Website cost calculator" : "Website quote form"} —\nName: ${name}\nPhone: ${phone || "-"}\nEmail: ${email || "-"}\nProject type: ${type || "-"}`
+        source: "website", status: "Under Review", from_name: name + (company ? " · " + company : "") + (phone ? " · " + phone : ""), from_email: email || null,
+        subject: hasEst ? `Website estimate: ${est!.type} · ${est!.material} · ${sar(est!.area)} m² - ${name}`
+          : tech ? `Technical request: ${docs.join(" + ") || "documents"} - ${name}${company ? " (" + company + ")" : ""}` : `Website: ${type || "quote request"} - ${name}`,
+        body: `${msg}\n\n— ${hasEst ? "Website cost calculator" : tech ? "Website technical request (/technical-specs/)" : "Website quote form"} —\nName: ${name}\nPhone: ${phone || "-"}\nEmail: ${email || "-"}\nProject type: ${type || "-"}`
           + (hasEst ? `\nEstimate shown: ${est!.type}, ${est!.material}, ${est!.fixing}, ${sar(est!.area)} m², SAR ${sar(est!.lo)} – ${sar(est!.hi)}, ${est!.weeks} weeks` : "")
+          + (tech ? `\nCompany: ${company || "-"}\nRole: ${role || "-"}\nDocuments: ${docs.join(", ") || "-"}\nFixing system: ${system || "-"}\nProject: ${project || "-"}` : "")
           + `\nPage: ${row.page || "-"} (${row.lang})\nCame from: ${row.ref || "direct"}${row.utm ? "\nCampaign: " + row.utm : ""}`,
         dedupe_key: `web|${phone.replace(/\D/g, "") || email}|${riyadhDay()}`,
       }).select("ref").single();
       if (error && !/duplicate|unique/i.test(error.message)) throw new Error(error.message);
       if (data?.ref) { // the main agent hears about it straight away
         const s = await getState();
-        const what = hasEst ? ` - estimate ${est!.material}, ${sar(est!.area)} m², SAR ${sar(est!.lo)}–${sar(est!.hi)}` : type ? " - " + type : "";
-        s.items = [{ level: "bad", text: `Website query ${data.ref}: ${name}${phone ? " " + phone : ""}${what}. Aaj call ya WhatsApp karein` }, ...(s.items || [])].slice(0, 10);
+        const what = hasEst ? ` - estimate ${est!.material}, ${sar(est!.area)} m², SAR ${sar(est!.lo)}–${sar(est!.hi)}`
+          : tech ? `${company ? " (" + company + ")" : ""}${email ? " " + email : ""} - ${docs.join(" + ") || "technical documents"}` : type ? " - " + type : "";
+        s.items = [{ level: "bad", text: `${tech ? "Technical request" : "Website query"} ${data.ref}: ${name}${phone ? " " + phone : ""}${what}. Aaj call ya WhatsApp karein` }, ...(s.items || [])].slice(0, 10);
         await saveState(s);
       }
       return json({ ok: true, ref: data?.ref || null });
