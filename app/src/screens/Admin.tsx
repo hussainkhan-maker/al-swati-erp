@@ -7,6 +7,7 @@ import { day, money, num, SAR, stamp } from "../lib/fmt";
 import { pricesFor } from "../lib/match";
 import { invoicesOf, STATE_LABEL, waitText } from "../lib/invoices";
 import { ai, supabase } from "../lib/supabase";
+import { CaseStudyButton } from "./Growth";
 import { Bars, Btn, Card, Checks, CountUp, DEEP, ELEV, Empty, Marble, SectionHead, Segmented, StatStrip, Field, H1, H2, Icon, Kpi, MonthCal, Photo, Pill, Rise, Row, Screen, Select, Sheet, T, Table, Tile, useColors, useWide } from "../ui";
 
 const sum = (a: any[], k: string) => a.reduce((s, x) => s + (Number(x[k]) || 0), 0);
@@ -441,6 +442,7 @@ export function Projects() {
             <Btn icon={<Icon name="receipt" size={16} />} title="Expense / purchase" onPress={() => flows("speak", { intent: "expense", project_id: x.id })} />
             <Btn icon={<Icon name="pct" size={16} />} title={`Loan from ${x.company || "company"}`} onPress={() => flows("speak", { intent: "loan", project_id: x.id })} />
             <Btn icon={<Icon name="doc" size={16} />} title="Statement" onPress={() => flows("statement", { kind: "project", target: x.name, project_id: x.id })} />
+            {a.m2 > 0 || x.status === "closed" ? <CaseStudyButton project={x} installed={a.m2} lastWork={active(d.progress).filter((r: any) => r.project_id === x.id).map(dkey).sort().pop()} /> : null}
           </Row>
         </View>
 
