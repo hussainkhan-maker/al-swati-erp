@@ -119,8 +119,8 @@ function SeoAutopilot({ onDraft }: { onDraft?: (p: any) => void }) {
   };
   useEffect(() => { loadEv(); const i = setInterval(loadEv, 60000); return () => clearInterval(i); }, []);
   const n = (k: string) => (ev || []).filter((e: any) => e.kind === k).length;
-  const web = ev ? { lead: n("lead"), whatsapp: n("whatsapp"), call: n("call"), email: n("email") } : s?.summary?.web?.week || {};
-  const last = ev?.[0], kindName: Record<string, string> = { lead: "Quote form", whatsapp: "WhatsApp", call: "Call", email: "Email" };
+  const web = ev ? { lead: n("lead"), whatsapp: n("whatsapp"), call: n("call"), email: n("email"), estimate: n("estimate") } : s?.summary?.web?.week || {};
+  const last = ev?.[0], kindName: Record<string, string> = { lead: "Quote form", whatsapp: "WhatsApp", call: "Call", email: "Email", estimate: "Cost calculator used" };
   const from = (r: string) => { try { return r ? new URL(r).hostname.replace(/^www\./, "") : "direct"; } catch { return "direct"; } };
   const ch = (a: number, b: number) => (b ? ` (${a >= b ? "+" : ""}${Math.round(((a - b) / b) * 100)}%)` : "");
   const wa = (text: string) => Linking.openURL("https://wa.me/?text=" + encodeURIComponent(text));
@@ -147,8 +147,9 @@ function SeoAutopilot({ onDraft }: { onDraft?: (p: any) => void }) {
         { label: "Average position", value: t.position ? `${t.position}${t.position_before ? ` (was ${t.position_before})` : ""}` : "-" },
         { label: "Website leads · 7 days", value: String(web.lead || 0) },
         { label: "WhatsApp / call clicks · 7 days", value: `${web.whatsapp || 0} / ${web.call || 0}` },
+        { label: "Cost calculator used · 7 days", value: String(web.estimate || 0) },
       ]} />}
-      <T size={12} muted>{last ? `Latest on the website: ${kindName[last.kind] || last.kind} on ${last.page || "/"} (from ${from(last.ref)}), ${stamp(last.at)}. ` : ev ? "No quote forms, WhatsApp or call taps on the website in the last 7 days. " : ""}Counted live from al-swaticontracting.com (quote form sent, WhatsApp, phone and email taps; no names kept).</T>
+      <T size={12} muted>{last ? `Latest on the website: ${kindName[last.kind] || last.kind} on ${last.page || "/"} (from ${from(last.ref)}), ${stamp(last.at)}. ` : ev ? "No quote forms, WhatsApp or call taps on the website in the last 7 days. " : ""}Counted live from al-swaticontracting.com (quote forms and estimates sent, cost calculator use, WhatsApp, phone and email taps; no names kept). Estimates sent from the calculator arrive in Queries as "Website estimate".</T>
       {s?.report?.text ? <Card><T bold>This week's report · {day(s.report.at)}</T>{String(s.report.text).split("\n").map((l: string, i: number) => <T key={i} size={14}>{l}</T>)}</Card> : null}
       {(s?.summary?.striking || []).length > 0 && <>
         <T bold>Close to page 1 (the next posts aim at these)</T>
