@@ -1,6 +1,6 @@
 // Growth: company profile, blog posts for search engines (SEO) and personal outreach to project managers.
 // The AI only drafts. Posts go public only when the owner presses Publish; every email is read and sent by the owner himself.
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Image, Linking, Platform, View } from "react-native";
 import { useData } from "../lib/data";
 import { day, stamp } from "../lib/fmt";
@@ -16,6 +16,56 @@ export const postUrl = (p: { slug: string; lang?: string; target_path?: string |
 const PRICE_BLANK = /\[SAR\s*_+|_{3,}\s*[–-]\s*_{3,}/; // the price table still has the owner's blanks
 /** Ask the website to rebuild now (it also rebuilds on its own schedule). Never blocks or fails the editor. */
 const siteRebuild = () => { supabase.functions.invoke("seo", { body: { action: "site_rebuild" } }).catch(() => {}); };
+/** Instant indexing. After Publish the website build tells the seo function, which pings IndexNow (Bing, Yandex and the others)
+ *  and resubmits the sitemap to Google Search Console; index_status keeps one row per address, with Google's own status. */
+const ixUrl = (u: string) => (/\.[a-z0-9]{2,5}$/i.test(u) || u.endsWith("/") ? u : u + "/");
+/** Reads index_status every minute. Once per screen, Google's status is refreshed for up to 10 of these pages not checked for a day. */
+function useIndexStatus(urls: string[]) {
+  const [rows, setRows] = useState<Record<string, any>>({}), [loaded, setLoaded] = useState(false), checked = useRef(false);
+  const put = (list: any[]) => setRows((m) => ({ ...m, ...Object.fromEntries((list || []).map((r: any) => [r.url, r])) }));
+  const load = async () => {
+    const { data } = await supabase.from("index_status").select("*").limit(2000);
+    if (data) { setRows(Object.fromEntries(data.map((r: any) => [r.url, r]))); setLoaded(true); }
+  };
+  useEffect(() => { load(); const i = setInterval(load, 60000); return () => clearInterval(i); }, []);
+  useEffect(() => {
+    if (!loaded || checked.current || !urls.length) return;
+    checked.current = true;
+    const due = urls.map(ixUrl).filter((u) => { const r = rows[u]; return !r?.google_checked_at || Date.now() - Date.parse(r.google_checked_at) > 864e5; }).slice(0, 10);
+    if (due.length) supabase.functions.invoke("seo", { body: { action: "index_check", urls: due } }).then(({ data }) => put(data?.rows || [])).catch(() => {});
+  }, [loaded, urls.length]);
+  return { rows, put };
+}
+/** Under a published page: "Indexed Ping Sent ✓" once IndexNow has the address, Google's own status, and "Re-ping Google". */
+function IndexLine({ url: raw, rows, onRows, label }: { url: string; rows: Record<string, any>; onRows: (rows: any[]) => void; label?: string }) {
+  const url = ixUrl(raw), st = rows[url];
+  const [busy, setBusy] = useState(false), [msg, setMsg] = useState("");
+  const took = (n: any) => n === 200 || n === 202;
+  const reping = async () => {
+    setBusy(true); setMsg("");
+    try {
+      const { data, error } = await supabase.functions.invoke("seo", { body: { action: "index_reping", url } });
+      if (error) { let m = error.message; try { const j = await (error as any).context?.json?.(); if (j?.error) m = j.error; } catch {} throw new Error(m); }
+      if (data?.error) throw new Error(data.error);
+      onRows(data.rows || []);
+      const sm = data.sent?.sitemap || {};
+      setMsg(`IndexNow ${took(data.sent?.indexnow) ? "received it" : "answered " + (data.sent?.indexnow || "nothing")}. Google: ${took(sm.code) || sm.code === 204 ? "sitemap resubmitted" : sm.why || "sitemap not resubmitted"}.`);
+    } catch (e: any) { setMsg(e.message); } finally { setBusy(false); }
+  };
+  return (
+    <View style={{ gap: 4 }}>
+      <Row wrap>
+        {label ? <T size={12} muted>{label}</T> : null}
+        {took(st?.indexnow_code) ? <Pill kind="good" text={`Indexed Ping Sent ✓ ${stamp(st.indexnow_at)}`} />
+          : st?.indexnow_at ? <Pill kind="bad" text={`IndexNow answered ${st.indexnow_code || "nothing"}`} /> : <Pill text="Not pinged yet" />}
+        {st?.google_verdict === "PASS" ? <Pill kind="good" text="Google: indexed ✓" />
+          : st?.google_state ? <Pill kind="warn" text={"Google: " + st.google_state} />
+          : st?.google_error ? <Pill text="Google: status not read" /> : null}
+        <Btn kind="ghost" title="Re-ping Google" busy={busy} disabled={busy} onPress={reping} />
+      </Row>
+      {msg ? <T size={12} muted>{msg}</T> : null}
+    </View>);
+}
 const CITIES = ["Riyadh", "Dammam", "Al-Khobar", "Al-Ahsa", "Jeddah", "Other"];
 const ROLES = ["Project Manager", "Construction Manager", "Consultant", "Developer / Owner", "Main contractor", "Architect", "Other"];
 const SOURCES = ["Met on site", "Business card", "Referral", "Worked together before", "They contacted us", "Event / exhibition", "Their website contact page", "Other"];
@@ -137,8 +187,10 @@ function SeoAutopilot({ onDraft }: { onDraft?: (p: any) => void }) {
     <Card>
       <Row wrap><H2>SEO autopilot</H2><View style={{ flex: 1 }} />
         {s?.google?.linked ? <Pill kind="good" text="Google linked" /> : <Pill kind="warn" text="Google Search Console not linked yet" />}</Row>
-      {g && !g.linked ? <Row wrap><T size={14}>Link Google Search Console once, with the Google account that has al-swaticontracting.com (read-only).</T>
+      {g && !g.linked ? <Row wrap><T size={14}>Link Google Search Console once, with the Google account that has al-swaticontracting.com. The ERP reads Google's numbers and resubmits your sitemap after each Publish.</T>
         <Btn kind="primary" title="Sign in with Google" busy={busy === "google"} disabled={!!busy} onPress={gStart} /></Row> : null}
+      {g?.linked && g.write === false ? <Row wrap><T size={13} color={c.warn}>Google is linked for reading only. Sign in once more so the ERP can also resubmit your sitemap to Google after each Publish and from "Re-ping Google".</T>
+        <Btn kind="primary" title="Allow sitemap resubmit" busy={busy === "google"} disabled={!!busy} onPress={gStart} /></Row> : null}
       {g?.linked && g.account ? <Row wrap><T size={13} muted>Google: {g.account}{g.error ? ` · last problem: ${g.error}` : ""}</T><View style={{ flex: 1 }} /><Btn kind="ghost" title="Disconnect Google" disabled={!!busy} onPress={gStop} /></Row> : null}
       <T size={13} muted>Every morning it reads Google's numbers for al-swaticontracting.com, finds searches close to page 1, writes 2 blog drafts a week from them, counts website leads and WhatsApp clicks, and tells the main agent. You only read and press Publish.{s?.last_tick ? ` Last run ${stamp(s.last_tick)}.` : ""}</T>
       {(s?.summary || ev) && <StatStrip items={[
@@ -175,6 +227,7 @@ function SeoAutopilot({ onDraft }: { onDraft?: (p: any) => void }) {
 function Blog() {
   const { d, reload } = useData(); const c = useColors(); const profile = useProfile();
   const posts = (d.blog_posts || []).filter((p: any) => !p.area);
+  const ix = useIndexStatus(posts.filter((p: any) => p.status === "Published").map((p: any) => postUrl(p)));
   const [topics, setTopics] = useState<any[]>([]), [topic, setTopic] = useState(""), [kw, setKw] = useState(""), [lang, setLang] = useState("en");
   const [busy, setBusy] = useState(""), [err, setErr] = useState(""), [ed, setEd] = useState<any>(null);
   const today = posts.some((p: any) => Date.now() - Date.parse(p.created_at) < 20 * 3600e3);
@@ -223,6 +276,7 @@ function Blog() {
           <Row>{p.image_url ? <Image source={{ uri: p.image_url }} accessibilityLabel={p.image_alt || p.title} style={{ width: 72, height: 41, borderRadius: 6 }} /> : null}
             <View style={{ flex: 1 }}><T bold>{p.title}</T><T size={12} muted>{p.lang === "ar" ? "العربية" : "English"} · {day(p.created_at)}{p.published_at ? ` · published ${day(p.published_at)}` : ""}{p.twin_id ? (p.lang === "ar" ? " · English version too" : " · Arabic version too") : ""}</T></View>
             {p.source === "autopilot" ? <Pill kind="acc" text="autopilot" /> : p.source === "boost" ? <Pill kind="acc" text="Top-3 upgrade" /> : null}<Pill kind={p.status === "Published" ? "good" : p.status === "Draft" ? "warn" : "plain"} text={p.status} /></Row>
+          {p.status === "Published" ? <IndexLine url={postUrl(p)} rows={ix.rows} onRows={ix.put} /> : null}
         </Card>))}
       {ed && <PostEditor p={ed} onClose={() => setEd(null)} />}
     </>
@@ -365,6 +419,7 @@ function DistrictPages() {
   const { d, reload } = useData(); const c = useColors();
   const all = (d.blog_posts || []).filter((p: any) => p.area && p.area.type !== "case" && p.status !== "Archived");
   const rows = all.filter((p: any) => p.lang === "en" || !all.some((x: any) => x.id === p.twin_id)); // one row per district pair
+  const ix = useIndexStatus(all.filter((p: any) => p.status === "Published").map((p: any) => SITE_URL + p.target_path));
   const [district, setDistrict] = useState(""), [other, setOther] = useState(""), [stone, setStone] = useState(STONE_TYPES[0]);
   const [photos, setPhotos] = useState<{ uri: string; url: string }[]>([]), [notes, setNotes] = useState("");
   const [busy, setBusy] = useState(""), [err, setErr] = useState(""), [ed, setEd] = useState<any>(null);
@@ -431,6 +486,8 @@ function DistrictPages() {
               {tw ? <Btn kind="ghost" title="الصفحة العربية" onPress={() => setEd(tw)} /> : null}
               {p.status === "Published" ? <Btn kind="ghost" icon={<Icon name="share" />} title="Open" onPress={() => Linking.openURL(SITE_URL + p.target_path)} /> : null}
             </Row>
+            {p.status === "Published" ? <IndexLine label={p.lang === "ar" ? "العربية" : "English"} url={SITE_URL + p.target_path} rows={ix.rows} onRows={ix.put} /> : null}
+            {tw?.status === "Published" ? <IndexLine label={tw.lang === "ar" ? "العربية" : "English"} url={SITE_URL + tw.target_path} rows={ix.rows} onRows={ix.put} /> : null}
           </Card>);
       })}
       {ed && <PostEditor p={ed} onClose={() => setEd(null)} />}
@@ -524,6 +581,7 @@ function CaseStudies() {
   const { d } = useData(); const c = useColors();
   const all = (d.blog_posts || []).filter((p: any) => p.area?.type === "case" && p.status !== "Archived");
   const rows = all.filter((p: any) => p.lang === "en" || !all.some((x: any) => x.id === p.twin_id));
+  const ix = useIndexStatus(all.filter((p: any) => p.status === "Published").map((p: any) => SITE_URL + p.target_path));
   const [ed, setEd] = useState<any>(null);
   return (
     <>
@@ -544,6 +602,8 @@ function CaseStudies() {
               {tw ? <Btn kind="ghost" title="الصفحة العربية" onPress={() => setEd(tw)} /> : null}
               {p.status === "Published" ? <Btn kind="ghost" icon={<Icon name="share" />} title="Open" onPress={() => Linking.openURL(SITE_URL + p.target_path)} /> : null}
             </Row>
+            {p.status === "Published" ? <IndexLine label={p.lang === "ar" ? "العربية" : "English"} url={SITE_URL + p.target_path} rows={ix.rows} onRows={ix.put} /> : null}
+            {tw?.status === "Published" ? <IndexLine label={tw.lang === "ar" ? "العربية" : "English"} url={SITE_URL + tw.target_path} rows={ix.rows} onRows={ix.put} /> : null}
           </Card>);
       })}
       {ed && <PostEditor p={ed} onClose={() => setEd(null)} />}
