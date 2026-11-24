@@ -38,7 +38,7 @@ function useIndexStatus(urls: string[]) {
   return { rows, put };
 }
 /** Under a published page: "Indexed Ping Sent ✓" once IndexNow has the address, Google's own status, and "Re-ping Google". */
-function IndexLine({ url: raw, rows, onRows, label }: { url: string; rows: Record<string, any>; onRows: (rows: any[]) => void; label?: string }) {
+function IndexLine({ url: raw, rows, onRows, label, onGbp }: { url: string; rows: Record<string, any>; onRows: (rows: any[]) => void; label?: string; onGbp?: () => void }) {
   const url = ixUrl(raw), st = rows[url];
   const [busy, setBusy] = useState(false), [msg, setMsg] = useState("");
   const took = (n: any) => n === 200 || n === 202;
@@ -63,9 +63,186 @@ function IndexLine({ url: raw, rows, onRows, label }: { url: string; rows: Recor
           : st?.google_state ? <Pill kind="warn" text={"Google: " + st.google_state} />
           : st?.google_error ? <Pill text="Google: status not read" /> : null}
         <Btn kind="ghost" title="Re-ping Google" busy={busy} disabled={busy} onPress={reping} />
+        {onGbp ? <Btn kind="ghost" title="Copy for Google Business Profile" onPress={onGbp} /> : null}
       </Row>
       {msg ? <T size={12} muted>{msg}</T> : null}
     </View>);
+}
+
+// ───────── Google Maps (Business Profile) & reviews ─────────
+const REVIEW_LINK = "https://search.google.com/local/writereview?placeid=ChIJAZHiKg0cOaoRQl8W3DNsZ9I"; // opens the review box on our Google Maps profile
+const pageLink = (p: any) => (p.target_path ? SITE_URL + p.target_path : postUrl(p));
+/** "Copy for Google Business Profile": the AI writes a short update (English + Saudi Arabic) about a published page. */
+function GbpSheet({ p, onClose }: { p: any; onClose: () => void }) {
+  const c = useColors(); const profile = useProfile();
+  const url = pageLink(p);
+  const [m, setM] = useState<any>(null), [busy, setBusy] = useState(false), [err, setErr] = useState(""), [note, setNote] = useState("");
+  const write = async () => {
+    setBusy(true); setErr(""); setNote("");
+    try {
+      const area = p.area ? (({ photos, ...rest }: any) => rest)(p.area) : null;
+      const text = [p.meta_description, String(p.body || "").replace(/[#*_>|`]/g, " ").replace(/\s+/g, " ").slice(0, 3000)].filter(Boolean).join("\n");
+      setM(await ai("gbp_post", { page: { title: p.title, lang: p.lang, url, text, area } }));
+    } catch (e: any) { setErr(e.message); } finally { setBusy(false); }
+  };
+  useEffect(() => { write(); }, []);
+  const copy = async (s: string, what: string) => { try { await (navigator as any).clipboard.writeText(s); setNote(`${what} copied.`); } catch { setNote("Copy did not work: select the text and copy it."); } };
+  const words = (s: string) => String(s || "").split(/\s+/).filter(Boolean).length;
+  return (
+    <Sheet open onClose={onClose} title="Update for Google Business Profile">
+      <T size={13} muted>{`Google Maps → your business → Add update → paste the English or the Arabic text → add a photo of this work → add the button "Call now" (it rings your verified number ${profile.phone || "+966 51 182 6313"}) or "Learn more" with the link below. Google may remove updates that have a phone number or link written in the text, so they go on the button.`}</T>
+      {busy && !m ? <T>Writing… (about 10 seconds)</T> : null}
+      {m ? <>
+        <Field label={`English · ${words(m.en)} words`} value={m.en} multiline onChange={(v) => setM({ ...m, en: v })} />
+        <Row wrap><Btn kind="primary" title="Copy English" onPress={() => copy(m.en, "English")} /></Row>
+        <Field label={`العربية · ${words(m.ar)} كلمة`} value={m.ar} multiline onChange={(v) => setM({ ...m, ar: v })} />
+        <Row wrap><Btn kind="primary" title="نسخ النص العربي" onPress={() => copy(m.ar, "Arabic")} /></Row>
+        <Row wrap><View style={{ flex: 1, minWidth: 220 }}><T size={13} muted>{`Link for the "Learn more" button: ${url}`}</T></View><Btn kind="ghost" title="Copy link" onPress={() => copy(url, "Link")} /></Row>
+        <Btn kind="ghost" icon={<Icon name="spark" />} title="Write again" busy={busy} disabled={busy} onPress={write} />
+      </> : null}
+      {note ? <T size={12} color={c.good}>{note}</T> : null}
+      {err ? <T color={c.bad}>{err}</T> : null}
+    </Sheet>);
+}
+/** EXIF for a JPEG: the district's centre as GPS (marked approximate, about 1.5 km), Artist, Copyright and a description.
+ *  Whatever the file had is dropped first, so a phone's exact location of a client's house never leaves the ERP. Same as the website build. */
+function withGps(src: Uint8Array, lat: number, lng: number, { errorM = 1500, artist = "AL-Swati Contracting", copyright = "AL-Swati Contracting", description = "" } = {}): Uint8Array {
+  if (src[0] !== 0xff || src[1] !== 0xd8) return src;
+  // no district centre: the old EXIF is still dropped, and no GPS is written
+  const hasGps = Number.isFinite(lat) && Number.isFinite(lng) && !(lat === 0 && lng === 0);
+  const ascii = (s: string) => String(s || "").replace(/[^\x20-\x7e]/g, "").slice(0, 200);
+  const keep: Uint8Array[] = [];
+  let i = 2;
+  while (i + 4 <= src.length && src[i] === 0xff) {
+    const m = src[i + 1];
+    if (m === 0xda || m === 0xd9) break;
+    const len = (src[i + 2] << 8) | src[i + 3], seg = src.subarray(i, i + 2 + len);
+    if (!(m === 0xe1 && seg[4] === 0x45 && seg[5] === 0x78 && seg[6] === 0x69 && seg[7] === 0x66)) keep.push(seg);
+    i += 2 + len;
+  }
+  const rest = src.subarray(i);
+  const dms = (x: number) => { const a = Math.abs(x), d = Math.floor(a), mf = (a - d) * 60, mi = Math.floor(mf), s = Math.round((mf - mi) * 60 * 100); return [[d, 1], [mi, 1], [s, 100]]; };
+  type E = { tag: number; type: number; str?: string; rats?: number[][]; bytes?: number[]; gps?: boolean };
+  const ifd0: E[] = [];
+  if (ascii(description)) ifd0.push({ tag: 0x010e, type: 2, str: ascii(description) });
+  if (ascii(artist)) ifd0.push({ tag: 0x013b, type: 2, str: ascii(artist) });
+  if (ascii(copyright)) ifd0.push({ tag: 0x8298, type: 2, str: ascii(copyright) });
+  if (hasGps) ifd0.push({ tag: 0x8825, type: 4, gps: true });
+  const gps: E[] = !hasGps ? [] : [{ tag: 0x0000, type: 1, bytes: [2, 3, 0, 0] }, { tag: 0x0001, type: 2, str: lat >= 0 ? "N" : "S" }, { tag: 0x0002, type: 5, rats: dms(lat) },
+    { tag: 0x0003, type: 2, str: lng >= 0 ? "E" : "W" }, { tag: 0x0004, type: 5, rats: dms(lng) }, { tag: 0x0012, type: 2, str: "WGS-84" }, { tag: 0x001f, type: 5, rats: [[Math.round(errorM), 1]] }];
+  const size = (e: E) => (e.str !== undefined ? e.str.length + 1 : e.rats ? e.rats.length * 8 : e.bytes ? e.bytes.length : 4);
+  const count = (e: E) => (e.str !== undefined ? e.str.length + 1 : e.rats ? e.rats.length : e.bytes ? e.bytes.length : 1);
+  const ifdLen = (n: number) => 2 + n * 12 + 4, ifd0At = 8, gpsAt = ifd0At + ifdLen(ifd0.length);
+  let dataAt = gpsAt + (gps.length ? ifdLen(gps.length) : 0);
+  const extra = (l: E[]) => l.filter((e) => size(e) > 4).reduce((n, e) => n + size(e) + (size(e) & 1), 0);
+  const t = new Uint8Array(dataAt + extra(ifd0) + extra(gps)), v = new DataView(t.buffer);
+  t.set([0x4d, 0x4d, 0, 42, 0, 0, 0, ifd0At]);
+  const writeIfd = (at: number, list: E[]) => {
+    v.setUint16(at, list.length); let q = at + 2;
+    for (const e of list) {
+      v.setUint16(q, e.tag); v.setUint16(q + 2, e.type); v.setUint32(q + 4, count(e));
+      const put = (o: number) => {
+        if (e.str !== undefined) { for (let k = 0; k < e.str.length; k++) t[o + k] = e.str.charCodeAt(k); t[o + e.str.length] = 0; }
+        else if (e.rats) e.rats.forEach(([a, b], k) => { v.setUint32(o + k * 8, a); v.setUint32(o + k * 8 + 4, b); });
+        else if (e.bytes) t.set(e.bytes, o);
+      };
+      if (e.gps) v.setUint32(q + 8, gpsAt); else if (size(e) <= 4) put(q + 8); else { v.setUint32(q + 8, dataAt); put(dataAt); dataAt += size(e) + (size(e) & 1); }
+      q += 12;
+    }
+    v.setUint32(q, 0);
+  };
+  writeIfd(ifd0At, ifd0); if (gps.length) writeIfd(gpsAt, gps);
+  const len = 2 + 6 + t.length, app1 = new Uint8Array(2 + len);
+  app1.set([0xff, 0xe1, len >> 8, len & 0xff, 0x45, 0x78, 0x69, 0x66, 0, 0]); app1.set(t, 10);
+  const parts = [new Uint8Array([0xff, 0xd8]), ...keep.filter((x) => x[1] === 0xe0), app1, ...keep.filter((x) => x[1] !== 0xe0), rest];
+  const res = new Uint8Array(parts.reduce((n, a) => n + a.length, 0));
+  let o = 0; for (const a of parts) { res.set(a, o); o += a.length; }
+  return res;
+}
+const matOf = (a: any) => { const s = String(a?.stone || ""); return /marble|travertine|رخام/i.test(s) ? "marble" : /granite|جرانيت/i.test(s) ? "granite" : /porcelain|بورسلان/i.test(s) ? "porcelain" : "stone"; };
+/** Searchable file name, the same one the website uses: mechanical-stone-cladding-al-malqa-riyadh-01 */
+const photoName = (a: any, i: number) => {
+  const place = String(a?.district || a?.slug || "riyadh").toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  return `mechanical-${matOf(a)}-cladding-${place && place !== "riyadh" ? place + "-" : ""}riyadh-${String(i + 1).padStart(2, "0")}`;
+};
+/** "Photos for Google Maps": downloads the page's photos with searchable names and the district's GPS (web). */
+async function downloadMapPhotos(p: any): Promise<string> {
+  const doc = (globalThis as any).document;
+  if (Platform.OS !== "web" || !doc) return "Open the ERP on a computer to download the photos.";
+  const a = p.area || {}; let n = 0;
+  for (const [i, ph] of (a.photos || []).entries()) {
+    const r = await fetch(ph.url).catch(() => null);
+    if (!r?.ok) continue;
+    const out = withGps(new Uint8Array(await r.arrayBuffer()), Number(a.lat), Number(a.lng), { description: `Mechanical ${matOf(a)} cladding${a.district ? ", " + a.district : ""}, Riyadh - AL-Swati Contracting` });
+    const link = doc.createElement("a");
+    link.href = URL.createObjectURL(new Blob([out], { type: "image/jpeg" })); link.download = photoName(a, i) + ".jpg";
+    doc.body.appendChild(link); link.click(); link.remove();
+    setTimeout(() => URL.revokeObjectURL(link.href), 5000);
+    n++; await new Promise((res) => setTimeout(res, 500));
+  }
+  return n ? `${n} photo${n > 1 ? "s" : ""} downloaded with searchable names and the district's location (approximate). Add them in Google Maps → your business → Photos, or to an update.` : "No photos on this page.";
+}
+const HOODS: [string, string][] = [["Al Narjis", "النرجس"], ["Al Malqa", "الملقا"], ["Hittin", "حطين"], ["Al Yasmin", "الياسمين"], ["Diriyah", "الدرعية"], ["Al Olaya", "العليا"],
+  ["Al Nakheel", "النخيل"], ["Qurtubah", "قرطبة"], ["Al Aqiq", "العقيق"], ["Al Sahafa", "الصحافة"], ["Al Arid", "العارض"], ["Al Qirawan", "القيروان"], ["Al Rabi", "الربيع"],
+  ["Al Nada", "الندى"], ["Al Wadi", "الوادي"], ["Al Ghadir", "الغدير"], ["Al Muruj", "المروج"], ["Al Mughrizat", "المغرزات"], ["Al Izdihar", "الازدهار"], ["Al Rawdah", "الروضة"],
+  ["Al Hamra", "الحمراء"], ["Al Malaz", "الملز"], ["Al Sulimaniyah", "السليمانية"], ["Al Wurud", "الورود"], ["Al Rimal", "الرمال"], ["Al Munsiyah", "المونسية"], ["Tuwaiq", "طويق"],
+  ["Dhahrat Laban", "ظهرة لبن"], ["Al Khuzama", "الخزامى"], ["Al Rahmaniyah", "الرحمانية"], ["Al Mursalat", "المرسلات"], ["Al Nuzha", "النزهة"], ["Al Muhammadiyah", "المحمدية"]];
+const WORKS = [{ en: "mechanical stone cladding", ar: "تركيب الحجر الميكانيكي" }, { en: "marble cladding", ar: "تركيب الرخام" }, { en: "granite cladding", ar: "تركيب الجرانيت" }, { en: "porcelain facade", ar: "تركيب واجهة البورسلان" }];
+const PLACES = [{ en: "villa", ar: "لفلتكم" }, { en: "building", ar: "لمبناكم" }, { en: "palace", ar: "لقصركم" }];
+const waTo = (phone: string) => { let n = String(phone || "").replace(/\D/g, ""); if (n.startsWith("00")) n = n.slice(2); if (n.startsWith("05")) n = "966" + n.slice(1); else if (n.startsWith("5") && n.length === 9) n = "966" + n; return n; };
+/** Growth → Google Maps: a review request for a finished client, and how to keep the Business Profile active. */
+function MapsBooster() {
+  const { profile: me } = useData() as any; const c = useColors();
+  const hussain = /hussain/i.test(me?.name || "");
+  const [f, setF] = useState<any>({ name: "", phone: "", hood: "Al Narjis", other: "", otherAr: "", work: "0", place: "0", from: hussain ? "Hussain" : me?.name || "", fromAr: hussain ? "حسين" : me?.name || "" });
+  const [note, setNote] = useState("");
+  const set = (k: string, v: string) => setF({ ...f, [k]: v });
+  const hood = f.hood === "Other" ? [f.other.trim(), f.otherAr.trim() || f.other.trim()] : HOODS.find((h) => h[0] === f.hood) || ["", ""];
+  const w = WORKS[Number(f.work)] || WORKS[0], pl = PLACES[Number(f.place)] || PLACES[0];
+  const where = hood[0] ? ` in ${hood[0]}, Riyadh` : " in Riyadh", whereAr = hood[1] ? ` في حي ${hood[1]} بالرياض` : " بالرياض";
+  const en = `Hello${f.name.trim() ? " " + f.name.trim() : ""},\n\nThis is ${f.from || "the team"} from AL-Swati Contracting. Thank you for trusting us with the ${w.en} of your ${pl.en}${where}.\n\nIf you have a minute, we would be grateful for your honest review on Google. It helps other families in Riyadh choose their contractor. If you like, mention the work we did, for example "${w.en}${where}".\n\n${REVIEW_LINK}\n\nThank you,\n${f.from ? f.from + ", " : ""}AL-Swati Contracting`;
+  const ar = `السلام عليكم${f.name.trim() ? " " + f.name.trim() : ""}،\n\nمعك ${f.fromAr || "فريق"} من شركة السواطي للمقاولات. نشكركم على ثقتكم فينا في ${w.ar} ${pl.ar}${whereAr}.\n\nإذا عندك دقيقة، يسعدنا تكتب رأيك الصادق عنا في قوقل، لأنه يساعد غيرك من أهل الرياض يختارون المقاول المناسب. وإذا حاب، اذكر الشغل اللي سويناه، مثل: "${w.ar}${whereAr}".\n\n${REVIEW_LINK}\n\nشاكرين لك،\n${f.fromAr ? f.fromAr + " - " : ""}شركة السواطي للمقاولات`;
+  const copy = async (s: string, what: string) => { try { await (navigator as any).clipboard.writeText(s); setNote(`${what} message copied.`); } catch { setNote("Copy did not work: select the text and copy it."); } };
+  const send = (s: string) => Linking.openURL(`https://wa.me/${waTo(f.phone)}?text=${encodeURIComponent(s)}`);
+  const phoneOk = waTo(f.phone).length >= 11;
+  return (
+    <>
+      <Card>
+        <H2>Ask a client for a Google review</H2>
+        <T size={13} muted>For a client whose job is finished. You send it yourself on WhatsApp. Google's rules: ask every finished client, happy or not; never ask for a number of stars and never give anything for a review, or Google can remove the reviews.</T>
+        <Row wrap>
+          <Field label="Client name" value={f.name} onChange={(v) => set("name", v)} placeholder="e.g. Abu Fahad" />
+          <Field label="WhatsApp number" value={f.phone} onChange={(v) => set("phone", v)} placeholder="05x xxx xxxx" style={{ maxWidth: 220 }} />
+        </Row>
+        <Row wrap>
+          <Select label="Neighborhood" value={f.hood} options={[...HOODS.map((h) => ({ value: h[0], label: `${h[0]} · ${h[1]}` })), { value: "Other", label: "Other…" }]} onChange={(v) => set("hood", v)} style={{ maxWidth: 260 }} />
+          <Select label="Work" value={f.work} options={WORKS.map((x, i) => ({ value: String(i), label: x.en }))} onChange={(v) => set("work", v)} style={{ maxWidth: 260 }} />
+          <Select label="Their" value={f.place} options={PLACES.map((x, i) => ({ value: String(i), label: x.en }))} onChange={(v) => set("place", v)} style={{ maxWidth: 160 }} />
+        </Row>
+        {f.hood === "Other" ? <Row wrap><Field label="Neighborhood (English)" value={f.other} onChange={(v) => set("other", v)} /><Field label="الحي (بالعربي)" value={f.otherAr} onChange={(v) => set("otherAr", v)} /></Row> : null}
+        <Row wrap><Field label="From (your name)" value={f.from} onChange={(v) => set("from", v)} style={{ maxWidth: 220 }} /><Field label="الاسم بالعربي" value={f.fromAr} onChange={(v) => set("fromAr", v)} style={{ maxWidth: 220 }} /></Row>
+        <T size={12} muted>العربية</T>
+        <View style={{ backgroundColor: c.sunk, borderRadius: 8, padding: 12 }}><T size={14}>{ar}</T></View>
+        <Row wrap>
+          <Btn kind="primary" icon={<Icon name="share" color={c.accentInk} />} title="Send Arabic on WhatsApp" disabled={!phoneOk} onPress={() => send(ar)} />
+          <Btn kind="ghost" title="Copy Arabic" onPress={() => copy(ar, "Arabic")} />
+        </Row>
+        <T size={12} muted>English</T>
+        <View style={{ backgroundColor: c.sunk, borderRadius: 8, padding: 12 }}><T size={14}>{en}</T></View>
+        <Row wrap>
+          <Btn icon={<Icon name="share" />} title="Send English on WhatsApp" disabled={!phoneOk} onPress={() => send(en)} />
+          <Btn kind="ghost" title="Copy English" onPress={() => copy(en, "English")} />
+        </Row>
+        {!phoneOk && f.phone ? <T size={12} color={c.warn}>Check the WhatsApp number (e.g. 05x xxx xxxx).</T> : null}
+        {note ? <T size={12} color={c.good}>{note}</T> : null}
+      </Card>
+      <Card>
+        <H2>Keep the Google Maps profile active</H2>
+        <T size={13} muted>Post one update a week: press "Copy for Google Business Profile" on any published post, district page or case study (Blog, District pages, Case studies), paste it in Google Maps → your business → Add update, and add a real photo of that job.</T>
+        <T size={13} muted>Photos: on a published district page or case study, "Photos for Google Maps" downloads its photos named for search (e.g. mechanical-stone-cladding-al-malqa-riyadh-01.jpg) with the district's location. The website uses the same names.</T>
+      </Card>
+    </>
+  );
 }
 const CITIES = ["Riyadh", "Dammam", "Al-Khobar", "Al-Ahsa", "Jeddah", "Other"];
 const ROLES = ["Project Manager", "Construction Manager", "Consultant", "Developer / Owner", "Main contractor", "Architect", "Other"];
@@ -229,6 +406,7 @@ function Blog() {
   const { d, reload } = useData(); const c = useColors(); const profile = useProfile();
   const posts = (d.blog_posts || []).filter((p: any) => !p.area);
   const ix = useIndexStatus(posts.filter((p: any) => p.status === "Published").map((p: any) => postUrl(p)));
+  const [gbp, setGbp] = useState<any>(null);
   const [topics, setTopics] = useState<any[]>([]), [topic, setTopic] = useState(""), [kw, setKw] = useState(""), [lang, setLang] = useState("en");
   const [busy, setBusy] = useState(""), [err, setErr] = useState(""), [ed, setEd] = useState<any>(null);
   const today = posts.some((p: any) => Date.now() - Date.parse(p.created_at) < 20 * 3600e3);
@@ -277,8 +455,9 @@ function Blog() {
           <Row>{p.image_url ? <Image source={{ uri: p.image_url }} accessibilityLabel={p.image_alt || p.title} style={{ width: 72, height: 41, borderRadius: 6 }} /> : null}
             <View style={{ flex: 1 }}><T bold>{p.title}</T><T size={12} muted>{p.lang === "ar" ? "العربية" : "English"} · {day(p.created_at)}{p.published_at ? ` · published ${day(p.published_at)}` : ""}{p.twin_id ? (p.lang === "ar" ? " · English version too" : " · Arabic version too") : ""}</T></View>
             {p.source === "autopilot" ? <Pill kind="acc" text="autopilot" /> : p.source === "boost" ? <Pill kind="acc" text="Top-3 upgrade" /> : null}<Pill kind={p.status === "Published" ? "good" : p.status === "Draft" ? "warn" : "plain"} text={p.status} /></Row>
-          {p.status === "Published" ? <IndexLine url={postUrl(p)} rows={ix.rows} onRows={ix.put} /> : null}
+          {p.status === "Published" ? <IndexLine url={postUrl(p)} rows={ix.rows} onRows={ix.put} onGbp={() => setGbp(p)} /> : null}
         </Card>))}
+      {gbp && <GbpSheet p={gbp} onClose={() => setGbp(null)} />}
       {ed && <PostEditor p={ed} onClose={() => setEd(null)} />}
     </>
   );
@@ -421,6 +600,7 @@ function DistrictPages() {
   const all = (d.blog_posts || []).filter((p: any) => p.area && p.area.type !== "case" && p.status !== "Archived");
   const rows = all.filter((p: any) => p.lang === "en" || !all.some((x: any) => x.id === p.twin_id)); // one row per district pair
   const ix = useIndexStatus(all.filter((p: any) => p.status === "Published").map((p: any) => SITE_URL + p.target_path));
+  const [gbp, setGbp] = useState<any>(null), [mapNote, setMapNote] = useState(""), [dl, setDl] = useState("");
   const [district, setDistrict] = useState(""), [other, setOther] = useState(""), [stone, setStone] = useState(STONE_TYPES[0]);
   const [photos, setPhotos] = useState<{ uri: string; url: string }[]>([]), [notes, setNotes] = useState("");
   const [busy, setBusy] = useState(""), [err, setErr] = useState(""), [ed, setEd] = useState<any>(null);
@@ -487,10 +667,14 @@ function DistrictPages() {
               {tw ? <Btn kind="ghost" title="الصفحة العربية" onPress={() => setEd(tw)} /> : null}
               {p.status === "Published" ? <Btn kind="ghost" icon={<Icon name="share" />} title="Open" onPress={() => Linking.openURL(SITE_URL + p.target_path)} /> : null}
             </Row>
-            {p.status === "Published" ? <IndexLine label={p.lang === "ar" ? "العربية" : "English"} url={SITE_URL + p.target_path} rows={ix.rows} onRows={ix.put} /> : null}
+            {p.status === "Published" ? <IndexLine label={p.lang === "ar" ? "العربية" : "English"} url={SITE_URL + p.target_path} rows={ix.rows} onRows={ix.put} onGbp={() => setGbp(p)} /> : null}
             {tw?.status === "Published" ? <IndexLine label={tw.lang === "ar" ? "العربية" : "English"} url={SITE_URL + tw.target_path} rows={ix.rows} onRows={ix.put} /> : null}
+            {p.status === "Published" && (p.area?.photos || []).length ? <Row wrap><Btn kind="ghost" icon={<Icon name="share" />} title="Photos for Google Maps" busy={dl === p.id} disabled={!!dl}
+              onPress={async () => { setDl(p.id); setMapNote(await downloadMapPhotos(p).catch((e: any) => e.message)); setDl(""); }} /></Row> : null}
           </Card>);
       })}
+      {mapNote ? <T size={13} muted>{mapNote}</T> : null}
+      {gbp && <GbpSheet p={gbp} onClose={() => setGbp(null)} />}
       {ed && <PostEditor p={ed} onClose={() => setEd(null)} />}
     </>
   );
@@ -583,6 +767,7 @@ function CaseStudies() {
   const all = (d.blog_posts || []).filter((p: any) => p.area?.type === "case" && p.status !== "Archived");
   const rows = all.filter((p: any) => p.lang === "en" || !all.some((x: any) => x.id === p.twin_id));
   const ix = useIndexStatus(all.filter((p: any) => p.status === "Published").map((p: any) => SITE_URL + p.target_path));
+  const [gbp, setGbp] = useState<any>(null), [mapNote, setMapNote] = useState(""), [dl, setDl] = useState("");
   const [ed, setEd] = useState<any>(null);
   return (
     <>
@@ -603,10 +788,14 @@ function CaseStudies() {
               {tw ? <Btn kind="ghost" title="الصفحة العربية" onPress={() => setEd(tw)} /> : null}
               {p.status === "Published" ? <Btn kind="ghost" icon={<Icon name="share" />} title="Open" onPress={() => Linking.openURL(SITE_URL + p.target_path)} /> : null}
             </Row>
-            {p.status === "Published" ? <IndexLine label={p.lang === "ar" ? "العربية" : "English"} url={SITE_URL + p.target_path} rows={ix.rows} onRows={ix.put} /> : null}
+            {p.status === "Published" ? <IndexLine label={p.lang === "ar" ? "العربية" : "English"} url={SITE_URL + p.target_path} rows={ix.rows} onRows={ix.put} onGbp={() => setGbp(p)} /> : null}
             {tw?.status === "Published" ? <IndexLine label={tw.lang === "ar" ? "العربية" : "English"} url={SITE_URL + tw.target_path} rows={ix.rows} onRows={ix.put} /> : null}
+            {p.status === "Published" && (p.area?.photos || []).length ? <Row wrap><Btn kind="ghost" icon={<Icon name="share" />} title="Photos for Google Maps" busy={dl === p.id} disabled={!!dl}
+              onPress={async () => { setDl(p.id); setMapNote(await downloadMapPhotos(p).catch((e: any) => e.message)); setDl(""); }} /></Row> : null}
           </Card>);
       })}
+      {mapNote ? <T size={13} muted>{mapNote}</T> : null}
+      {gbp && <GbpSheet p={gbp} onClose={() => setGbp(null)} />}
       {ed && <PostEditor p={ed} onClose={() => setEd(null)} />}
     </>
   );
@@ -693,13 +882,13 @@ function WriteMail({ o, kind, profile, signature, onClose }: { o: any; kind: str
 }
 
 export default function Growth() {
-  const [tab, setTab] = useState<"blog" | "areas" | "cases" | "outreach">("blog");
+  const [tab, setTab] = useState<"blog" | "areas" | "cases" | "maps" | "outreach">("blog");
   return (
     <Screen>
       <H1>Growth</H1>
-      <Row wrap><Btn kind={tab === "blog" ? "primary" : "ghost"} title="Blog (SEO)" onPress={() => setTab("blog")} /><Btn kind={tab === "areas" ? "primary" : "ghost"} title="District pages" onPress={() => setTab("areas")} /><Btn kind={tab === "cases" ? "primary" : "ghost"} title="Case studies" onPress={() => setTab("cases")} /><Btn kind={tab === "outreach" ? "primary" : "ghost"} title="Outreach" onPress={() => setTab("outreach")} /></Row>
+      <Row wrap><Btn kind={tab === "blog" ? "primary" : "ghost"} title="Blog (SEO)" onPress={() => setTab("blog")} /><Btn kind={tab === "areas" ? "primary" : "ghost"} title="District pages" onPress={() => setTab("areas")} /><Btn kind={tab === "cases" ? "primary" : "ghost"} title="Case studies" onPress={() => setTab("cases")} /><Btn kind={tab === "maps" ? "primary" : "ghost"} title="Google Maps" onPress={() => setTab("maps")} /><Btn kind={tab === "outreach" ? "primary" : "ghost"} title="Outreach" onPress={() => setTab("outreach")} /></Row>
       <CompanyProfile />
-      {tab === "blog" ? <Blog /> : tab === "areas" ? <DistrictPages /> : tab === "cases" ? <CaseStudies /> : <Outreach />}
+      {tab === "blog" ? <Blog /> : tab === "areas" ? <DistrictPages /> : tab === "cases" ? <CaseStudies /> : tab === "maps" ? <MapsBooster /> : <Outreach />}
     </Screen>
   );
 }
