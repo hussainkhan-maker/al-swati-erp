@@ -195,7 +195,7 @@ function FindSuppliers({ onClose }: { onClose: () => void }) {
 // ───────────────────────── import a supplier list ─────────────────────────
 // Paste from Excel (copy the cells), a CSV file, or a plain list ("Al Hajar Marble - 0551234567 - Riyadh").
 // Each line becomes one supplier: phone, email, city and material are picked out, the rest is the name. Copies are skipped.
-const CITIES: [RegExp, string][] = [[/riyadh|الرياض/i, "Riyadh"], [/jedd?ah|جدة|جده/i, "Jeddah"], [/dammam|الدمام/i, "Dammam"], [/khobar|الخبر/i, "Khobar"], [/hass?a|hofuf|الأحساء|الاحساء|الهفوف/i, "Al-Hassa"],
+const CITIES: [RegExp, string][] = [[/riyadh|الرياض/i, "Riyadh"], [/jedd?ah|جدة|جده/i, "Jeddah"], [/dammam|الدمام/i, "Dammam"], [/khobar|الخبر/i, "Khobar"], [/ahsa|hass?a|hofuf|الأحساء|الاحساء|الهفوف/i, "Al-Ahsa"],
   [/jubail|الجبيل/i, "Jubail"], [/mecca|makkah|مكة/i, "Makkah"], [/madinah|medina|المدينة/i, "Madinah"], [/qassim|buraid|القصيم|بريدة/i, "Qassim"], [/tabuk|تبوك/i, "Tabuk"], [/abha|أبها|ابها/i, "Abha"], [/khamis|خميس/i, "Khamis Mushait"], [/taif|الطائف/i, "Taif"]];
 const HEAD: Record<string, RegExp> = { name: /name|supplier|company|vendor|اسم|المورد|الشركة|المؤسسة/i, phone: /phone|mobile|tel|contact|جوال|هاتف|رقم|موبايل/i, whatsapp: /whats|واتس/i,
   city: /city|location|area|مدينة|المدينة|الموقع/i, email: /e-?mail|بريد|ايميل/i, cat: /categor|material|type|items|product|مواد|صنف|نوع|منتج/i, notes: /note|remark|ملاحظ/i };
