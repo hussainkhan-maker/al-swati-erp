@@ -6,7 +6,11 @@
 //  • "event" (public, from the website): counts WhatsApp / call / email clicks per page. No names are kept.
 //  • "run"   (Super-Admin): run the tick now ({force:"weekly"} also redoes the weekly report and topics).
 //  • "google_status" / "google_start" / "google_finish" / "google_disconnect" (Super-Admin): the owner's own "Sign in with Google"
-//            for Search Console (read-only), used when no service-account key exists (the company's Google blocks those keys).
+//            for Search Console (reads Google's numbers, resubmits the sitemap), used when no service-account key exists (the
+//            company's Google blocks those keys).
+//  • "index_ping" (public, from the website build once GitHub Pages has published): tells IndexNow (Bing, Yandex and the other
+//            IndexNow engines) about new or changed pages and resubmits the sitemap to Google Search Console.
+//  • "index_reping" / "index_check" (Super-Admin, Growth): ping one page again; read Google's own index status (URL Inspection).
 // Nothing is ever published or sent by itself: posts wait for Publish, review messages wait for the owner to send them.
 import { createClient } from "npm:@supabase/supabase-js@2.45.4";
 
@@ -16,12 +20,12 @@ const db = createClient(URL_, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 const AR_WORDS = `In Arabic, cladding work is always called تركيب (تركيب حجر، تركيب رخام، تركيب جرانيت، تركيب بورسلان، تركيب واجهات حجر) - never تكسية or تكسيات, because Saudi clients search for تركيب. The company's Arabic name is "شركة السواطي للمقاولات".`;
 const SITE = "https://al-swaticontracting.com";
 const GSC_SITE = Deno.env.get("GSC_SITE") ?? "sc-domain:al-swaticontracting.com";
-// The owner's own "Sign in with Google" (Search Console, read-only). The client id is public (it is in every sign-in link);
+// The owner's own "Sign in with Google" (Search Console: read the numbers, resubmit the sitemap). The client id is public (it is in every sign-in link);
 // the client secret lives only in the server's secrets (GOOGLE_OAUTH_SECRET); the renewable sign-in sits in the locked table google_link.
 const G_CLIENT = Deno.env.get("GOOGLE_OAUTH_CLIENT_ID") ?? "479124517333-jc3h1mj0gr1hstpkf8aorg2jof0efa04.apps.googleusercontent.com";
 const G_SECRET = Deno.env.get("GOOGLE_OAUTH_SECRET") ?? "";
 const APP_URL = "https://hussainkhan-maker.github.io/al-swati-erp/";
-const G_SCOPE = "openid email https://www.googleapis.com/auth/webmasters.readonly";
+const G_SCOPE = "openid email https://www.googleapis.com/auth/webmasters"; // read + resubmit the sitemap (older sign-ins can only read)
 const REVIEW_LINK = "https://search.google.com/local/writereview?placeid=ChIJAZHiKg0cOaoRQl8W3DNsZ9I";
 const GEMINI_KEY = Deno.env.get("GEMINI_API_KEY") ?? "";
 const FAST = Deno.env.get("AI_MODEL_FAST") ?? "claude-haiku-5-5";
@@ -89,13 +93,13 @@ function asJson(t: string) {
   return JSON.parse(s.slice(0, s.lastIndexOf("}") + 1));
 }
 
-// ───────── Google Search Console (read-only: a service-account key if one exists, else the owner's own Google sign-in) ─────────
-async function googleToken(): Promise<string | null> {
+// ───────── Google Search Console (a service-account key if one exists, else the owner's own Google sign-in) ─────────
+async function googleToken(write = false): Promise<string | null> {
   const raw = Deno.env.get("GOOGLE_SERVICE_ACCOUNT");
   if (!raw) return ownerToken();
   const sa = JSON.parse(raw), now = Math.floor(Date.now() / 1000);
   const enc = (o: unknown) => b64url(new TextEncoder().encode(JSON.stringify(o)));
-  const unsigned = enc({ alg: "RS256", typ: "JWT" }) + "." + enc({ iss: sa.client_email, scope: "https://www.googleapis.com/auth/webmasters.readonly", aud: "https://oauth2.googleapis.com/token", iat: now, exp: now + 3600 });
+  const unsigned = enc({ alg: "RS256", typ: "JWT" }) + "." + enc({ iss: sa.client_email, scope: "https://www.googleapis.com/auth/webmasters" + (write ? "" : ".readonly"), aud: "https://oauth2.googleapis.com/token", iat: now, exp: now + 3600 });
   const der = Uint8Array.from(atob(String(sa.private_key).replace(/-----[^-]+-----/g, "").replace(/\s+/g, "")), (c) => c.charCodeAt(0));
   const key = await crypto.subtle.importKey("pkcs8", der, { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["sign"]);
   const sig = new Uint8Array(await crypto.subtle.sign("RSASSA-PKCS1-v1_5", key, new TextEncoder().encode(unsigned)));
@@ -113,11 +117,13 @@ async function gTokenCall(params: Record<string, string>) {
   if (!r.ok) throw new Error("Google sign-in " + r.status + ": " + String(j.error_description || j.error || "").slice(0, 160));
   return j;
 }
-/** The owner's Google sign-in, renewed for each run. */
+/** The owner's Google sign-in, renewed for each run. ownerScope: what he allowed (a sign-in from before 25 Nov 2026 can only read). */
+let ownerScope = "";
+const canWrite = () => !!Deno.env.get("GOOGLE_SERVICE_ACCOUNT") || /(^|\s)https:\/\/www\.googleapis\.com\/auth\/webmasters(\s|$)/.test(ownerScope);
 async function ownerToken(): Promise<string | null> {
   const L = await gLink();
   if (!L?.refresh_token || !G_SECRET) return null;
-  try { return (await gTokenCall({ grant_type: "refresh_token", refresh_token: L.refresh_token })).access_token; }
+  try { const j = await gTokenCall({ grant_type: "refresh_token", refresh_token: L.refresh_token }); ownerScope = String(j.scope || ""); return j.access_token; }
   catch (e) { await saveGLink({ last_error: String((e as Error).message).slice(0, 300) }); throw e; }
 }
 async function googleStart() {
@@ -338,6 +344,63 @@ async function tick(force: string | false) {
   return { ok: true, done, items: s.items.length };
 }
 
+// ───────── Instant indexing: IndexNow (Bing, Yandex and the other IndexNow engines) and Google Search Console ─────────
+// The IndexNow key is public by design: the website serves it at /<key>.txt, which is how the search engines check it.
+const INDEXNOW_KEY = "a5f3c1e9d2b84f6e9c7a0b1d3e5f7a92";
+const SITEMAP = SITE + "/sitemap.xml";
+/** A public address on the website, written the way the build and Growth write it, or "" for anything else. */
+function pageUrl(v: unknown): string {
+  try {
+    const u = new URL(String(v || "").trim());
+    if (u.protocol !== "https:" || u.hostname !== "al-swaticontracting.com") return "";
+    let path = u.pathname.replace(/\/{2,}/g, "/");
+    if (!/\.[a-z0-9]{2,5}$/i.test(path) && !path.endsWith("/")) path += "/";
+    return SITE + path;
+  } catch { return ""; }
+}
+async function indexNow(urls: string[]): Promise<number> {
+  const r = await fetch("https://api.indexnow.org/indexnow", { method: "POST", signal: AbortSignal.timeout(20000),
+    headers: { "content-type": "application/json; charset=utf-8" },
+    body: JSON.stringify({ host: "al-swaticontracting.com", key: INDEXNOW_KEY, keyLocation: `${SITE}/${INDEXNOW_KEY}.txt`, urlList: urls }) });
+  await r.text().catch(() => "");
+  return r.status; // 200 or 202 = received
+}
+/** Resubmits sitemap.xml in Search Console, so Google reads the new and changed addresses in it. */
+async function sitemapSubmit(): Promise<{ code: number; why?: string }> {
+  const tok = await googleToken(true);
+  if (!tok) return { code: 0, why: "Google Search Console is not linked" };
+  if (!canWrite()) return { code: 403, why: "the Google sign-in can only read: press Sign in with Google again in Growth to allow sitemap resubmits" };
+  const r = await fetch(`https://searchconsole.googleapis.com/webmasters/v3/sites/${encodeURIComponent(GSC_SITE)}/sitemaps/${encodeURIComponent(SITEMAP)}`,
+    { method: "PUT", headers: { authorization: "Bearer " + tok }, signal: AbortSignal.timeout(20000) });
+  const t = await r.text().catch(() => "");
+  return r.ok ? { code: r.status } : { code: r.status, why: `Google ${r.status}: ${t.slice(0, 160)}` };
+}
+/** Google's own status for one address (URL Inspection: indexed or not, last crawl). Reading only. */
+async function inspect(tok: string, url: string) {
+  const now = new Date().toISOString();
+  const r = await fetch("https://searchconsole.googleapis.com/v1/urlInspection/index:inspect", { method: "POST", signal: AbortSignal.timeout(30000),
+    headers: { authorization: "Bearer " + tok, "content-type": "application/json" }, body: JSON.stringify({ inspectionUrl: url, siteUrl: GSC_SITE, languageCode: "en-US" }) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) return { google_checked_at: now, google_error: `Google ${r.status}: ${clean(j?.error?.message, 160)}` };
+  const x = j?.inspectionResult?.indexStatusResult || {};
+  return { google_state: clean(x.coverageState || x.indexingState, 120) || null, google_verdict: clean(x.verdict, 20) || null,
+    google_crawled_at: x.lastCrawlTime || null, google_checked_at: now, google_error: null };
+}
+/** IndexNow for these addresses, one sitemap resubmit for Google (at most every 10 minutes from the build), saved for Growth. */
+async function sendPings(urls: string[], by: "build" | "erp") {
+  if (!urls.length) return { ok: true, sent: 0 };
+  const now = new Date().toISOString();
+  let code = 0, sm: { code: number; why?: string } = { code: 0 };
+  try { code = await indexNow(urls); } catch (e) { console.error("IndexNow", e); }
+  const { data: lately } = await db.from("index_status").select("url").gte("sitemap_at", new Date(Date.now() - 10 * 60e3).toISOString()).limit(1);
+  if (by === "erp" || !lately?.length) { try { sm = await sitemapSubmit(); } catch (e) { sm = { code: 0, why: clean((e as Error).message, 160) }; } }
+  const rows = urls.map((url) => ({ url, indexnow_at: now, indexnow_code: code, indexnow_by: by, ...(sm.code ? { sitemap_at: now, sitemap_code: sm.code } : {}), updated_at: now }));
+  const { error } = await db.from("index_status").upsert(rows, { onConflict: "url" });
+  if (error) throw new Error(error.message);
+  console.log("index_ping", JSON.stringify({ by, sent: urls.length, indexnow: code, sitemap: sm }));
+  return { ok: true, sent: urls.length, indexnow: code, sitemap: sm };
+}
+
 /** Asks GitHub to rebuild al-swaticontracting.com right away (the "Blog from the ERP" workflow, event erp-publish).
  *  Needs the secret GITHUB_SITE_TOKEN: a fine-grained GitHub token for the al-swati-website repository only, with
  *  "Contents: Read and write". Without it the website still updates on its own schedule (about every 30-60 minutes). */
@@ -389,7 +452,11 @@ Deno.serve(async (req) => {
     }
     if (String(p.action || "").startsWith("google_")) {
       if (!(await isAdmin(req))) return json({ error: "Only Super-Admin" }, 403);
-      if (p.action === "google_status") { const L = await gLink(); return json({ linked: !!(L?.refresh_token || Deno.env.get("GOOGLE_SERVICE_ACCOUNT")), account: L?.account || null, error: L?.last_error || null, ready: !!G_SECRET }); }
+      if (p.action === "google_status") {
+        const L = await gLink(), linked = !!(L?.refresh_token || Deno.env.get("GOOGLE_SERVICE_ACCOUNT"));
+        if (linked && !Deno.env.get("GOOGLE_SERVICE_ACCOUNT")) await ownerToken().catch(() => null); // learns what the sign-in allows
+        return json({ linked, account: L?.account || null, error: L?.last_error || null, ready: !!G_SECRET, write: linked && canWrite() });
+      }
       if (p.action === "google_start") return json(await googleStart());
       if (p.action === "google_finish") return json(await googleFinish(p));
       if (p.action === "google_disconnect") {
@@ -399,6 +466,28 @@ Deno.serve(async (req) => {
         const st = await getState(); st.google = { linked: false }; await saveState(st);
         return json({ ok: true });
       }
+    }
+    // From the website build (public), once GitHub Pages has published: the same address is pinged at most every 10 minutes.
+    if (p.action === "index_ping") {
+      // only addresses the live sitemap lists (the build calls after publishing, so new pages are in it): nobody can use this to ping made-up pages
+      const map = await fetch(`${SITEMAP}?v=${Date.now()}`, { signal: AbortSignal.timeout(15000) }).then((r) => (r.ok ? r.text() : "")).catch(() => "");
+      const listed = new Set([SITEMAP, ...[...map.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => pageUrl(m[1]))]);
+      const urls = [...new Set((Array.isArray(p.urls) ? p.urls : []).map(pageUrl).filter((u: string) => listed.has(u)))].slice(0, 200) as string[];
+      if (!urls.length) return json({ ok: true, sent: 0 });
+      const { data: recent } = await db.from("index_status").select("url").in("url", urls).gte("indexnow_at", new Date(Date.now() - 10 * 60e3).toISOString());
+      const done = new Set((recent || []).map((r: any) => r.url));
+      return json(await sendPings(urls.filter((u) => !done.has(u)), "build"));
+    }
+    // Growth (Super-Admin): "Re-ping Google" for one page, and Google's own status for up to 10 pages.
+    if (p.action === "index_reping" || p.action === "index_check") {
+      if (!(await isAdmin(req))) return json({ error: "Only Super-Admin" }, 403);
+      const urls = [...new Set((p.action === "index_reping" ? [p.url] : Array.isArray(p.urls) ? p.urls : []).map(pageUrl).filter(Boolean))].slice(0, 10) as string[];
+      if (!urls.length) return json({ error: "No address on al-swaticontracting.com" }, 400);
+      const sent = p.action === "index_reping" ? await sendPings(urls, "erp") : null;
+      const tok = await googleToken().catch(() => null);
+      if (tok) for (const url of urls) await db.from("index_status").upsert({ url, ...(await inspect(tok, url)), updated_at: new Date().toISOString() }, { onConflict: "url" });
+      const { data: rows } = await db.from("index_status").select("*").in("url", urls);
+      return json({ ok: true, google: !!tok, sent, rows: rows || [] });
     }
     // From the website (public). A daily-salted fingerprint of the visitor's address stops floods; nothing else is kept.
     if (p.action === "lead" || p.action === "event") {
