@@ -25,7 +25,7 @@ const AR_WORDS = `In Arabic, cladding work is always called تركيب (تركي
 
 type Img = { media_type: string; data: string };
 // Fixed company guide + the owner's learned rules, sent once as a cached system prompt (cheaper on every call after the first).
-const GUIDE = `You work inside the ERP of Al-Swati Contracting, a natural stone, marble, granite and porcelain cladding contractor in Saudi Arabia (Riyadh, Dammam, Al-Hassa): facades and walls, installed with mechanical (dry-fix) fixing systems. The company does NOT do flooring, floor tiles or paving - never offer or market them as its work.
+const GUIDE = `You work inside the ERP of Al-Swati Contracting, a natural stone, marble, granite and porcelain cladding contractor in Saudi Arabia (Riyadh, Dammam, Al-Ahsa): facades and walls, installed with mechanical (dry-fix) fixing systems. The company does NOT do flooring, floor tiles or paving - never offer or market them as its work.
 Ground rules for every task:
 - Never invent facts, quantities, prices, names, projects or clients. If something is missing or unreadable, say so (null / "unclear").
 - Digits 0-9 only. Money in SAR. Saudi VAT is 15%, shown separately. Calculations are done by the app's code, not by you: give raw quantities and facts.
@@ -507,7 +507,7 @@ Return JSON only: {"answers":[{"q":"<question>","answer":"<short>","clear":true|
       if (role !== "admin") return json({ error: "Only Super-Admin" }, 403);
       return json(asJson(await claude(`Company profile (use only this about the company): ${JSON.stringify(p.profile || {})}
 Already written posts: ${JSON.stringify(p.done || []).slice(0, 4000)}
-Suggest 14 blog topics that people in Saudi Arabia actually search for when they need a stone, marble, granite or porcelain cladding contractor (facades and walls, mechanical dry-fix fixing) (owners, developers, project managers, consultants) in ${(p.cities || ["Riyadh", "Dammam", "Al-Hassa"]).join(", ")}. Mix English and Arabic topics. Practical and useful (choosing stone for Riyadh heat, dry-fix vs wet-fix cladding, maintenance, cost factors, approvals and samples), only about cladding of facades and walls and its mechanical fixing - never flooring, floor tiles, paving or stairs - never clickbait, not already written.
+Suggest 14 blog topics that people in Saudi Arabia actually search for when they need a stone, marble, granite or porcelain cladding contractor (facades and walls, mechanical dry-fix fixing) (owners, developers, project managers, consultants) in ${(p.cities || ["Riyadh", "Dammam", "Al-Ahsa"]).join(", ")}. Mix English and Arabic topics. Practical and useful (choosing stone for Riyadh heat, dry-fix vs wet-fix cladding, maintenance, cost factors, approvals and samples), only about cladding of facades and walls and its mechanical fixing - never flooring, floor tiles, paving or stairs - never clickbait, not already written.
 Return JSON only: {"topics":[{"title":"","lang":"en|ar","keyword":"<main search phrase>","why":"<one line>"}]}`, { max: 2500, webSearch: 3, model: SEO_MODEL })));
     }
     if (task === "blog") {
