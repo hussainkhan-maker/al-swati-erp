@@ -3,6 +3,8 @@
 //  • "arabic" (or "twin"): its twin in the other language - an English post gets its Arabic version (written the way Saudi
 //              companies write, with the words Saudi clients use and search), an Arabic post gets its English version -
 //              saved as a second post linked by twin_id, with the same picture and the same status. Every post goes out in both languages.
+//  • "area":   a Riyadh district page in English and Saudi Arabic (/stone-cladding-<district>-riyadh/ and /ar/…), from the
+//              district, the main stone and the owner's photos of his work there, saved as two linked drafts.
 // Only Super-Admin can call it (same sign-in rules as the "ai" function). Nothing here invents facts: the Arabic keeps the
 // original post's facts, and the picture is an illustration of the topic (never shown as "our project").
 // The company does facade and wall cladding only (natural stone, marble, granite, porcelain, fixed with mechanical systems):
@@ -32,7 +34,7 @@ function parsePost(t: string) {
   return { title: head("TITLE"), meta_description: head("META"), keywords: head("KEYWORDS").split(/[,،]/).map((s) => s.trim()).filter(Boolean), body };
 }
 
-async function claude(prompt: string, max: number, ms = 120000) {
+async function claude(prompt: string | any[], max: number, ms = 120000) { // a text, or content blocks (text and photos)
   const r = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST", signal: AbortSignal.timeout(ms),
     headers: { "x-api-key": CLAUDE_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
@@ -348,6 +350,134 @@ ${String(cur.body || "").slice(0, 14000)}`;
   return { post: row, note, prices_missing: !prices };
 }
 
+// ───────── Riyadh district pages ─────────
+// Centre points of the districts in the form (for the Service schema's areaServed); other districts are looked up in
+// OpenStreetMap. kind: how the place is named in a sentence (in a district / in a town / on a road).
+const DISTRICTS = [
+  { en: "Al Malqa", ar: "الملقا", lat: 24.807, lng: 46.611, kind: "district", alias: ["malqa", "malga"] },
+  { en: "Al Narjis", ar: "النرجس", lat: 24.865, lng: 46.675, kind: "district", alias: ["narjis", "nargis", "narges"] },
+  { en: "Hittin", ar: "حطين", lat: 24.764, lng: 46.603, kind: "district", alias: ["hittin", "hitteen", "hiteen", "hattin"] },
+  { en: "Al Yasmin", ar: "الياسمين", lat: 24.828, lng: 46.645, kind: "district", alias: ["yasmin", "yasmeen", "yasmine"] },
+  { en: "Diriyah", ar: "الدرعية", lat: 24.734, lng: 46.575, kind: "town", alias: ["diriyah", "diriya", "dariyah", "addiriyah", "deriyah"] },
+  { en: "Al Olaya", ar: "العليا", lat: 24.695, lng: 46.683, kind: "district", alias: ["olaya", "olaia", "ulaya", "olaiya"] },
+  { en: "King Fahd Road", ar: "طريق الملك فهد", lat: 24.711, lng: 46.674, kind: "road", alias: ["kingfahdroad", "kingfahdrd", "kingfahd", "kingfahadroad", "kingfahad"] },
+  { en: "Al Nakheel", ar: "النخيل", lat: 24.748, lng: 46.628, kind: "district", alias: ["nakheel", "nakhil", "nakhel"] },
+  { en: "Qurtubah", ar: "قرطبة", lat: 24.805, lng: 46.735, kind: "district", alias: ["qurtubah", "qurtuba", "qurtoba", "cordoba"] },
+];
+const STONES: Record<string, { en: string; ar: string }> = {
+  "Riyadh Limestone": { en: "Riyadh limestone", ar: "حجر الرياض الطبيعي" },
+  "Granite": { en: "granite", ar: "الجرانيت" },
+  "Marble": { en: "marble", ar: "الرخام" },
+  "Porcelain": { en: "porcelain", ar: "البورسلان" },
+};
+const placeKey = (s: string) => s.toLowerCase().normalize("NFKD").replace(/[ً-ٟ]/g, "").trim()
+  .replace(/^حي\s*/, "").replace(/^(al[-\s]?|el[-\s]?|ال)/, "").replace(/[^a-z0-9؀-ۿ]+/g, "");
+
+async function findDistrict(name: string) {
+  const k = placeKey(name);
+  const hit = DISTRICTS.find((d) => placeKey(d.en) === k || placeKey(d.ar) === k || d.alias.includes(k));
+  if (hit) return { ...hit, slug: slugify(hit.en) };
+  // any other place in Riyadh: OpenStreetMap's search, limited to the Riyadh area (names in English and Arabic)
+  const u = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&namedetails=1&accept-language=en&countrycodes=sa&viewbox=46.35,25.15,47.10,24.35&bounded=1&q=${encodeURIComponent(name + ", Riyadh")}`;
+  const r = await fetch(u, { signal: AbortSignal.timeout(15000), headers: { "User-Agent": "al-swati-erp/1.0 (+https://al-swaticontracting.com)" } }).catch(() => null);
+  const j = r?.ok ? await r.json().catch(() => []) : [];
+  const f = j?.[0];
+  if (!f) throw new Error(`"${name}" was not found in Riyadh. Check the spelling, or write it the way it appears on Google Maps.`);
+  const nd = f.namedetails || {}, en = String(nd["name:en"] || f.name || name).replace(/\s*(District|Neighborhood|Neighbourhood)$/i, "").trim();
+  const ar = String(nd["name:ar"] || nd.name || name).replace(/^حي\s+/, "").trim();
+  const road = /road|street|highway/i.test(String(f.type || "")) || /road|street/i.test(en);
+  return { en, ar, lat: Math.round(Number(f.lat) * 1e4) / 1e4, lng: Math.round(Number(f.lon) * 1e4) / 1e4, kind: road ? "road" : "district", alias: [] as string[], slug: slugify(en) };
+}
+
+function areaPrompt(ar: boolean, d: any, stone: { en: string; ar: string }, co: any, prices: string, notes: string, nPhotos: number) {
+  const place = ar ? (d.kind === "road" ? `على ${d.ar}` : d.kind === "town" ? `في ${d.ar}` : `في حي ${d.ar}`) : (d.kind === "road" ? `on ${d.en}` : `in ${d.en}`);
+  const where = ar ? `${place} بالرياض` : `${place}, Riyadh`;
+  const year = new Date().getFullYear(), pre = ar ? "/ar" : "";
+  const cols = ar ? ["المادة", "التوريد والتركيب بالتثبيت الميكانيكي (ريال/م²)", "الأنسب لـ", "ملاحظات"] : ["Material", "Supply & installation with mechanical fixing (SAR/m²)", "Best for", "Notes"];
+  const heat = ar ? "## كيف تتحمل واجهاتنا حرارة الرياض التي تصل إلى 45° والغبار" : "## How our facades handle Riyadh's 45°C summer heat and dust";
+  const kindEn = d.kind === "road" ? "a main road of Riyadh lined with commercial buildings and towers" : d.kind === "town" ? "a historic town on the north-west edge of Riyadh" : "a district of Riyadh";
+  return `You write a local service page for the website of ${COMPANY}, so it ranks first on Google in Saudi Arabia for people looking for ${stone.en} facade cladding ${d.kind === "road" ? "on" : "in"} ${d.en} (${d.ar}), Riyadh - villa owners, developers and owners of commercial buildings there.
+Write it in ${ar ? "Arabic: natural Modern Standard Arabic the way Saudi companies write on their own websites, with the words Saudi clients use and search. " + AR_RULE : "English: clear, natural, professional English for clients in Saudi Arabia."}
+COMPANY FACTS (the ONLY facts you may state about the company; never invent projects, clients, numbers, years, certificates or prices):
+${JSON.stringify({ name: co.name, services: co.services, cities: co.cities, phone: co.phone, email: co.email, facts: co.about })}
+THE PAGE: ${ar ? stone.ar : stone.en} facade cladding ${where}. The main stone is ${stone.en}; mention the other materials (natural Riyadh stone, marble, granite, porcelain) only briefly.
+${notes ? `THE OWNER'S OWN NOTES ABOUT HIS WORK HERE (true; use them, worded as they are): ${notes}` : `The owner gave no notes about work in this place: do not claim any project, client or building here; say the company works across Riyadh, including ${d.en}.`}
+${nPhotos ? `PHOTOS: ${nPhotos} photo(s) of the company's own work ${place} are attached, in order. In the alt texts describe only what you can really see.` : "There are no photos."}
+RULES
+- About ${d.en} say only what is widely known and certain (for example that it is ${kindEn}, and the kind of buildings there). No invented landmarks, streets, distances, prices, projects or dates. Never say the company has an office there.
+- Use the place name in the H1, the title, the first paragraph and at least two "## " headings, naturally - no keyword stuffing. Write the place as "${ar ? d.ar : d.en}".
+${NO_FLOORING}
+- Start with the first paragraph: no "# " title, no back link, no date line - the website adds them. "## " headings, short paragraphs, about 1000-1400 words, practical and specific.
+- Sections, in this order:
+  1. Opening: what the company does ${place} and for whom (villas, compounds, commercial buildings).
+  2. A "## " section on ${stone.en} for facades ${place}: why it suits, finishes, panel thickness (from the facts), what to check in a sample.
+  3. A "## " section on villa and commercial facade standards: Saudi Building Code (SBC) and SASO-compliant materials, the engineer's approval of the fixing design, wind load on taller commercial facades, stainless-steel anchors, movement joints, and mechanical fixing with Hilti and Fischer systems (Up-Down brackets, PEN pins, C-Channel rails, undercut anchors - as in the facts).
+  4. Exactly this heading: "${heat}" - how the materials and the fixing deal with summer heat of about 45°C and dust: thermal movement and joints, the ventilated gap behind the panels, colour stability in strong sun, water absorption, finishes that show less dust, cleaning after sandstorms (water and a mild cleaner; no acid on marble or limestone), sealing porous stone. Concrete and honest; only claims that are true in general.
+  ${prices ? `5. A "## " section with the ${year} prices ${place}: a markdown table with exactly these columns: | ${cols.join(" | ")} | and these rows in this order: ${ar ? "حجر الرياض الطبيعي، الرخام، الجرانيت، البورسلان" : "Natural Riyadh stone, Marble, Granite, Porcelain"}. Use exactly these ranges from the owner, unchanged: ${prices}. One sentence under it: the final price depends on the stone grade, thickness, panel size, building height and quantity, with a free site visit and written quote.` : "5. No price table (the owner has not given prices)."}
+  6. A "## " section on how the company works ${place}: site visit, sample, written quote, installation by its own team, handover with the written warranty.
+  7. "${ar ? "## الأسئلة الشائعة" : "## Frequently asked questions"}" with 4-5 questions people ${place} really ask about this work, each as "### <question>" with a 2-3 sentence answer (facts only from this page and the company facts).
+  8. A short closing paragraph with the phone / WhatsApp and email from the facts.
+- Link from the text, with natural words, to: [${ar ? "تركيب الحجر في الرياض" : "stone cladding in Riyadh"}](${pre}/stone-cladding-riyadh/), [${ar ? "تركيب الرخام في الرياض" : "marble installation in Riyadh"}](${pre}/marble-installation-riyadh/) and [${ar ? "اطلب عرض سعر مجاني" : "request a free quote"}](${pre}/contact/#contact-form) - use these exact paths.
+- TITLE: at most 60 characters, with the place and the service, without the company name. META: 120-155 characters: the place, villa and commercial facades, Hilti/Fischer mechanical fixing. H1: hyper-local, with the place and the service, at most 70 characters. KEYWORDS: 4-8 search phrases people use for this${ar ? ", in Arabic" : ""}.
+Answer in exactly this form and nothing else:
+TITLE: <title>
+META: <search description>
+H1: <main heading>
+KEYWORDS: <phrase>, <phrase>, <phrase>
+${Array.from({ length: nPhotos }, (_, i) => `PHOTO ${i + 1}: <alt text, 6-14 words: what photo ${i + 1} shows${ar ? ", in Arabic" : ""}>`).join("\n")}${nPhotos ? "\n" : ""}---
+<the page in markdown>`;
+}
+
+async function areaPage(ar: boolean, d: any, stone: { en: string; ar: string }, co: any, prices: string, notes: string, photos: string[]) {
+  const text = areaPrompt(ar, d, stone, co, prices, notes, photos.length);
+  const content = [...photos.map((url) => ({ type: "image", source: { type: "url", url } })), { type: "text", text }];
+  let raw: string;
+  try { raw = CLAUDE_KEY ? await claude(photos.length ? content : text, 9000, 140000) : await geminiText(text, 9000); }
+  catch (e) { if (!GEMINI_KEY || !CLAUDE_KEY) throw e; raw = await geminiText(text, 9000); } // second chance with the other AI (without the photos)
+  const out: any = parsePost(raw);
+  const top = raw.slice(0, Math.max(0, raw.search(/^---\s*$/m)));
+  const head = (k: string) => (top.match(new RegExp("^\\s*\\**" + k + "\\**\\s*:\\s*(.+)$", "mi"))?.[1] ?? "").replace(/^\*+\s*|\s*\*+$/g, "").trim();
+  out.h1 = tidyTitle(head("H1")) || out.title;
+  out.alts = photos.map((_, i) => head(`PHOTO ${i + 1}`));
+  out.body = tidyBody(out.body, ar);
+  out.title = tidyTitle(out.title);
+  if (!out.title || out.body.split(/\s+/).length < 500) throw new Error(`The ${ar ? "Arabic" : "English"} page came back too short. Try again.`);
+  if (!/^##\s.*45/m.test(out.body)) throw new Error(`The ${ar ? "Arabic" : "English"} page has no section on Riyadh's heat and dust. Try again.`);
+  return out;
+}
+
+async function area(b: any) {
+  const name = String(b.district || "").trim().slice(0, 80), stone = STONES[String(b.stone || "")];
+  if (!name) throw new Error("Pick or type a Riyadh district first.");
+  if (!stone) throw new Error("Pick the main stone.");
+  const mine = `${URL_}/storage/v1/object/public/blog/areas/`;
+  const photos: string[] = (Array.isArray(b.photos) ? b.photos : []).map((u: any) => String(u)).filter((u: string) => u.startsWith(mine)).slice(0, 3);
+  const notes = String(b.notes || "").trim().slice(0, 600);
+  const d = await findDistrict(name);
+  if (!d.slug) throw new Error(`Could not make a web address for "${name}". Type the name in English.`);
+  const { data: pr } = await db.from("preferences").select("value").eq("key", "company_profile").maybeSingle();
+  const co = pr?.value || {}, prices = String(co.price_table || "").trim();
+  const [en, ar] = await Promise.all([areaPage(false, d, stone, co, prices, notes, photos), areaPage(true, d, stone, co, prices, notes, photos)]);
+  const enPath = `/stone-cladding-${d.slug}-riyadh/`, arPath = `/ar${enPath}`;
+  // one waiting pair per place: new pages replace older drafts (published pages stay live until the new ones are published)
+  await db.from("blog_posts").delete().eq("status", "Draft").eq("source", "area").in("target_path", [enPath, arPath]);
+  const rnd = Date.now().toString(36).slice(-4);
+  const info = (o: any, lang: string) => ({ slug: d.slug, district: d.en, district_ar: d.ar, kind: d.kind, lat: d.lat, lng: d.lng, stone: String(b.stone), h1: String(o.h1).slice(0, 90), notes,
+    photos: photos.map((url, i) => ({ url, alt: String(o.alts[i] || (lang === "ar" ? `${stone.ar} - ${d.ar}` : `${stone.en} facade, ${d.en}, Riyadh`)).slice(0, 160) })) });
+  const row = (o: any, lang: string, path: string, slug: string) => {
+    const a = info(o, lang);
+    return { slug, lang, title: String(o.title).slice(0, 90), meta_description: String(o.meta_description || "").slice(0, 170),
+      keywords: (o.keywords || []).slice(0, 8), body: o.body, status: "Draft", source: "area", target_path: path, area: a,
+      image_url: photos[0] || null, image_alt: photos[0] ? a.photos[0].alt : null, created_by: USER_ID };
+  };
+  const { data: e1, error: x1 } = await db.from("blog_posts").insert(row(en, "en", enPath, `area-${d.slug}-${rnd}`.slice(0, 80))).select().single();
+  if (x1) throw new Error("Saving the English page: " + x1.message);
+  const { data: a1, error: x2 } = await db.from("blog_posts").insert({ ...row(ar, "ar", arPath, `area-${d.slug}-${rnd}-ar`.slice(0, 80)), twin_id: e1.id }).select().single();
+  if (x2) { await db.from("blog_posts").delete().eq("id", e1.id); throw new Error("Saving the Arabic page: " + x2.message); }
+  await db.from("blog_posts").update({ twin_id: a1.id }).eq("id", e1.id);
+  return { post: { ...e1, twin_id: a1.id }, twin: a1, place: d };
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   const json = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { ...cors, "content-type": "application/json" } });
@@ -362,6 +492,7 @@ Deno.serve(async (req) => {
     USER_ID = u.user.id; TASK = "blog_" + String(body.action || "");
 
     if (body.action === "boost") return json(await boost(body));
+    if (body.action === "area") return json(await area(body));
 
     const { data: post } = await db.from("blog_posts").select("*").eq("id", String(body.id || "")).maybeSingle();
     if (!post) return json({ error: "Post not found" }, 404);
