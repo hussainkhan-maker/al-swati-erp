@@ -244,6 +244,110 @@ function MapsBooster() {
     </>
   );
 }
+// ───────── Videos: TikTok, YouTube Shorts and Instagram Reels ─────────
+// The seo function writes 2 new ideas a week while fewer than 4 wait (and 3 more on "Write 3 new ideas"): script, on-screen text
+// in Arabic and English, voice-over, TikTok caption and YouTube title, description and tags. The owner posts every video himself:
+// TikTok lets only apps it has approved post to an account, and nothing goes public without him.
+const TIKTOK_UPLOAD = "https://www.tiktok.com/tiktokstudio/upload";
+const YT_STUDIO = "https://studio.youtube.com";
+const VKIND: Record<string, string> = { "3d": "3D animation", site: "Filmed on site", tips: "Tips" };
+const VSTATUS: Record<string, [string, "plain" | "good" | "warn" | "acc"]> = { idea: ["Idea", "warn"], made: ["Video ready", "acc"], posted: ["Posted", "good"], skipped: ["Skipped", "plain"] };
+const RTL = { writingDirection: "rtl" as const, textAlign: "right" as const };
+async function copyText(s: string): Promise<boolean> { try { await (navigator as any).clipboard.writeText(s); return true; } catch { return false; } }
+function Videos() {
+  const c = useColors();
+  const [rows, setRows] = useState<any[]>([]), [open, setOpen] = useState<any>(null), [busy, setBusy] = useState(false), [msg, setMsg] = useState(""), [show, setShow] = useState("open");
+  const load = async () => { const { data } = await supabase.from("video_ideas").select("*").order("created_at", { ascending: false }).limit(300); setRows(data || []); };
+  useEffect(() => { load(); }, []);
+  const more = async () => {
+    setBusy(true); setMsg("Writing 3 ideas… (about a minute)");
+    const { data, error } = await supabase.functions.invoke("seo", { body: { action: "video_ideas", n: 3 } });
+    setBusy(false);
+    if (error || data?.error) setMsg("The ideas could not be written: " + (data?.error || error?.message || "")); else { setMsg(`${data.added} new ideas below.`); setShow("open"); load(); }
+  };
+  const n = (st: string) => rows.filter((r) => r.status === st).length;
+  const list = rows.filter((r) => (show === "open" ? r.status === "idea" || r.status === "made" : show === "posted" ? r.status === "posted" : true));
+  return (
+    <>
+      <Card>
+        <H2>Videos for TikTok, YouTube Shorts and Reels</H2>
+        <T size={13} muted>Every week 2 new ideas are written here while fewer than 4 wait: the script, the text on screen in Arabic and English, a voice-over, the TikTok caption and the YouTube title, description and tags. You post each video yourself in TikTok and YouTube: TikTok lets only apps it has approved post to an account.</T>
+        <StatStrip items={[{ label: "Ideas waiting", value: String(n("idea")) }, { label: "Videos ready to post", value: String(n("made")) }, { label: "Posted", value: String(n("posted")) }]} />
+        <Row wrap>
+          <Btn kind="primary" icon={<Icon name="spark" color={c.accentInk} />} title="Write 3 new ideas" busy={busy} disabled={busy} onPress={more} />
+          <Btn kind="ghost" title="Open TikTok Studio" onPress={() => Linking.openURL(TIKTOK_UPLOAD)} />
+          <Btn kind="ghost" title="Open YouTube Studio" onPress={() => Linking.openURL(YT_STUDIO)} />
+        </Row>
+        {msg ? <T size={13} muted>{msg}</T> : null}
+      </Card>
+      <Row wrap>{([["open", `To make and post (${n("idea") + n("made")})`], ["posted", `Posted (${n("posted")})`], ["all", "All"]] as const).map(([k, l]) => <Btn key={k} kind={show === k ? "primary" : "ghost"} title={l} onPress={() => setShow(k)} />)}</Row>
+      {!list.length && <Empty text={show === "posted" ? "No videos posted yet." : "No ideas waiting. Press \"Write 3 new ideas\"."} />}
+      {list.map((v) => (
+        <Card key={v.id}>
+          <Row wrap><Pill kind={VSTATUS[v.status]?.[1] || "plain"} text={VSTATUS[v.status]?.[0] || v.status} /><Pill text={VKIND[v.kind] || v.kind} />{v.keyword ? <Pill kind="acc" text={v.keyword} /> : null}<View style={{ flex: 1 }} /><T size={12} muted>{day(v.created_at)}</T></Row>
+          {v.title_ar ? <T size={17} bold style={RTL}>{v.title_ar}</T> : null}
+          {v.title_en ? <T size={14} muted>{v.title_en}</T> : null}
+          {v.why ? <T size={13} muted>{v.why}</T> : null}
+          <Row wrap><Btn title={v.status === "posted" ? "Open" : "Open script and captions"} onPress={() => setOpen(v)} />
+            {v.tiktok_url ? <Btn kind="ghost" title="TikTok post" onPress={() => Linking.openURL(v.tiktok_url)} /> : null}
+            {v.youtube_url ? <Btn kind="ghost" title="YouTube post" onPress={() => Linking.openURL(v.youtube_url)} /> : null}</Row>
+        </Card>
+      ))}
+      {open && <VideoSheet v={open} onClose={() => { setOpen(null); load(); }} />}
+    </>
+  );
+}
+function VideoSheet({ v: first, onClose }: { v: any; onClose: () => void }) {
+  const c = useColors();
+  const [v, setV] = useState<any>(first), [note, setNote] = useState(""), [saving, setSaving] = useState(false);
+  const set = (k: string, val: any) => setV({ ...v, [k]: val });
+  const copy = async (s: string, what: string) => setNote((await copyText(s || "")) ? `${what} copied.` : "Copy did not work: select the text and copy it.");
+  const save = async (extra: any = {}, done?: string) => {
+    setSaving(true);
+    const row = { tiktok_caption: v.tiktok_caption, youtube_title: v.youtube_title, youtube_description: v.youtube_description, youtube_tags: v.youtube_tags,
+      tiktok_url: v.tiktok_url || null, youtube_url: v.youtube_url || null, updated_at: new Date().toISOString(), ...extra };
+    const { error } = await supabase.from("video_ideas").update(row).eq("id", v.id);
+    setSaving(false);
+    if (error) setNote("Not saved: " + error.message); else { setV({ ...v, ...row }); setNote(done || "Saved."); }
+  };
+  const scenes: any[] = Array.isArray(v.scenes) ? v.scenes : [];
+  const CopyRow = ({ text, what }: { text: string; what: string }) => <Row wrap><Btn kind="ghost" title={"Copy " + what} onPress={() => copy(text, what)} /></Row>;
+  return (
+    <Sheet open onClose={onClose} title={v.title_en || v.title_ar || "Video"}>
+      <Row wrap><Pill kind={VSTATUS[v.status]?.[1] || "plain"} text={VSTATUS[v.status]?.[0] || v.status} /><Pill text={VKIND[v.kind] || v.kind} />{v.keyword ? <Pill kind="acc" text={"Search: " + v.keyword} /> : null}</Row>
+      {v.title_ar ? <T size={18} bold style={RTL}>{v.title_ar}</T> : null}
+      {v.hook_ar || v.hook_en ? <><T size={13} muted>Hook (first 2 seconds)</T>{v.hook_ar ? <T style={RTL}>{v.hook_ar}</T> : null}{v.hook_en ? <T muted>{v.hook_en}</T> : null}</> : null}
+      {scenes.length ? <><H2>Scenes</H2><Table cols={["Seconds", "What we see", "Text (Arabic)", "Text (English)"]} rows={scenes.map((x) => [x.sec || "", x.visual || "", x.ar || "", x.en || ""])} /></> : null}
+      {v.shots ? <><H2>What to film on site</H2><T>{v.shots}</T></> : null}
+      {v.voice_ar || v.voice_en ? <><H2>Voice-over</H2>
+        {v.voice_ar ? <><T style={RTL}>{v.voice_ar}</T><CopyRow text={v.voice_ar} what="Arabic voice-over" /></> : null}
+        {v.voice_en ? <><T>{v.voice_en}</T><CopyRow text={v.voice_en} what="English voice-over" /></> : null}</> : null}
+      <H2>TikTok</H2>
+      <Field label="Caption (with hashtags)" value={v.tiktok_caption || ""} multiline onChange={(x) => set("tiktok_caption", x)} />
+      <Row wrap><Btn kind="primary" title="Copy TikTok caption" onPress={() => copy(v.tiktok_caption, "TikTok caption")} /><Btn kind="ghost" title="Open TikTok Studio" onPress={() => Linking.openURL(TIKTOK_UPLOAD)} /></Row>
+      <T size={12} muted>Location: Riyadh. A link in a TikTok caption cannot be clicked, so the website stays in your profile bio.</T>
+      <H2>YouTube Shorts</H2>
+      <Field label="Title" value={v.youtube_title || ""} onChange={(x) => set("youtube_title", x)} />
+      <Row wrap><Btn kind="ghost" title="Copy title" onPress={() => copy(v.youtube_title, "Title")} /></Row>
+      <Field label="Description" value={v.youtube_description || ""} multiline onChange={(x) => set("youtube_description", x)} />
+      <Row wrap><Btn kind="ghost" title="Copy description" onPress={() => copy(v.youtube_description, "Description")} /></Row>
+      <Field label="Tags" value={v.youtube_tags || ""} onChange={(x) => set("youtube_tags", x)} />
+      <Row wrap><Btn kind="ghost" title="Copy tags" onPress={() => copy(v.youtube_tags, "Tags")} /><Btn kind="ghost" title="Open YouTube Studio" onPress={() => Linking.openURL(YT_STUDIO)} /></Row>
+      <T size={12} muted>Video location: Riyadh, Saudi Arabia. Made for kids: No.</T>
+      <H2>After posting</H2>
+      <Row wrap><Field label="TikTok link" value={v.tiktok_url || ""} onChange={(x) => set("tiktok_url", x)} placeholder="https://www.tiktok.com/@…" /><Field label="YouTube link" value={v.youtube_url || ""} onChange={(x) => set("youtube_url", x)} placeholder="https://youtube.com/shorts/…" /></Row>
+      <Row wrap>
+        <Btn title="Save" busy={saving} disabled={saving} onPress={() => save()} />
+        {v.status === "idea" ? <Btn kind="ghost" title="Video is ready" onPress={() => save({ status: "made" }, "Marked: video ready.")} /> : null}
+        {v.status !== "posted" ? <Btn kind="primary" title="Mark as posted" onPress={() => save({ status: "posted", posted_at: new Date().toISOString() }, "Marked as posted.")} /> : null}
+        {v.status === "idea" ? <Btn kind="ghost" title="Skip this idea" onPress={() => save({ status: "skipped" }, "Skipped.")} /> : null}
+      </Row>
+      {v.kind === "3d" && v.status === "idea" ? <T size={12} muted>For the 3D animation, send this idea to Claude in chat; it renders the video in Arabic and English.</T> : null}
+      {note ? <T size={12} color={c.good}>{note}</T> : null}
+    </Sheet>
+  );
+}
+
 const CITIES = ["Riyadh", "Dammam", "Al-Khobar", "Al-Ahsa", "Jeddah", "Other"];
 const ROLES = ["Project Manager", "Construction Manager", "Consultant", "Developer / Owner", "Main contractor", "Architect", "Other"];
 const SOURCES = ["Met on site", "Business card", "Referral", "Worked together before", "They contacted us", "Event / exhibition", "Their website contact page", "Other"];
@@ -882,13 +986,13 @@ function WriteMail({ o, kind, profile, signature, onClose }: { o: any; kind: str
 }
 
 export default function Growth() {
-  const [tab, setTab] = useState<"blog" | "areas" | "cases" | "maps" | "outreach">("blog");
+  const [tab, setTab] = useState<"blog" | "areas" | "cases" | "maps" | "videos" | "outreach">("blog");
   return (
     <Screen>
       <H1>Growth</H1>
-      <Row wrap><Btn kind={tab === "blog" ? "primary" : "ghost"} title="Blog (SEO)" onPress={() => setTab("blog")} /><Btn kind={tab === "areas" ? "primary" : "ghost"} title="District pages" onPress={() => setTab("areas")} /><Btn kind={tab === "cases" ? "primary" : "ghost"} title="Case studies" onPress={() => setTab("cases")} /><Btn kind={tab === "maps" ? "primary" : "ghost"} title="Google Maps" onPress={() => setTab("maps")} /><Btn kind={tab === "outreach" ? "primary" : "ghost"} title="Outreach" onPress={() => setTab("outreach")} /></Row>
+      <Row wrap><Btn kind={tab === "blog" ? "primary" : "ghost"} title="Blog (SEO)" onPress={() => setTab("blog")} /><Btn kind={tab === "areas" ? "primary" : "ghost"} title="District pages" onPress={() => setTab("areas")} /><Btn kind={tab === "cases" ? "primary" : "ghost"} title="Case studies" onPress={() => setTab("cases")} /><Btn kind={tab === "maps" ? "primary" : "ghost"} title="Google Maps" onPress={() => setTab("maps")} /><Btn kind={tab === "videos" ? "primary" : "ghost"} title="Videos" onPress={() => setTab("videos")} /><Btn kind={tab === "outreach" ? "primary" : "ghost"} title="Outreach" onPress={() => setTab("outreach")} /></Row>
       <CompanyProfile />
-      {tab === "blog" ? <Blog /> : tab === "areas" ? <DistrictPages /> : tab === "cases" ? <CaseStudies /> : tab === "maps" ? <MapsBooster /> : <Outreach />}
+      {tab === "blog" ? <Blog /> : tab === "areas" ? <DistrictPages /> : tab === "cases" ? <CaseStudies /> : tab === "maps" ? <MapsBooster /> : tab === "videos" ? <Videos /> : <Outreach />}
     </Screen>
   );
 }
