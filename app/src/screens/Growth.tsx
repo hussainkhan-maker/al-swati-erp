@@ -5,6 +5,7 @@ import { Image, Linking, Platform, View } from "react-native";
 import { useData } from "../lib/data";
 import { day, stamp } from "../lib/fmt";
 import { ai, supabase } from "../lib/supabase";
+import { pickPhoto } from "../lib/files";
 import { Btn, Card, Empty, Field, H1, H2, Icon, Pill, Row, Screen, Select, Sheet, StatStrip, Table, T, useColors } from "../ui";
 
 // Published posts live on the company website, where they count for its Google ranking: built as real pages by the
@@ -22,8 +23,9 @@ const DAILY_CAP = 15; // personal emails a day: enough for real conversations, l
 const slugify = (s: string) => s.toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 70) || "post-" + Date.now().toString(36);
 
 /** The "blog-media" server function: "image" makes the post's picture, "arabic" writes its twin in the other language
- *  (English → Arabic, Arabic → English), "retwin" writes the twin again from new text, "boost" makes a Top-3 upgrade draft. */
-async function media(action: "image" | "arabic" | "retwin" | "boost", id?: string, extra: any = {}): Promise<any> {
+ *  (English → Arabic, Arabic → English), "retwin" writes the twin again from new text, "boost" makes a Top-3 upgrade draft,
+ *  "area" writes a Riyadh district page in English and Arabic (two linked drafts). */
+async function media(action: "image" | "arabic" | "retwin" | "boost" | "area", id?: string, extra: any = {}): Promise<any> {
   const { data, error } = await supabase.functions.invoke("blog-media", { body: { action, id, ...extra } });
   if (error) {
     let msg = error.message;
@@ -159,7 +161,7 @@ function SeoAutopilot({ onDraft }: { onDraft?: (p: any) => void }) {
 
 function Blog() {
   const { d, reload } = useData(); const c = useColors(); const profile = useProfile();
-  const posts = d.blog_posts || [];
+  const posts = (d.blog_posts || []).filter((p: any) => !p.area);
   const [topics, setTopics] = useState<any[]>([]), [topic, setTopic] = useState(""), [kw, setKw] = useState(""), [lang, setLang] = useState("en");
   const [busy, setBusy] = useState(""), [err, setErr] = useState(""), [ed, setEd] = useState<any>(null);
   const today = posts.some((p: any) => Date.now() - Date.parse(p.created_at) < 20 * 3600e3);
@@ -235,12 +237,25 @@ function PostEditor({ p: first, onClose }: { p: any; onClose: () => void }) {
   };
   const live = p.revision_of ? (d.blog_posts || []).find((x: any) => x.id === p.revision_of) : null; // the post this upgrade goes into
   const link = postUrl(live || { slug: f.slug, lang: p.lang, target_path: p.target_path });
-  const upgrade = !!(p.target_path || p.revision_of);
+  const area = p.area || null; // a Riyadh district page: it goes live, comes down and is deleted together with its other-language page
+  const upgrade = !area && !!(p.target_path || p.revision_of);
   // Publish = this post goes public, gets its picture, and its twin in the other language (Arabic for English, English for Arabic) goes public with it.
   const other = p.lang === "ar" ? "English" : "Arabic";
   const publish = async () => {
     setErr("");
     if (PRICE_BLANK.test(f.body || "")) { setErr("Fill in your real prices in the price table first (replace every [SAR ___–___])."); return; }
+    if (area) { // both district pages go live together; an older live version of the same addresses makes way
+      const now = new Date().toISOString(), ids = [p.id, p.twin_id].filter(Boolean);
+      const paths = [p.target_path, twin?.target_path].filter(Boolean);
+      const { error: e1 } = await supabase.from("blog_posts").update({ status: "Archived", updated_at: now }).in("target_path", paths).eq("status", "Published").not("id", "in", `(${ids.join(",")})`);
+      if (e1) { setErr(e1.message); return; }
+      if (p.twin_id) {
+        const { error: e2 } = await supabase.from("blog_posts").update({ status: "Published", published_at: twin?.published_at || now, updated_at: now }).eq("id", p.twin_id);
+        if (e2) { setErr(e2.message); return; }
+      }
+      if (!(await save({ status: "Published", published_at: p.published_at || now }))) return; // this also asks the website to rebuild
+      onClose(); return;
+    }
     if (p.revision_of) { // a Top-3 upgrade of a published post: its text goes into that post, at the same address
       const now = new Date().toISOString();
       const { error } = await supabase.from("blog_posts").update({ title: f.title, meta_description: f.meta_description, keywords: String(f.keywords).split(/[,،]/).map((s) => s.trim()).filter(Boolean), body: f.body, updated_at: now, ...(p.image_url ? { image_url: p.image_url, image_alt: p.image_alt } : {}) }).eq("id", p.revision_of);
@@ -288,15 +303,21 @@ function PostEditor({ p: first, onClose }: { p: any; onClose: () => void }) {
   };
   return (
     <Sheet open onClose={onClose} title={p.status === "Published" ? "Published post" : "Draft post"}>
+      {area ? <>
+        <Row wrap>{(area.photos || []).map((x: any, i: number) => <Image key={i} source={{ uri: x.url }} accessibilityLabel={x.alt} resizeMode="cover" style={{ width: 150, height: 112, borderRadius: 6, backgroundColor: c.sunk }} />)}</Row>
+        {(area.photos || []).length ? <T size={12} muted>Photo descriptions (for Google): {(area.photos || []).map((x: any) => x.alt).join(" · ")}</T> : <T size={13} color={c.warn}>No photos on this page. Pages with 2–3 real photos of your work rank better: make the pages again with photos.</T>}
+        <T size={13} color={c.accent}>District page for {p.lang === "ar" ? area.district_ar || area.district : area.district} ({area.stone}): {SITE_URL}{p.target_path}{twin ? ` and ${SITE_URL}${twin.target_path}` : ""}. Publish puts both languages live and in sitemap.xml; Unpublish takes both down.</T>
+        {twin ? <T size={13} muted>{other} page: {twin.title} — open it from District pages to read it.</T> : null}
+      </> : <>
       {p.image_url
         ? <Image source={{ uri: p.image_url }} accessibilityLabel={p.image_alt || p.title} resizeMode="cover" style={{ width: "100%", aspectRatio: 16 / 9, borderRadius: 8, backgroundColor: c.sunk }} />
         : <T size={13} muted>No picture yet. The AI makes one for this topic when you press Publish.</T>}
       <Row wrap>
         <Btn kind="ghost" icon={<Icon name="spark" />} title={p.image_url ? "Make a new picture" : "Make the picture now"} busy={step.startsWith("Making")} disabled={!!step} onPress={() => redo("image")} />
         {!twin && !upgrade && p.status === "Published" ? <Btn kind="ghost" icon={<Icon name="spark" />} title={`Make the ${other} version`} busy={step.startsWith("Writing")} disabled={!!step} onPress={() => redo("arabic")} /> : null}
-      </Row>
+      </Row></>}
       {upgrade ? <T size={13} color={c.accent}>Top-3 upgrade{p.boost_query ? ` for "${p.boost_query}"` : ""} of {link}. {p.revision_of ? "Publish copies this text into the live post (same address) and refreshes its other-language version." : "Publish replaces that page with this version (same address). Unpublish puts the old page back."}</T> : null}
-      {upgrade ? null : <T size={13} muted>{twin ? `${other} version: ${twin.title} (${twin.status === "Published" ? "public" : "draft"}) — open it from the list to read it.` : p.lang === "ar" ? "The English version is written and published together with this post when you press Publish." : "The Arabic version (clear Arabic the way Saudi companies write) is written and published together with this post when you press Publish."}</T>}
+      {upgrade || area ? null : <T size={13} muted>{twin ? `${other} version: ${twin.title} (${twin.status === "Published" ? "public" : "draft"}) — open it from the list to read it.` : p.lang === "ar" ? "The English version is written and published together with this post when you press Publish." : "The Arabic version (clear Arabic the way Saudi companies write) is written and published together with this post when you press Publish."}</T>}
       <Field label="Title" value={f.title} onChange={(v) => setF({ ...f, title: v })} />
       <Field label="Search description (shown under the title on Google)" value={f.meta_description} multiline onChange={(v) => setF({ ...f, meta_description: v })} />
       <Field label="Keywords" value={f.keywords} onChange={(v) => setF({ ...f, keywords: v })} />
@@ -308,12 +329,99 @@ function PostEditor({ p: first, onClose }: { p: any; onClose: () => void }) {
       {step ? <T color={c.accent}>{step} (up to a minute)</T> : null}
       <Row wrap>
         <Btn title="Save" disabled={!!step} onPress={async () => { if (await save()) onClose(); }} />
-        {p.status !== "Published" || err ? <Btn kind="primary" title={p.status === "Published" ? "Finish publishing" : upgrade ? "Publish (replace the live page)" : "Publish"} busy={!!step} disabled={!!step} onPress={publish} />
-          : <Btn title={twin ? "Unpublish (both languages)" : "Unpublish"} disabled={!!step} onPress={unpublish} />}
+        {p.status !== "Published" || err ? <Btn kind="primary" title={p.status === "Published" ? "Finish publishing" : area ? "Publish both pages" : upgrade ? "Publish (replace the live page)" : "Publish"} busy={!!step} disabled={!!step} onPress={publish} />
+          : <Btn title={twin ? (area ? "Unpublish both pages" : "Unpublish (both languages)") : "Unpublish"} disabled={!!step} onPress={unpublish} />}
         {p.status === "Published" && <Btn kind="ghost" icon={<Icon name="share" />} title="Open public page" onPress={() => Linking.openURL(link)} />}
-        <Btn kind="ghost" title="Delete" onPress={async () => { const { error } = await supabase.from("blog_posts").delete().eq("id", p.id); if (error) setErr(error.message); else { await reload(["blog_posts"]); onClose(); } }} />
+        <Btn kind="ghost" title={area && twin ? "Delete both pages" : "Delete"} onPress={async () => {
+          const ids = area && p.twin_id ? [p.id, p.twin_id] : [p.id];
+          const { error } = await supabase.from("blog_posts").delete().in("id", ids);
+          if (error) setErr(error.message); else { if (p.status === "Published") siteRebuild(); await reload(["blog_posts"]); onClose(); }
+        }} />
       </Row>
     </Sheet>
+  );
+}
+
+// ───────── Riyadh district pages ─────────
+// One page per district in English and Arabic (/stone-cladding-<district>-riyadh/ and /ar/…), written by the AI from the
+// district, the main stone, the owner's photos of his work there and his own notes. Both are drafts until he presses Publish.
+const DISTRICTS = ["Al Malqa", "Al Narjis", "Hittin", "Al Yasmin", "Diriyah", "Al Olaya", "King Fahd Road", "Al Nakheel", "Qurtubah"];
+const STONE_TYPES = ["Riyadh Limestone", "Granite", "Marble", "Porcelain"];
+
+function DistrictPages() {
+  const { d, reload } = useData(); const c = useColors();
+  const all = (d.blog_posts || []).filter((p: any) => p.area && p.status !== "Archived");
+  const rows = all.filter((p: any) => p.lang === "en" || !all.some((x: any) => x.id === p.twin_id)); // one row per district pair
+  const [district, setDistrict] = useState(""), [other, setOther] = useState(""), [stone, setStone] = useState(STONE_TYPES[0]);
+  const [photos, setPhotos] = useState<{ uri: string; url: string }[]>([]), [notes, setNotes] = useState("");
+  const [busy, setBusy] = useState(""), [err, setErr] = useState(""), [ed, setEd] = useState<any>(null);
+  const name = (district === "Other" ? other : district).trim();
+  const addPhoto = async () => {
+    setErr("");
+    try {
+      const uri = await pickPhoto(false); // from the gallery, made smaller (about 1600 px wide)
+      if (!uri) return;
+      setBusy("photo");
+      const path = `areas/uploads/${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}.jpg`;
+      const buf = await (await fetch(uri)).arrayBuffer();
+      const { error } = await supabase.storage.from("blog").upload(path, buf, { contentType: "image/jpeg", upsert: false });
+      if (error) throw new Error(error.message);
+      const url = supabase.storage.from("blog").getPublicUrl(path).data.publicUrl;
+      setPhotos((x) => [...x, { uri, url }].slice(0, 3));
+    } catch (e: any) { setErr("Photo: " + e.message); } finally { setBusy(""); }
+  };
+  const generate = async () => {
+    setBusy("make"); setErr("");
+    try {
+      const r = await media("area", undefined, { district: name, stone, photos: photos.map((x) => x.url), notes });
+      await reload(["blog_posts"]); setEd(r.post); setPhotos([]); setNotes("");
+    } catch (e: any) { setErr(e.message); } finally { setBusy(""); }
+  };
+  return (
+    <>
+      <Card>
+        <H2>Riyadh district pages</H2>
+        <T size={13} muted>For each district the AI writes an English page ({SITE_URL}/stone-cladding-[district]-riyadh/) and a Saudi Arabic page (/ar/…) with your company facts, a section on Riyadh's 45°C heat and dust, your prices, local questions, and Google data (LocalBusiness and Service with the district's location). Both are drafts until you press Publish; then they go on the website and in sitemap.xml.</T>
+        <T size={13} muted>Give every district real photos of your work there and, if you can, a line about what you did. Google ranks pages that show real local work, and pushes down many near-identical area pages.</T>
+        <T bold size={14}>District</T>
+        <Row wrap>{[...DISTRICTS, "Other"].map((x) => <Btn key={x} kind={district === x ? "primary" : "ghost"} title={x} onPress={() => setDistrict(x)} />)}</Row>
+        {district === "Other" ? <Field label="District name (as on Google Maps)" value={other} onChange={setOther} placeholder="e.g. Al Rabie" /> : null}
+        <Select label="Main stone" value={stone} options={STONE_TYPES.map((x) => ({ value: x, label: x }))} onChange={setStone} style={{ maxWidth: 260 }} />
+        <T bold size={14}>Photos of your work in this district ({photos.length} of 3)</T>
+        <Row wrap>
+          {photos.map((x, i) => (
+            <View key={x.url} style={{ gap: 4 }}>
+              <Image source={{ uri: x.uri }} accessibilityLabel={`Photo ${i + 1}`} style={{ width: 120, height: 90, borderRadius: 6, backgroundColor: c.sunk }} />
+              <Btn kind="ghost" title="Remove" onPress={() => setPhotos(photos.filter((y) => y.url !== x.url))} />
+            </View>))}
+          {photos.length < 3 ? <Btn icon={<Icon name="camera" />} title="Add photo" busy={busy === "photo"} disabled={!!busy} onPress={addPhoto} /> : null}
+        </Row>
+        {photos.length < 2 ? <T size={13} color={c.warn}>Add 2–3 photos of your own work in this district.</T> : null}
+        <Field label="What you did there (optional — only true facts)" value={notes} multiline onChange={setNotes} placeholder="e.g. Villa facade in Riyadh limestone with Up-Down brackets, finished 2024" />
+        {err ? <T color={c.bad}>{err}</T> : null}
+        <Row wrap>
+          <Btn kind="primary" icon={<Icon name="spark" color={c.accentInk} />} title="Generate Area Pages" busy={busy === "make"} disabled={!name || !!busy} onPress={generate} />
+        </Row>
+        <T size={12} muted>Takes about a minute and a half. Making the pages again for the same district replaces its waiting drafts; a live page stays live until you publish the new one.</T>
+      </Card>
+      <H2>District pages</H2>
+      {!rows.length && <Empty text="No district pages yet." />}
+      {rows.map((p: any) => {
+        const tw = all.find((x: any) => x.id === p.twin_id);
+        return (
+          <Card key={p.id}>
+            <Row>{p.area.photos?.[0] ? <Image source={{ uri: p.area.photos[0].url }} accessibilityLabel={p.area.photos[0].alt} style={{ width: 72, height: 54, borderRadius: 6 }} /> : null}
+              <View style={{ flex: 1 }}><T bold>{p.area.district} · {p.area.stone}</T><T size={12} muted>{SITE_URL}{p.target_path}{p.published_at ? ` · published ${day(p.published_at)}` : ` · made ${day(p.created_at)}`}</T></View>
+              <Pill kind={p.status === "Published" ? "good" : "warn"} text={p.status} /></Row>
+            <Row wrap>
+              <Btn kind="ghost" title="English page" onPress={() => setEd(p)} />
+              {tw ? <Btn kind="ghost" title="الصفحة العربية" onPress={() => setEd(tw)} /> : null}
+              {p.status === "Published" ? <Btn kind="ghost" icon={<Icon name="share" />} title="Open" onPress={() => Linking.openURL(SITE_URL + p.target_path)} /> : null}
+            </Row>
+          </Card>);
+      })}
+      {ed && <PostEditor p={ed} onClose={() => setEd(null)} />}
+    </>
   );
 }
 
@@ -398,13 +506,13 @@ function WriteMail({ o, kind, profile, signature, onClose }: { o: any; kind: str
 }
 
 export default function Growth() {
-  const [tab, setTab] = useState<"blog" | "outreach">("blog");
+  const [tab, setTab] = useState<"blog" | "areas" | "outreach">("blog");
   return (
     <Screen>
       <H1>Growth</H1>
-      <Row wrap><Btn kind={tab === "blog" ? "primary" : "ghost"} title="Blog (SEO)" onPress={() => setTab("blog")} /><Btn kind={tab === "outreach" ? "primary" : "ghost"} title="Outreach" onPress={() => setTab("outreach")} /></Row>
+      <Row wrap><Btn kind={tab === "blog" ? "primary" : "ghost"} title="Blog (SEO)" onPress={() => setTab("blog")} /><Btn kind={tab === "areas" ? "primary" : "ghost"} title="District pages" onPress={() => setTab("areas")} /><Btn kind={tab === "outreach" ? "primary" : "ghost"} title="Outreach" onPress={() => setTab("outreach")} /></Row>
       <CompanyProfile />
-      {tab === "blog" ? <Blog /> : <Outreach />}
+      {tab === "blog" ? <Blog /> : tab === "areas" ? <DistrictPages /> : <Outreach />}
     </Screen>
   );
 }
