@@ -16,7 +16,7 @@ export const postUrl = (p: { slug: string; lang?: string; target_path?: string |
 const PRICE_BLANK = /\[SAR\s*_+|_{3,}\s*[–-]\s*_{3,}/; // the price table still has the owner's blanks
 /** Ask the website to rebuild now (it also rebuilds on its own schedule). Never blocks or fails the editor. */
 const siteRebuild = () => { supabase.functions.invoke("seo", { body: { action: "site_rebuild" } }).catch(() => {}); };
-const CITIES = ["Riyadh", "Dammam", "Al-Khobar", "Al-Hassa", "Jeddah", "Other"];
+const CITIES = ["Riyadh", "Dammam", "Al-Khobar", "Al-Ahsa", "Jeddah", "Other"];
 const ROLES = ["Project Manager", "Construction Manager", "Consultant", "Developer / Owner", "Main contractor", "Architect", "Other"];
 const SOURCES = ["Met on site", "Business card", "Referral", "Worked together before", "They contacted us", "Event / exhibition", "Their website contact page", "Other"];
 const DAILY_CAP = 15; // personal emails a day: enough for real conversations, low enough to stay personal
@@ -24,8 +24,8 @@ const slugify = (s: string) => s.toLowerCase().normalize("NFKD").replace(/[^a-z0
 
 /** The "blog-media" server function: "image" makes the post's picture, "arabic" writes its twin in the other language
  *  (English → Arabic, Arabic → English), "retwin" writes the twin again from new text, "boost" makes a Top-3 upgrade draft,
- *  "area" writes a Riyadh district page in English and Arabic (two linked drafts). */
-async function media(action: "image" | "arabic" | "retwin" | "boost" | "area", id?: string, extra: any = {}): Promise<any> {
+ *  "area" writes a Riyadh district page in English and Arabic (two linked drafts), "case" a project case study (two drafts). */
+async function media(action: "image" | "arabic" | "retwin" | "boost" | "area" | "case", id?: string, extra: any = {}): Promise<any> {
   const { data, error } = await supabase.functions.invoke("blog-media", { body: { action, id, ...extra } });
   if (error) {
     let msg = error.message;
@@ -38,7 +38,7 @@ async function media(action: "image" | "arabic" | "retwin" | "boost" | "area", i
 
 function useProfile() {
   const { d } = useData();
-  return { name: "Al-Swati Contracting", services: "Supply and installation of natural stone, marble, granite and porcelain cladding for facades and walls, with mechanical (dry-fix) fixing systems", cities: "Riyadh, Dammam, Al-Hassa", phone: "", email: "", website: "", about: "",
+  return { name: "Al-Swati Contracting", services: "Supply and installation of natural stone, marble, granite and porcelain cladding for facades and walls, with mechanical (dry-fix) fixing systems", cities: "Riyadh, Dammam, Al-Ahsa", phone: "", email: "", website: "", about: "",
     ...((d.preferences || []).find((p: any) => p.key === "company_profile")?.value || {}) };
 }
 
@@ -110,7 +110,18 @@ function SeoAutopilot({ onDraft }: { onDraft?: (p: any) => void }) {
     catch (e: any) { setMsg(e.message); setBusy(""); }
   };
   const gStop = async () => { setBusy("google"); try { await seo("google_disconnect"); await gLoad(); await reload(["preferences"]); } catch (e: any) { setMsg(e.message); } finally { setBusy(""); } };
-  const t = s?.summary?.totals || {}, web = s?.summary?.web?.week || {};
+  const t = s?.summary?.totals || {};
+  // Website leads and WhatsApp / call taps straight from the website's own counter (web_events), not the morning snapshot.
+  const [ev, setEv] = useState<any[] | null>(null);
+  const loadEv = async () => {
+    const { data } = await supabase.from("web_events").select("at, kind, page, ref").gte("at", new Date(Date.now() - 7 * 864e5).toISOString()).order("at", { ascending: false }).limit(2000);
+    if (data) setEv(data);
+  };
+  useEffect(() => { loadEv(); const i = setInterval(loadEv, 60000); return () => clearInterval(i); }, []);
+  const n = (k: string) => (ev || []).filter((e: any) => e.kind === k).length;
+  const web = ev ? { lead: n("lead"), whatsapp: n("whatsapp"), call: n("call"), email: n("email") } : s?.summary?.web?.week || {};
+  const last = ev?.[0], kindName: Record<string, string> = { lead: "Quote form", whatsapp: "WhatsApp", call: "Call", email: "Email" };
+  const from = (r: string) => { try { return r ? new URL(r).hostname.replace(/^www\./, "") : "direct"; } catch { return "direct"; } };
   const ch = (a: number, b: number) => (b ? ` (${a >= b ? "+" : ""}${Math.round(((a - b) / b) * 100)}%)` : "");
   const wa = (text: string) => Linking.openURL("https://wa.me/?text=" + encodeURIComponent(text));
   const boost = async (x: any) => {
@@ -130,13 +141,14 @@ function SeoAutopilot({ onDraft }: { onDraft?: (p: any) => void }) {
         <Btn kind="primary" title="Sign in with Google" busy={busy === "google"} disabled={!!busy} onPress={gStart} /></Row> : null}
       {g?.linked && g.account ? <Row wrap><T size={13} muted>Google: {g.account}{g.error ? ` · last problem: ${g.error}` : ""}</T><View style={{ flex: 1 }} /><Btn kind="ghost" title="Disconnect Google" disabled={!!busy} onPress={gStop} /></Row> : null}
       <T size={13} muted>Every morning it reads Google's numbers for al-swaticontracting.com, finds searches close to page 1, writes 2 blog drafts a week from them, counts website leads and WhatsApp clicks, and tells the main agent. You only read and press Publish.{s?.last_tick ? ` Last run ${stamp(s.last_tick)}.` : ""}</T>
-      {s?.summary && <StatStrip items={[
+      {(s?.summary || ev) && <StatStrip items={[
         { label: "Google clicks · 28 days", value: `${t.clicks ?? 0}${ch(t.clicks || 0, t.clicks_before || 0)}` },
         { label: "Seen in Google · 28 days", value: `${t.impressions ?? 0}${ch(t.impressions || 0, t.impressions_before || 0)}` },
         { label: "Average position", value: t.position ? `${t.position}${t.position_before ? ` (was ${t.position_before})` : ""}` : "-" },
         { label: "Website leads · 7 days", value: String(web.lead || 0) },
         { label: "WhatsApp / call clicks · 7 days", value: `${web.whatsapp || 0} / ${web.call || 0}` },
       ]} />}
+      <T size={12} muted>{last ? `Latest on the website: ${kindName[last.kind] || last.kind} on ${last.page || "/"} (from ${from(last.ref)}), ${stamp(last.at)}. ` : ev ? "No quote forms, WhatsApp or call taps on the website in the last 7 days. " : ""}Counted live from al-swaticontracting.com (quote form sent, WhatsApp, phone and email taps; no names kept).</T>
       {s?.report?.text ? <Card><T bold>This week's report · {day(s.report.at)}</T>{String(s.report.text).split("\n").map((l: string, i: number) => <T key={i} size={14}>{l}</T>)}</Card> : null}
       {(s?.summary?.striking || []).length > 0 && <>
         <T bold>Close to page 1 (the next posts aim at these)</T>
@@ -306,8 +318,8 @@ function PostEditor({ p: first, onClose }: { p: any; onClose: () => void }) {
       {area ? <>
         <Row wrap>{(area.photos || []).map((x: any, i: number) => <Image key={i} source={{ uri: x.url }} accessibilityLabel={x.alt} resizeMode="cover" style={{ width: 150, height: 112, borderRadius: 6, backgroundColor: c.sunk }} />)}</Row>
         {(area.photos || []).length ? <T size={12} muted>Photo descriptions (for Google): {(area.photos || []).map((x: any) => x.alt).join(" · ")}</T> : <T size={13} color={c.warn}>No photos on this page. Pages with 2–3 real photos of your work rank better: make the pages again with photos.</T>}
-        <T size={13} color={c.accent}>District page for {p.lang === "ar" ? area.district_ar || area.district : area.district} ({area.stone}): {SITE_URL}{p.target_path}{twin ? ` and ${SITE_URL}${twin.target_path}` : ""}. Publish puts both languages live and in sitemap.xml; Unpublish takes both down.</T>
-        {twin ? <T size={13} muted>{other} page: {twin.title} — open it from District pages to read it.</T> : null}
+        <T size={13} color={c.accent}>{area.type === "case" ? `Case study: ${area.building} in ${area.district}, ${area.stone}, ${area.m2} m², ${area.year}` : `District page for ${p.lang === "ar" ? area.district_ar || area.district : area.district} (${area.stone})`}: {SITE_URL}{p.target_path}{twin ? ` and ${SITE_URL}${twin.target_path}` : ""}. Publish puts both languages live and in sitemap.xml; Unpublish takes both down.</T>
+        {twin ? <T size={13} muted>{other} page: {twin.title} — open it from {area.type === "case" ? "Case studies" : "District pages"} to read it.</T> : null}
       </> : <>
       {p.image_url
         ? <Image source={{ uri: p.image_url }} accessibilityLabel={p.image_alt || p.title} resizeMode="cover" style={{ width: "100%", aspectRatio: 16 / 9, borderRadius: 8, backgroundColor: c.sunk }} />
@@ -350,7 +362,7 @@ const STONE_TYPES = ["Riyadh Limestone", "Granite", "Marble", "Porcelain"];
 
 function DistrictPages() {
   const { d, reload } = useData(); const c = useColors();
-  const all = (d.blog_posts || []).filter((p: any) => p.area && p.status !== "Archived");
+  const all = (d.blog_posts || []).filter((p: any) => p.area && p.area.type !== "case" && p.status !== "Archived");
   const rows = all.filter((p: any) => p.lang === "en" || !all.some((x: any) => x.id === p.twin_id)); // one row per district pair
   const [district, setDistrict] = useState(""), [other, setOther] = useState(""), [stone, setStone] = useState(STONE_TYPES[0]);
   const [photos, setPhotos] = useState<{ uri: string; url: string }[]>([]), [notes, setNotes] = useState("");
@@ -412,6 +424,119 @@ function DistrictPages() {
           <Card key={p.id}>
             <Row>{p.area.photos?.[0] ? <Image source={{ uri: p.area.photos[0].url }} accessibilityLabel={p.area.photos[0].alt} style={{ width: 72, height: 54, borderRadius: 6 }} /> : null}
               <View style={{ flex: 1 }}><T bold>{p.area.district} · {p.area.stone}</T><T size={12} muted>{SITE_URL}{p.target_path}{p.published_at ? ` · published ${day(p.published_at)}` : ` · made ${day(p.created_at)}`}</T></View>
+              <Pill kind={p.status === "Published" ? "good" : "warn"} text={p.status} /></Row>
+            <Row wrap>
+              <Btn kind="ghost" title="English page" onPress={() => setEd(p)} />
+              {tw ? <Btn kind="ghost" title="الصفحة العربية" onPress={() => setEd(tw)} /> : null}
+              {p.status === "Published" ? <Btn kind="ghost" icon={<Icon name="share" />} title="Open" onPress={() => Linking.openURL(SITE_URL + p.target_path)} /> : null}
+            </Row>
+          </Card>);
+      })}
+      {ed && <PostEditor p={ed} onClose={() => setEd(null)} />}
+    </>
+  );
+}
+
+// ───────── SEO case studies from projects ─────────
+// On a project (Projects screen): "Publish as SEO Case Study". The installed m² comes from Work done; the owner confirms the
+// rest once (kept on the project): district, building, stone, fixing system, year, site photos, notes, client name allowed.
+const BUILDINGS = [{ value: "villa", label: "Villa" }, { value: "compound", label: "Residential compound" }, { value: "commercial", label: "Commercial building" }, { value: "tower", label: "Tower" }, { value: "government", label: "Government building" }];
+const FIXINGS = [{ value: "updown", label: "Up-Down brackets" }, { value: "pen", label: "PEN pins" }, { value: "cchannel", label: "C-Channel rails" }, { value: "undercut", label: "Undercut anchors" }];
+
+export function CaseStudyButton({ project, installed, lastWork }: { project: any; installed: number; lastWork?: string }) {
+  const { d, reload } = useData(); const c = useColors();
+  const mine = (d.blog_posts || []).filter((p: any) => p.area?.type === "case" && p.area.project_id === project.id && p.status !== "Archived");
+  const en = mine.find((p: any) => p.lang === "en") || mine[0];
+  const [f, setF] = useState<any>(null), [busy, setBusy] = useState(""), [err, setErr] = useState(""), [ed, setEd] = useState<any>(null);
+  const open = () => {
+    const st = project.site || {};
+    const known = DISTRICTS.includes(st.district);
+    setErr(""); setF({ district: st.district ? (known ? st.district : "Other") : "", other: known ? "" : st.district || "", building: st.building || "villa", stone: st.stone || STONE_TYPES[0],
+      m2: String(st.m2 || Math.round(installed) || ""), fixing: st.fixing || ["updown"], year: String(st.year || (lastWork || "").slice(0, 4) || new Date().getFullYear()),
+      photos: (st.photos || []).map((u: string) => ({ uri: u, url: u })), notes: st.notes || "", show_client: !!st.show_client });
+  };
+  const addPhoto = async () => {
+    setErr("");
+    try {
+      const uri = await pickPhoto(false); if (!uri) return;
+      setBusy("photo");
+      const path = `cases/uploads/${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}.jpg`;
+      const buf = await (await fetch(uri)).arrayBuffer();
+      const { error } = await supabase.storage.from("blog").upload(path, buf, { contentType: "image/jpeg", upsert: false });
+      if (error) throw new Error(error.message);
+      const url = supabase.storage.from("blog").getPublicUrl(path).data.publicUrl;
+      setF((x: any) => ({ ...x, photos: [...x.photos, { uri, url }].slice(0, 4) }));
+    } catch (e: any) { setErr("Photo: " + e.message); } finally { setBusy(""); }
+  };
+  const generate = async () => {
+    setBusy("make"); setErr("");
+    try {
+      const r = await media("case", undefined, { project_id: project.id, district: (f.district === "Other" ? f.other : f.district).trim(), building: f.building, stone: f.stone,
+        m2: Number(String(f.m2).replace(/[^\d.]/g, "")) || 0, fixing: f.fixing, year: Number(f.year), photos: f.photos.map((x: any) => x.url), notes: f.notes, show_client: f.show_client });
+      await reload(["blog_posts", "projects"]); setF(null); setEd(r.post);
+    } catch (e: any) { setErr(e.message); } finally { setBusy(""); }
+  };
+  const toggle = (k: string) => setF({ ...f, fixing: f.fixing.includes(k) ? f.fixing.filter((x: string) => x !== k) : [...f.fixing, k] });
+  return (
+    <>
+      <Btn icon={<Icon name="spark" size={16} />} title={en ? `SEO case study (${en.status === "Published" ? "live" : "draft"})` : "Publish as SEO Case Study"} onPress={() => (en ? setEd(en) : open())} />
+      {en ? <Btn kind="ghost" title="Make it again" onPress={open} /> : null}
+      <Sheet open={!!f} onClose={() => setF(null)} title={`SEO case study: ${project.name}`}>
+        {f && <>
+          <T size={13} muted>The AI writes an English and an Arabic project page for al-swaticontracting.com/projects/… from these facts and your site photos. Only the district is shown, never the address; the client's name only if you tick it. Both are drafts until you press Publish.</T>
+          <T bold size={14}>District</T>
+          <Row wrap>{[...DISTRICTS, "Other"].map((x) => <Btn key={x} kind={f.district === x ? "primary" : "ghost"} title={x} onPress={() => setF({ ...f, district: x })} />)}</Row>
+          {f.district === "Other" ? <Field label="District name (as on Google Maps)" value={f.other} onChange={(v) => setF({ ...f, other: v })} /> : null}
+          <Row wrap>
+            <Select label="Building" value={f.building} options={BUILDINGS} onChange={(v) => setF({ ...f, building: v })} style={{ minWidth: 200 }} />
+            <Select label="Main stone" value={f.stone} options={STONE_TYPES.map((x) => ({ value: x, label: x }))} onChange={(v) => setF({ ...f, stone: v })} style={{ minWidth: 200 }} />
+          </Row>
+          <Row wrap>
+            <Field label={`Facade area, m² (Work done in the ERP: ${Math.round(installed).toLocaleString("en-US")} m²)`} value={f.m2} numeric onChange={(v) => setF({ ...f, m2: v })} />
+            <Field label="Year finished" value={f.year} numeric onChange={(v) => setF({ ...f, year: v })} />
+          </Row>
+          <T bold size={14}>Fixing system</T>
+          <Row wrap>{FIXINGS.map((x) => <Btn key={x.value} kind={f.fixing.includes(x.value) ? "primary" : "ghost"} title={x.label} onPress={() => toggle(x.value)} />)}</Row>
+          <T bold size={14}>Site photos ({f.photos.length} of 4)</T>
+          <Row wrap>
+            {f.photos.map((x: any, i: number) => (
+              <View key={x.url} style={{ gap: 4 }}>
+                <Image source={{ uri: x.uri }} accessibilityLabel={`Photo ${i + 1}`} style={{ width: 120, height: 90, borderRadius: 6, backgroundColor: c.sunk }} />
+                <Btn kind="ghost" title="Remove" onPress={() => setF({ ...f, photos: f.photos.filter((y: any) => y.url !== x.url) })} />
+              </View>))}
+            {f.photos.length < 4 ? <Btn icon={<Icon name="camera" />} title="Add photo" busy={busy === "photo"} disabled={!!busy} onPress={addPhoto} /> : null}
+          </Row>
+          <T size={12} muted>Use photos of the finished facade without people's faces or car number plates.</T>
+          <Field label="Anything special about this job? (optional — only true facts)" value={f.notes} multiline onChange={(v) => setF({ ...f, notes: v })} placeholder="e.g. 3 cm Riyadh stone with Up-Down brackets on a 3-storey villa, cornices and window frames in the same stone" />
+          {project.client ? <Btn kind={f.show_client ? "primary" : "ghost"} icon={f.show_client ? <Icon name="check" color={c.accentInk} /> : undefined} title={`Show the client's name (${project.client}) — only if the client agreed`} onPress={() => setF({ ...f, show_client: !f.show_client })} /> : null}
+          {err ? <T color={c.bad}>{err}</T> : null}
+          <Btn big kind="primary" icon={<Icon name="spark" color={c.accentInk} />} title="Generate the case study" busy={busy === "make"} disabled={!!busy || !(f.district === "Other" ? f.other.trim() : f.district)} onPress={generate} />
+          <T size={12} muted>Takes about a minute.</T>
+        </>}
+      </Sheet>
+      {ed && <PostEditor p={ed} onClose={() => setEd(null)} />}
+    </>
+  );
+}
+
+function CaseStudies() {
+  const { d } = useData(); const c = useColors();
+  const all = (d.blog_posts || []).filter((p: any) => p.area?.type === "case" && p.status !== "Archived");
+  const rows = all.filter((p: any) => p.lang === "en" || !all.some((x: any) => x.id === p.twin_id));
+  const [ed, setEd] = useState<any>(null);
+  return (
+    <>
+      <Card>
+        <H2>Project case studies</H2>
+        <T size={13} muted>Make one from Projects → a project → "Publish as SEO Case Study". Each becomes an English and an Arabic page at {SITE_URL}/projects/… with your real data (district, building, stone, m², fixing system, year) and site photos, a card on the Projects page, Google data and a place in sitemap.xml.</T>
+      </Card>
+      {!rows.length && <Empty text="No case studies yet." />}
+      {rows.map((p: any) => {
+        const tw = all.find((x: any) => x.id === p.twin_id), a = p.area;
+        return (
+          <Card key={p.id}>
+            <Row>{a.photos?.[0] ? <Image source={{ uri: a.photos[0].url }} accessibilityLabel={a.photos[0].alt} style={{ width: 72, height: 54, borderRadius: 6 }} /> : null}
+              <View style={{ flex: 1 }}><T bold>{p.title}</T><T size={12} muted>{a.district} · {a.stone} · {a.m2} m² · {a.year} · {SITE_URL}{p.target_path}</T></View>
               <Pill kind={p.status === "Published" ? "good" : "warn"} text={p.status} /></Row>
             <Row wrap>
               <Btn kind="ghost" title="English page" onPress={() => setEd(p)} />
@@ -506,13 +631,13 @@ function WriteMail({ o, kind, profile, signature, onClose }: { o: any; kind: str
 }
 
 export default function Growth() {
-  const [tab, setTab] = useState<"blog" | "areas" | "outreach">("blog");
+  const [tab, setTab] = useState<"blog" | "areas" | "cases" | "outreach">("blog");
   return (
     <Screen>
       <H1>Growth</H1>
-      <Row wrap><Btn kind={tab === "blog" ? "primary" : "ghost"} title="Blog (SEO)" onPress={() => setTab("blog")} /><Btn kind={tab === "areas" ? "primary" : "ghost"} title="District pages" onPress={() => setTab("areas")} /><Btn kind={tab === "outreach" ? "primary" : "ghost"} title="Outreach" onPress={() => setTab("outreach")} /></Row>
+      <Row wrap><Btn kind={tab === "blog" ? "primary" : "ghost"} title="Blog (SEO)" onPress={() => setTab("blog")} /><Btn kind={tab === "areas" ? "primary" : "ghost"} title="District pages" onPress={() => setTab("areas")} /><Btn kind={tab === "cases" ? "primary" : "ghost"} title="Case studies" onPress={() => setTab("cases")} /><Btn kind={tab === "outreach" ? "primary" : "ghost"} title="Outreach" onPress={() => setTab("outreach")} /></Row>
       <CompanyProfile />
-      {tab === "blog" ? <Blog /> : tab === "areas" ? <DistrictPages /> : <Outreach />}
+      {tab === "blog" ? <Blog /> : tab === "areas" ? <DistrictPages /> : tab === "cases" ? <CaseStudies /> : <Outreach />}
     </Screen>
   );
 }
