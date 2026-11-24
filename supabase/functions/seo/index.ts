@@ -342,19 +342,26 @@ async function tick(force: string | false) {
  *  Needs the secret GITHUB_SITE_TOKEN: a fine-grained GitHub token for the al-swati-website repository only, with
  *  "Contents: Read and write". Without it the website still updates on its own schedule (about every 30-60 minutes). */
 async function siteRebuild() {
-  // A pasted token can carry an invisible character (a space, line break or direction mark) that makes the request
-  // fail before it is sent; a GitHub token has only letters, digits and "_".
-  const tok = (Deno.env.get("GITHUB_SITE_TOKEN") || "").replace(/[^A-Za-z0-9_]/g, "");
-  if (!tok) return { started: false, why: "no GITHUB_SITE_TOKEN secret yet - the website picks the change up on its next scheduled build" };
-  const r = await fetch("https://api.github.com/repos/hussainkhan-maker/al-swati-website/dispatches", {
-    method: "POST", signal: AbortSignal.timeout(15000),
-    headers: { Authorization: `Bearer ${tok}`, Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "al-swati-erp" },
-    body: JSON.stringify({ event_type: "erp-publish" }),
-  });
-  const out = r.status === 204 ? { started: true } : { started: false, why: `GitHub answered ${r.status}: ${(await r.text()).slice(0, 160)}` };
-  // For the logs: never the token itself, only its length and kind.
-  const kind = tok.startsWith("github_pat_") ? "fine-grained" : tok.startsWith("ghp_") ? "classic" : "unknown kind";
-  console.log("site_rebuild", JSON.stringify({ ...out, token: `${tok.length} characters, ${kind}` }));
+  // A pasted token can carry invisible characters (a space, line break or direction mark) or be pasted twice:
+  // keep only letters, digits and "_", then try each GitHub token found in it, the last one first.
+  const raw = (Deno.env.get("GITHUB_SITE_TOKEN") || "").replace(/[^A-Za-z0-9_]/g, "");
+  if (!raw) return { started: false, why: "no GITHUB_SITE_TOKEN secret yet - the website picks the change up on its next scheduled build" };
+  const found = [...raw.matchAll(/github_pat_[A-Za-z0-9]{22}_[A-Za-z0-9]{59}|ghp_[A-Za-z0-9]{36}/g)].map((m) => m[0]);
+  const tries = [...new Set(found.length ? found.reverse() : [raw])];
+  let out: { started: boolean; why?: string } = { started: false }, used = "";
+  for (const tok of tries) {
+    used = tok;
+    const r = await fetch("https://api.github.com/repos/hussainkhan-maker/al-swati-website/dispatches", {
+      method: "POST", signal: AbortSignal.timeout(15000),
+      headers: { Authorization: `Bearer ${tok}`, Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "al-swati-erp" },
+      body: JSON.stringify({ event_type: "erp-publish" }),
+    });
+    out = r.status === 204 ? { started: true } : { started: false, why: `GitHub answered ${r.status}: ${(await r.text()).slice(0, 160)}` };
+    if (r.status !== 401) break; // only "Bad credentials" is worth trying the next token for
+  }
+  // For the logs: never the token itself, only lengths and kind.
+  const kind = used.startsWith("github_pat_") ? "fine-grained" : used.startsWith("ghp_") ? "classic" : "unknown kind";
+  console.log("site_rebuild", JSON.stringify({ ...out, token: `${raw.length} characters saved, ${found.length} GitHub token(s) in it, used ${used.length} characters (${kind})` }));
   return out;
 }
 
