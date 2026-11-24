@@ -521,6 +521,29 @@ Return JSON only: {"title":"<max 60 chars>","slug":"<latin lowercase words with 
       return json(post);
     }
 
+    // ───────── Google Business Profile: an "Add update" text about a published page, in English and Saudi Arabic. ─────────
+    // Google may remove updates that have a phone number, email or link in the text, so those go on the post's buttons
+    // (Call now uses the profile's verified number; Learn more opens the page).
+    if (task === "gbp_post") {
+      if (role !== "admin") return json({ error: "Only Super-Admin" }, 403);
+      const pg = p.page || {};
+      const { data: cp } = await admin.from("preferences").select("value").eq("key", "company_profile").maybeSingle();
+      const prof = { ...((cp?.value as any) || {}) }; delete prof.phone; delete prof.email; delete prof.price_table;
+      const out = asJson(await claude(`${AR_WORDS}
+Write a Google Business Profile update (Google Maps → "Add update") for AL-Swati Contracting about this page of its website.
+Page (${pg.lang === "ar" ? "Arabic" : "English"}): "${String(pg.title || "").slice(0, 200)}"
+What the page says: ${String(pg.text || "").slice(0, 3500)}
+${pg.area ? `Facts of the district page or project: ${JSON.stringify(pg.area).slice(0, 900)}` : ""}
+Company profile (the ONLY facts you may state about the company): ${JSON.stringify(prof).slice(0, 2500)}
+Write the same update twice: in English, and in Arabic the way Saudi clients read and write (clear and warm, natural Saudi wording, not a word-for-word translation).
+Each version 100-130 words: punchy and useful to a villa owner or developer in Riyadh - what was done or what the page explains, and why it matters for Riyadh heat and dust.
+Use local search words naturally, once or twice each (English: stone cladding Riyadh, mechanical stone cladding, and the district if there is one; Arabic: تركيب حجر في الرياض، تركيب حجر ميكانيكي، and the district name). No keyword lists, no hashtags, no emoji.
+Facts only from the page and the company profile. Never invent projects, clients, numbers, prices, awards or guarantees; no "best" or "No. 1".
+No phone number, email address or web address in the text: Google may remove updates with contact details in the text, and the buttons carry them. End with one short call to action to call now (English) / اتصل بنا الآن (Arabic).
+Return JSON only: {"en":"","ar":""}`, { max: 1600, model: MODEL_FAST }));
+      return json({ en: String(out?.en || "").trim(), ar: String(out?.ar || "").trim() });
+    }
+
     // ───────── Outreach: one personal email at a time to someone the owner knows; he reads, edits and sends it himself. ─────────
     if (task === "outreach_email") {
       if (role !== "admin") return json({ error: "Only Super-Admin" }, 403);
