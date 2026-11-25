@@ -18,7 +18,7 @@ import { createClient } from "npm:@supabase/supabase-js@2.45.4";
 const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, apikey, content-type, x-client-info" };
 const URL_ = Deno.env.get("SUPABASE_URL")!, ANON = Deno.env.get("SUPABASE_ANON_KEY")!;
 const db = createClient(URL_, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
-const AR_WORDS = `In Arabic, cladding work is always called تركيب (تركيب حجر، تركيب رخام، تركيب جرانيت، تركيب بورسلان، تركيب واجهات حجر) - never تكسية or تكسيات, because Saudi clients search for تركيب. The company's Arabic name is "شركة السواطي للمقاولات".`;
+const AR_WORDS = `In Arabic, cladding work is always called تركيب (تركيب حجر، تركيب رخام، تركيب جرانيت، تركيب بورسلان، تركيب واجهات حجر) - never تكسية or تكسيات, because Saudi clients search for تركيب. The company's Arabic name is "شركة السواتي للمقاولات".`;
 const SITE = "https://al-swaticontracting.com";
 const GSC_SITE = Deno.env.get("GSC_SITE") ?? "sc-domain:al-swaticontracting.com";
 // The owner's own "Sign in with Google" (Search Console: read the numbers, resubmit the sitemap). The client id is public (it is in every sign-in link);
