@@ -384,7 +384,8 @@ function VideoSheet({ v: first, ytLinked, onClose }: { v: any; ytLinked: boolean
             <Btn kind="ghost" title="Approve and post now" busy={saving === "now"} disabled={!!saving} onPress={() => approve("now")} />
           </Row>
           <Field label="Something wrong? Write what to change (Claude makes a new version on its next run)" value={redo} multiline onChange={setRedo} placeholder="e.g. the screw goes through the stone; the lower stone moves" />
-          <Row wrap><Btn kind="danger" title="New version" busy={saving === "redo"} disabled={!!saving || !redo.trim()} onPress={() => act("redo", { note: redo }, "Sent back. Claude makes a new version on its next run (Saturday or Tuesday).")} /></Row>
+          <Row wrap><Btn kind="danger" title="New version" busy={saving === "redo"} disabled={!!saving || !redo.trim()} onPress={() => act("redo", { note: redo }, "Sent back. Claude makes a new version on its next run (Saturday or Tuesday).")} />
+            <Btn kind="ghost" title="Skip: don't post it" disabled={!!saving} onPress={() => save({ status: "skipped" }, "Skipped. It will not be posted.")} /></Row>
         </> : null}
         {v.status === "approved" && v.youtube_error ? <Row wrap><Btn kind="primary" title="Try YouTube again" busy={saving === "slot"} disabled={!!saving} onPress={() => approve("slot")} /></Row> : null}
         {v.status === "scheduled" && v.publish_at ? <T color={c.good}>On YouTube, public {riyadhTime(v.publish_at)} (Riyadh).</T> : null}
