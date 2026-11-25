@@ -1,0 +1,242 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<!-- Text layer of the automatic videos, on a transparent page. render.py calls setup(plan) once, then render(T) for every frame
+     and lays the screenshot over the picture. Each text style has its own motion, so the words never just slide up and down.
+     Styles: hook, step, drop, swap, stack, big, brand (see sample-plan.json). -->
+<style>
+@font-face{font-family:Tajawal;font-weight:500;src:url(fonts/Tajawal-Medium.ttf)}
+@font-face{font-family:Tajawal;font-weight:700;src:url(fonts/Tajawal-Bold.ttf)}
+@font-face{font-family:Tajawal;font-weight:800;src:url(fonts/Tajawal-ExtraBold.ttf)}
+@font-face{font-family:Tajawal;font-weight:900;src:url(fonts/Tajawal-Black.ttf)}
+@font-face{font-family:Mont;font-weight:100 900;src:url(fonts/Montserrat.ttf)}
+:root{--gold:#e9c27d;--red:#e2533e}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:1080px;height:1920px;overflow:hidden;background:transparent}
+#stage{position:absolute;inset:0;overflow:hidden}
+.shot{position:absolute;inset:0;display:none}
+.shade{position:absolute;left:0;right:0;pointer-events:none}
+.shade.top{top:0;height:1050px;background:linear-gradient(to bottom,rgba(9,11,18,.82) 0%,rgba(9,11,18,.62) 38%,rgba(9,11,18,0) 100%)}
+.shade.bot{bottom:0;height:1100px;background:linear-gradient(to top,rgba(9,11,18,.88) 0%,rgba(9,11,18,.62) 45%,rgba(9,11,18,0) 100%)}
+.dim{position:absolute;inset:0;background:rgba(9,11,18,.3)}
+.ar{font-family:Tajawal;direction:rtl;white-space:nowrap;line-height:1.05}
+.en{font-family:Mont;font-weight:600;direction:ltr;white-space:nowrap;color:rgba(255,255,255,.9);letter-spacing:.01em}
+.in{display:inline-block}
+/* the padding keeps the Arabic dots inside the painted area of the gradient text */
+.w{display:inline-block;margin:-.32em 12px;padding:.32em 6px;transform-origin:50% 60%}
+.cream .w{color:transparent;background:linear-gradient(100deg,transparent 42%,rgba(255,255,255,.95) 50%,transparent 58%),linear-gradient(180deg,#ffffff 0%,#fff1df 50%,#f0cfa6 100%);
+  background-size:320% 100%,100% 100%;background-position:100% 0,0 0;-webkit-background-clip:text;background-clip:text;filter:drop-shadow(0 8px 22px rgba(0,0,0,.55))}
+.white{color:#fff;text-shadow:0 6px 20px rgba(0,0,0,.6)}
+.line{position:absolute;left:0;right:0;text-align:center}
+.step{position:absolute;right:80px;top:250px;width:920px;height:300px}
+.badge{position:absolute;right:0;top:0;width:150px;height:150px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#f7dc9e,#c9a74a 60%,#8e7230);
+  box-shadow:0 10px 30px rgba(0,0,0,.45),inset 0 -6px 12px rgba(0,0,0,.25);display:flex;align-items:center;justify-content:center}
+.badge b{font-family:Tajawal;font-weight:900;font-size:104px;color:#2a2110;line-height:1;margin-top:10px}
+.title{position:absolute;right:178px;top:6px;height:150px;display:flex;align-items:center;overflow:hidden;max-width:742px}
+.title .ar{font-size:64px;font-weight:900;color:#fff;text-shadow:0 6px 22px rgba(0,0,0,.55)}
+.bar{position:absolute;right:170px;top:16px;width:8px;height:130px;background:var(--gold);border-radius:4px;box-shadow:0 0 18px rgba(233,194,125,.7)}
+.sub{position:absolute;right:178px;top:168px;font-size:38px}
+.caret::after{content:"";display:inline-block;width:3px;height:.9em;background:var(--gold);margin-left:4px;vertical-align:-.1em}
+.rail{position:absolute;left:150px;right:150px;height:8px;border-radius:4px;background:linear-gradient(90deg,transparent,var(--gold) 12%,var(--gold) 88%,transparent);box-shadow:0 0 22px rgba(233,194,125,.8)}
+.spark{position:absolute;width:6px;height:6px;border-radius:50%;background:#fff3cf;box-shadow:0 0 10px #ffd98a}
+.strike{position:absolute;height:14px;border-radius:7px;background:var(--red);box-shadow:0 0 18px rgba(226,83,62,.7);transform-origin:100% 50%}
+.check{display:inline-block;color:#7fe0a0;font-family:Mont;font-weight:800}
+.arrow{display:inline-block;font-family:Mont;font-weight:800;color:var(--gold)}
+.logo{position:absolute;left:250px;top:1150px;width:580px}
+.shine{position:absolute;left:250px;top:1150px;width:580px;height:138px;-webkit-mask:url(logo.png) 0 0/580px auto no-repeat;background:linear-gradient(100deg,transparent 40%,rgba(255,222,170,1) 50%,transparent 60%);background-size:300% 100%}
+.info{position:absolute;left:0;right:0;text-align:center}
+.info i{display:inline-block;width:22px;height:22px;border-radius:50%;background:#25d366;margin-left:14px;vertical-align:4px}
+.pill{display:inline-block;padding:10px 26px;border:2px solid rgba(233,194,125,.8);border-radius:999px;color:var(--gold);font-family:Tajawal;font-weight:700;font-size:40px;direction:rtl;background:rgba(9,11,18,.35)}
+</style></head>
+<body><div id="stage"></div>
+<script>
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const P = (t, a, d) => clamp((t - a) / d);
+const eo = k => 1 - Math.pow(1 - k, 3), eo5 = k => 1 - Math.pow(1 - k, 5), ei = k => k * k * k;
+const eio = k => k < .5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2;
+const lerp = (a, b, k) => a + (b - a) * k;
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const AR_DIGITS = "٠١٢٣٤٥٦٧٨٩", arNum = n => String(n).replace(/\d/g, d => AR_DIGITS[d]);
+// arrows ↑ ↓ ← → in a line become gold and bob
+const withArrows = s => esc(s).replace(/[↑↓←→]/g, a => `<span class="arrow">${a}</span>`);
+const words = (s, cls = "w") => String(s || "").trim().split(/\s+/).filter(Boolean).map(x => `<span class="${cls}">${esc(x)}</span>`).join("");
+const el = (html) => { const d = document.createElement("div"); d.innerHTML = html.trim(); return d.firstElementChild; };
+// The brand end card is the same in every video.
+const BRAND = { name: "السواتي", tag: "للمقاولات", line: "تركيب حجر ميكانيكي بالرياض منذ 1994", pill: "ضمان مكتوب 5 سنوات", phone: "واتساب 0511826313", site: "al-swaticontracting.com" };
+let SHOTS = [], T_NOW = 0;
+window.hits = [];   // moments where text lands: a small camera shake (render.py) and a hit in the sound (audio.py)
+
+/** Shrinks a line's font until its content fits the width. */
+function fit(line, maxW) {
+  const inner = line.querySelector(".in") || line;
+  for (let i = 0; i < 12 && inner.getBoundingClientRect().width > maxW; i++) {
+    const fs = parseFloat(getComputedStyle(line).fontSize); line.style.fontSize = Math.floor(fs * Math.max(.8, maxW / inner.getBoundingClientRect().width)) + "px";
+  }
+}
+const lineDiv = (cls, style, html) => el(`<div class="line ${cls}" style="${style}"><span class="in">${html}</span></div>`);
+function stepHeader(x) {
+  const s = el(`<div class="step"><div class="badge"><b>${arNum(x.n || 1)}</b></div><div class="bar"></div>
+    <div class="title"><div class="ar">${esc(x.ar)}</div></div><div class="sub en">${esc(x.en || "")}</div></div>`);
+  return s;
+}
+
+const BUILD = {
+  hook(d, x) {
+    const lines = (Array.isArray(x.ar) ? x.ar : [x.ar]).slice(0, 2), sizes = lines.length > 1 ? [118, 150] : [150];
+    let top = 340; d.L = [];
+    lines.forEach((l, i) => { const ln = lineDiv("ar cream", `top:${top}px;font-size:${sizes[i]}px;font-weight:900`, words(l)); d.appendChild(ln); d.L.push(ln); top += sizes[i] * 1.25; });
+    d.EN = lineDiv("en", `top:${top + 20}px;font-size:40px`, esc(x.en || "")); d.appendChild(d.EN);   // typed in by render()
+  },
+  step(d, x) {
+    d.S = stepHeader(x); d.appendChild(d.S); d.PTS = [];
+    (x.points || []).slice(0, 3).forEach((p, i) => { const ln = lineDiv("ar white", `top:${590 + i * 105}px;font-size:64px;font-weight:800`, withArrows(p)); d.appendChild(ln); d.PTS.push(ln); });
+  },
+  drop(d, x) {
+    d.S = stepHeader(x); d.appendChild(d.S);
+    d.W = lineDiv("ar cream", "top:560px;font-size:96px;font-weight:900", words((x.words || []).slice(0, 4).join(" "))); d.appendChild(d.W);
+    d.R = el(`<div class="rail" style="top:690px"></div>`); d.appendChild(d.R);
+    d.SP = el(`<div></div>`); d.appendChild(d.SP);
+  },
+  swap(d, x) {
+    d.Q = lineDiv("ar white", "top:300px;font-size:70px;font-weight:800", esc(x.q || "")); d.appendChild(d.Q);
+    d.A = lineDiv("ar cream", "top:410px;font-size:150px;font-weight:900", `<span class="w">${esc(x.wrong)}</span>`); d.appendChild(d.A);
+    d.X = el(`<div class="strike"></div>`); d.appendChild(d.X);
+    d.B = lineDiv("ar cream", "top:410px;font-size:140px;font-weight:900", `<span class="w">${esc(x.right)}</span> <span class="check">✓</span>`); d.appendChild(d.B);
+    d.C = lineDiv("ar white", "top:660px;font-size:56px;font-weight:800", withArrows(x.ar2 || "")); d.appendChild(d.C);
+    d.EN = lineDiv("en", "top:745px;font-size:34px", esc(x.en || "")); d.appendChild(d.EN);
+  },
+  stack(d, x) {
+    d.W = (x.words || []).slice(0, 3).map(w => { const ln = lineDiv("ar cream", "top:560px;font-size:130px;font-weight:900", `<span class="w">${esc(w)}</span>`); d.appendChild(ln); return ln; });
+    d.C = lineDiv("ar", "top:770px;font-size:54px;font-weight:800;color:var(--gold);text-shadow:0 6px 20px rgba(0,0,0,.6)", withArrows(x.ar2 || "")); d.appendChild(d.C);
+    d.EN = lineDiv("en", "top:855px;font-size:34px", esc(x.en || "")); d.appendChild(d.EN);
+  },
+  big(d, x) {
+    d.B = lineDiv("ar cream", "top:400px;font-size:200px;font-weight:900", `<span class="w">${esc(x.ar)}</span>`); d.appendChild(d.B);
+    d.C = lineDiv("ar white", "top:680px;font-size:64px;font-weight:800", withArrows(x.ar2 || "")); d.appendChild(d.C);
+    d.EN = lineDiv("en", "top:775px;font-size:36px", esc(x.en || "")); d.appendChild(d.EN);
+  },
+  brand(d) {
+    d.insertBefore(el(`<div class="dim"></div>`), d.firstChild);
+    d.N = lineDiv("ar cream", "top:150px;font-size:170px;font-weight:900", `<span class="w">${BRAND.name}</span>`); d.appendChild(d.N);
+    d.T = lineDiv("ar cream", "top:340px;font-size:84px;font-weight:800", `<span class="w">${BRAND.tag}</span>`); d.appendChild(d.T);
+    d.LG = el(`<img class="logo" src="logo.png">`); d.appendChild(d.LG); d.SH = el(`<div class="shine"></div>`); d.appendChild(d.SH);
+    d.I = [el(`<div class="info ar white" style="top:1330px;font-size:48px;font-weight:700">${BRAND.line}</div>`), el(`<div class="info" style="top:1415px"><span class="pill">${BRAND.pill}</span></div>`),
+      el(`<div class="info ar white" style="top:1520px;font-size:52px;font-weight:700"><i></i>${BRAND.phone}</div>`), el(`<div class="info en" style="top:1600px;font-size:38px;color:var(--gold)">${BRAND.site}</div>`)];
+    d.I.forEach(e => d.appendChild(e));
+  },
+};
+// landing moments (seconds from the start of the shot), for the shake and the sound
+const HITS = {
+  hook: (d) => [...d.querySelectorAll(".w")].map((_, i) => .3 + i * .26 + .42),
+  drop: (d) => d.DROPS.map(t => t + .38),
+  swap: () => [.77], big: () => [.7], brand: () => [.75], step: () => [], stack: () => [],
+};
+
+window.setup = async function (plan) {
+  await window.ready;
+  const stage = document.getElementById("stage"); stage.innerHTML = ""; SHOTS = []; window.hits = [];
+  let t = 0;
+  plan.shots.forEach((s, i) => {
+    const x = s.text || { style: "none" }, d = el(`<div class="shot"><div class="shade ${x.style === "brand" ? "bot" : "top"}"></div></div>`);
+    if (x.style === "brand") d.insertBefore(el(`<div class="shade top" style="height:700px"></div>`), d.firstChild);
+    stage.appendChild(d); d.style.display = "block";
+    (BUILD[x.style] || (() => {}))(d, x);
+    if (x.style === "drop") { const n = d.W.querySelectorAll(".w").length; d.DROPS = [...Array(n)].map((_, k) => Math.min(s.dur - 1.3, 2.2 + k * .25)); }
+    // everything must fit the width of the video
+    d.querySelectorAll(".line").forEach(l => fit(l, 980));
+    if (d.S) { const ti = d.S.querySelector(".title .ar"); while (ti.scrollWidth > 742 && parseFloat(getComputedStyle(ti).fontSize) > 36) ti.style.fontSize = (parseFloat(getComputedStyle(ti).fontSize) - 2) + "px";
+      const sub = d.S.querySelector(".sub"); while (sub.scrollWidth > 742 && parseFloat(getComputedStyle(sub).fontSize) > 22) sub.style.fontSize = (parseFloat(getComputedStyle(sub).fontSize) - 1) + "px"; }
+    d.style.display = "none";
+    SHOTS.push({ d, x, a: t, b: t + s.dur });
+    (HITS[x.style] ? HITS[x.style](d) : []).forEach(h => window.hits.push(+(t + h).toFixed(3)));
+    t += s.dur;
+  });
+  return { dur: t, hits: window.hits, words: SHOTS.map(S => S.d.querySelectorAll(".w").length) };
+};
+
+const sheen = (w, t0) => { if (w) w.style.backgroundPosition = `${lerp(100, 0, eio(P(T_NOW, t0, .8))).toFixed(1)}% 0, 0 0`; };
+function punch(w, t, t0, dur = .42) {
+  const k = P(t, t0, dur), e = eo5(k);
+  w.style.opacity = clamp(k * 3).toFixed(3);
+  w.style.transform = `scale(${lerp(2.6, 1, e).toFixed(3)}) translateY(${lerp(-40, 0, e).toFixed(1)}px)`;
+  w.style.filter = k < 1 ? `blur(${(16 * (1 - e)).toFixed(1)}px) drop-shadow(0 8px 22px rgba(0,0,0,.55))` : "drop-shadow(0 8px 22px rgba(0,0,0,.55))";
+}
+function fadeUp(e, t, t0, out, d = .5, dy = 30) { if (!e) return; const k = eo(P(t, t0, d)); e.style.opacity = Math.min(k, 1 - out); e.style.transform = `translateY(${lerp(dy, 0, k).toFixed(1)}px)`; }
+function type(e, t, t0, d) { if (!e) return; const txt = e.dataset.t ?? (e.dataset.t = e.textContent); const n = Math.floor(txt.length * P(t, t0, d)); e.textContent = txt.slice(0, n); e.classList.toggle("caret", n > 0 && n < txt.length); }
+function header(S, t, t0, tOut) {
+  const badge = S.querySelector(".badge"), bar = S.querySelector(".bar"), ti = S.querySelector(".title .ar"), sub = S.querySelector(".sub");
+  const kb = P(t, t0, .5), out = eio(P(t, tOut, .35));
+  badge.style.transform = `perspective(600px) rotateY(${lerp(-180, 0, eo(kb)).toFixed(1)}deg) scale(${lerp(.4, 1, eo(kb)).toFixed(3)})`;
+  badge.style.opacity = clamp(kb * 4);
+  bar.style.transform = `scaleY(${eo(P(t, t0 + .25, .3)).toFixed(3)})`;
+  ti.style.transform = `translateX(${lerp(760, 0, eo(P(t, t0 + .4, .6))).toFixed(1)}px)`;   // comes out from behind the gold bar
+  type(sub, t, t0 + 1.0, .9);
+  S.style.opacity = 1 - out; S.style.transform = `translateY(${(-60 * out).toFixed(1)}px)`;
+}
+const bob = (root, t) => root.querySelectorAll(".arrow").forEach(a => { const up = a.textContent === "↑" || a.textContent === "←"; const v = Math.abs(Math.sin(t * 5.5)) * 12; a.style.transform = a.textContent === "←" || a.textContent === "→" ? `translateX(${(up ? -v : v).toFixed(1)}px)` : `translateY(${(up ? -v : v).toFixed(1)}px)`; });
+
+const ANIM = {
+  hook(d, t, len, out, s0) {
+    [...d.querySelectorAll(".w")].forEach((w, i) => { punch(w, t, .3 + i * .26); sheen(w, s0 + 1.9 + i * .05); });
+    const n = d.querySelectorAll(".w").length; type(d.EN.querySelector(".in"), t, .4 + n * .26 + .3, .9);
+    d.style.opacity = 1 - out;
+  },
+  step(d, t, len, out) { header(d.S, t, .15, len - .35); d.PTS.forEach((p, i) => fadeUp(p, t, 1.6 + i * .25, out)); bob(d, t); },
+  drop(d, t, len, out, s0) {
+    header(d.S, t, .15, len - .35);
+    d.R.style.transform = `scaleX(${eo(P(t, d.DROPS[0] - .6, .5)).toFixed(3)})`; d.R.style.opacity = 1 - out;
+    const ws = [...d.W.querySelectorAll(".w")];
+    ws.forEach((w, i) => {
+      const t0 = d.DROPS[i], k = P(t, t0, .38), y = lerp(-520, 0, ei(k)), sq = k >= 1 ? 1 - .12 * Math.exp(-(t - t0 - .38) * 18) * Math.cos((t - t0 - .38) * 40) : 1;
+      w.style.opacity = clamp(k * 5) * (1 - out); w.style.transform = `translateY(${y.toFixed(1)}px) scaleY(${sq.toFixed(3)})`; sheen(w, s0 + t0 + .5);
+    });
+    d.SP.innerHTML = "";
+    ws.forEach((w, i) => { const k = (t - d.DROPS[i] - .38) / .5; if (k < 0 || k > 1) return; const r0 = w.getBoundingClientRect(), cx = r0.left + r0.width / 2;
+      for (let j = 0; j < 9; j++) { const a = (j / 9) * Math.PI - Math.PI, r = 30 + 120 * eo(k);
+        const sp = document.createElement("div"); sp.className = "spark"; sp.style.left = (cx + Math.cos(a) * r * 1.4) + "px"; sp.style.top = (692 + Math.sin(a) * r * .5) + "px"; sp.style.opacity = (1 - k).toFixed(2); d.SP.appendChild(sp); } });
+  },
+  swap(d, t, len, out, s0) {
+    fadeUp(d.Q, t, .15, out);
+    const w = d.A.querySelector(".w"); punch(w, t, .35); d.A.style.opacity = 1 - eio(P(t, 1.35, .3));
+    const r = w.getBoundingClientRect();
+    d.X.style.left = (r.left + 6) + "px"; d.X.style.width = Math.max(0, r.width - 12) + "px"; d.X.style.top = (r.top + r.height * .52) + "px";
+    d.X.style.transform = `scaleX(${eo(P(t, .95, .3)).toFixed(3)}) rotate(-4deg)`; d.X.style.opacity = 1 - eio(P(t, 1.35, .3));
+    d.B.style.opacity = clamp(P(t, 1.45, .35) * 1.5) * (1 - out); d.B.style.transform = `scale(${lerp(.7, 1, eo(P(t, 1.45, .45))).toFixed(3)})`;
+    d.B.querySelector(".check").style.transform = `scale(${lerp(0, 1, eo(P(t, 1.8, .3))).toFixed(3)})`;
+    sheen(d.B.querySelector(".w"), s0 + 1.9);
+    fadeUp(d.C, t, 2.0, out); fadeUp(d.EN, t, 2.2, out); bob(d, t);
+  },
+  stack(d, t, len, out, s0) {
+    const tins = [.3, .75, 1.2], rowH = 150, base = 560;
+    d.W.forEach((e, i) => {
+      const k = eo(P(t, tins[i], .4)); let y = base + (1 - k) * 80;
+      for (let j = i + 1; j < d.W.length; j++) y -= rowH * eo(P(t, tins[j], .4));
+      e.style.top = y + "px"; e.style.opacity = clamp(P(t, tins[i], .25)) * (1 - out); sheen(e.querySelector(".w"), s0 + tins[i] + .4);
+    });
+    fadeUp(d.C, t, 1.7, out); fadeUp(d.EN, t, 1.95, out); bob(d, t);
+  },
+  big(d, t, len, out, s0) {
+    const w = d.B.querySelector(".w"); punch(w, t, .25, .45); sheen(w, s0 + .9); d.B.style.opacity = 1 - out;
+    fadeUp(d.C, t, .9, out, .5, 40); fadeUp(d.EN, t, 1.15, out); bob(d, t);
+  },
+  brand(d, t) {
+    punch(d.N.querySelector(".w"), t, .25, .5); sheen(d.N.querySelector(".w"), T_NOW - t + .9);
+    fadeUp(d.T, t, .65, 0, .5, 40); sheen(d.T.querySelector(".w"), T_NOW - t + 1.1);
+    const kl = P(t, 1.0, .6); d.LG.style.opacity = eo(kl); d.LG.style.transform = `scale(${lerp(1.1, 1, eo(kl)).toFixed(3)})`;
+    const ks = P(t, 1.5, .9); d.SH.style.backgroundPosition = `${lerp(100, 0, ks).toFixed(1)}% 0`; d.SH.style.opacity = ks > 0 && ks < 1 ? 1 : 0;
+    d.I.forEach((e, i) => fadeUp(e, t, 1.6 + i * .25, 0));
+  },
+};
+
+window.render = function (T) {
+  T_NOW = T;
+  let cur = null;
+  for (const S of SHOTS) { const on = T >= S.a && T < S.b; S.d.style.display = on ? "block" : "none"; if (on) cur = S; }
+  if (!cur && SHOTS.length && T >= SHOTS[SHOTS.length - 1].a) { cur = SHOTS[SHOTS.length - 1]; cur.d.style.display = "block"; }
+  if (!cur) return;
+  const t = T - cur.a, len = cur.b - cur.a, out = cur.x.style === "brand" ? 0 : eio(P(t, len - .3, .3));
+  (ANIM[cur.x.style] || (() => {}))(cur.d, t, len, out, cur.a);
+};
+window.ready = Promise.all(["500 40px Tajawal", "700 40px Tajawal", "800 40px Tajawal", "900 40px Tajawal", "600 40px Mont"].map(f => document.fonts.load(f, "كيف A")))
+  .then(r => r.map(x => x.length));
+</script>
+</body></html>
