@@ -7,6 +7,7 @@ import { supabase } from "../lib/supabase";
 import { Btn, Card, Checks, Field, H1, H2, Icon, Pill, Row, Screen, T, useColors } from "../ui";
 import AiTools from "./AiTools";
 import { pref } from "./Quotes";
+import WebsiteTeam from "./WebsiteTeam";
 
 export default function Agents() {
   const { d, reload, role } = useData(); const c = useColors();
@@ -27,6 +28,7 @@ export default function Agents() {
     <Screen>
       <H1>AI agents</H1>
       <T muted>AI reads and suggests. Code does every sum and blocks anything red. You approve.</T>
+      {role === "admin" && <WebsiteTeam />}
       <A icon="inbox" name="Intake agent" job="Takes queries from Gmail and the website, saves files, drops repeats" s={inq.some((q: any) => q.status === "New") ? "warn" : "good"} status={`${inq.length} queries · ${inq.filter((q: any) => q.status === "New").length} not reviewed yet`} />
       <A icon="spark" name="Reading agents (two)" job="Two different AI models read each BOQ separately; code compares them line by line" s="good" status={`${inq.filter((q: any) => q.reading).length} queries read twice`} />
       <A icon="check" name="Checking agents (code)" job="Digits, sums, VAT 15%, splits = 100%, receipt photo, project, units, PDF re-read" s={flagged.length ? "warn" : "good"} status={`${flagged.length} saved entries carry a warning someone accepted`} />

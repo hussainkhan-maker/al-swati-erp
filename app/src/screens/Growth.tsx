@@ -6,6 +6,7 @@ import { useData } from "../lib/data";
 import { day, stamp } from "../lib/fmt";
 import { ai, supabase } from "../lib/supabase";
 import { pickPhoto } from "../lib/files";
+import { NewWebsiteProject } from "./WebsiteTeam";
 import { Btn, Card, Empty, Field, H1, H2, Icon, Pill, Row, Screen, Select, Sheet, StatStrip, Table, T, useColors } from "../ui";
 
 // Published posts live on the company website, where they count for its Google ranking: built as real pages by the
@@ -967,8 +968,9 @@ function CaseStudies() {
     <>
       <Card>
         <H2>Project case studies</H2>
-        <T size={13} muted>Make one from Projects → a project → "Publish as SEO Case Study". Each becomes an English and an Arabic page at {SITE_URL}/projects/… with your real data (district, building, stone, m², fixing system, year) and site photos, a card on the Projects page, Google data and a place in sitemap.xml.</T>
+        <T size={13} muted>Easiest: "Project add karein" below (photos + a few facts; the Projects agent cleans the photos and publishes the pages). Or from Projects → a project → "Publish as SEO Case Study". Each becomes an English and an Arabic page at {SITE_URL}/projects/… with your real data (district, building, stone, m², fixing system, year) and site photos, a card on the Projects page, Google data and a place in sitemap.xml.</T>
       </Card>
+      <NewWebsiteProject />
       {!rows.length && <Empty text="No case studies yet." />}
       {rows.map((p: any) => {
         const tw = all.find((x: any) => x.id === p.twin_id), a = p.area;
