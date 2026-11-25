@@ -75,7 +75,7 @@ async function twinWrite(prompt: string) {
 async function arabic(post: any) {
   const prompt = `You write Arabic web content for ${COMPANY}.
 Rewrite the article below in Arabic for clients in Saudi Arabia (villa owners, developers, consultants, project managers).
-Language: clear, simple Arabic the way Saudi companies write on their own websites - fluent Modern Standard Arabic with the words Saudi clients really use and search for (for example: تركيب حجر، تركيب واجهات حجر، واجهات حجر طبيعي، تركيب حجر ميكانيكي، تركيب رخام، جرانيت، بورسلان، مقاول حجر، فلل، الرياض، الدمام، الأحساء، ريال). In Arabic, cladding work is always called تركيب (تركيب حجر، تركيب رخام، تركيب جرانيت، تركيب بورسلان، تركيب واجهات حجر) - never تكسية or تكسيات, because Saudi clients search for تركيب. The company's Arabic name is "شركة السواطي للمقاولات". Not spoken dialect, not stiff word-for-word translation: it must read as if a Saudi writer wrote it.
+Language: clear, simple Arabic the way Saudi companies write on their own websites - fluent Modern Standard Arabic with the words Saudi clients really use and search for (for example: تركيب حجر، تركيب واجهات حجر، واجهات حجر طبيعي، تركيب حجر ميكانيكي، تركيب رخام، جرانيت، بورسلان، مقاول حجر، فلل، الرياض، الدمام، الأحساء، ريال). In Arabic, cladding work is always called تركيب (تركيب حجر، تركيب رخام، تركيب جرانيت، تركيب بورسلان، تركيب واجهات حجر) - never تكسية or تكسيات, because Saudi clients search for تركيب. The company's Arabic name is "شركة السواتي للمقاولات". Not spoken dialect, not stiff word-for-word translation: it must read as if a Saudi writer wrote it.
 Rules:
 - Keep every fact, figure and piece of advice. Add NO new facts about the company (no projects, years, clients, prices, certificates).
 ${NO_FLOORING}
@@ -242,7 +242,7 @@ async function useSitePhoto(post: any, why: string) {
 // The AI rewrites and expands the live page (an ERP post, or a hand-made page of the website) with the company profile's
 // facts, a price and material table (prices only from the owner), a 5-question FAQ and links to the main service pages.
 // The result is always a Draft: nothing changes on the website until the owner reads it and presses Publish.
-const AR_RULE = `In Arabic, cladding work is always called تركيب (تركيب حجر، تركيب رخام، تركيب جرانيت، تركيب بورسلان، تركيب واجهات حجر) - never تكسية or تكسيات, because Saudi clients search for تركيب. The company's Arabic name is "شركة السواطي للمقاولات".`;
+const AR_RULE = `In Arabic, cladding work is always called تركيب (تركيب حجر، تركيب رخام، تركيب جرانيت، تركيب بورسلان، تركيب واجهات حجر) - never تكسية or تكسيات, because Saudi clients search for تركيب. The company's Arabic name is "شركة السواتي للمقاولات".`;
 // main pages are never replaced by an article: a boost for them writes a new article aimed at the search instead
 const MAIN_PAGES = new Set(["/", "/ar/", "/blog/", "/ar/blog/", "/contact/", "/ar/contact/", "/about/", "/ar/about/", "/projects/", "/ar/projects/", "/privacy/", "/ar/privacy/", "/terms/", "/ar/terms/"]);
 const normPath = (t: string) => { let s = String(t || "").trim().replace(/^https?:\/\/[^/]+/i, "").split(/[?#]/)[0]; if (!s.startsWith("/")) s = "/" + s; if (!/\.[a-z0-9]+$/i.test(s) && !s.endsWith("/")) s += "/"; return s; };
