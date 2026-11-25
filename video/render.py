@@ -159,7 +159,9 @@ class Renderer:
         for j, s in enumerate(self.shots):
             sh = self.shot(j); tmp, part = f'{work}/shot_{j}.tmp.mp4', f'{work}/shot_{j}.mp4'
             ff = subprocess.Popen(['ffmpeg', '-y', '-loglevel', 'error', '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-s', f'{W}x{H}', '-r', str(FPS), '-i', '-',
-                                   '-c:v', 'libx264', '-crf', '20', '-preset', 'veryfast', '-pix_fmt', 'yuv420p', tmp], stdin=subprocess.PIPE)
+                                   # high quality on purpose: TikTok and YouTube compress again, and a rich source stays sharper
+                                   '-c:v', 'libx264', '-crf', '16', '-preset', 'slow', '-profile:v', 'high', '-x264-params', 'aq-mode=3',
+                                   '-pix_fmt', 'yuv420p', tmp], stdin=subprocess.PIPE)
             for i in range(sh.n): ff.stdin.write(self.frame(j, i).tobytes())
             ff.stdin.close()
             if ff.wait() != 0: raise RuntimeError('ffmpeg failed on shot %d' % j)
