@@ -25,6 +25,15 @@ const SCOPES = [{ value: "supply_install", label: "Supply + installation" }, { v
 const FIXINGS = [{ value: "Up-Down", label: "Up-Down" }, { value: "PEN", label: "PEN" }, { value: "C-Channel", label: "C-Channel" }, { value: "Undercut", label: "Undercut" }];
 const PSTATUS: Record<string, [string, "good" | "warn" | "bad" | "plain"]> = { new: ["Line mein", "plain"], working: ["Ban raha hai", "warn"], done: ["Website par", "good"], failed: ["Masla", "bad"] };
 
+/** Load now, and again once the sign-in session is ready: right after signing in, the first query can run without it. */
+function useLoad(load: () => any) {
+  useEffect(() => {
+    load();
+    const { data } = supabase.auth.onAuthStateChange((e) => { if (e === "SIGNED_IN" || e === "INITIAL_SESSION" || e === "TOKEN_REFRESHED") load(); });
+    const t = setTimeout(load, 2500);
+    return () => { data.subscription.unsubscribe(); clearTimeout(t); };
+  }, []);
+}
 /** Agents may save a page as "/projects/…/" or as a full address; open both. */
 const full = (u: string) => (/^https?:\/\//.test(u) ? u : "https://al-swaticontracting.com" + (u.startsWith("/") ? u : "/" + u));
 async function copyText(s: string) { try { await (navigator as any).clipboard.writeText(s); return true; } catch { return false; } }
@@ -40,7 +49,7 @@ export default function WebsiteTeam() {
     ]);
     setRuns(r.data || []); setActs(a.data || []); setTasks(t.count || 0);
   };
-  useEffect(() => { load(); }, []);
+  useLoad(load);
   const last = (k: string) => runs.find((x) => x.agent === k);
   const mgr = runs.find((x) => x.agent === "manager" && x.status !== "running");
   const done = async (a: any, status: "done" | "skipped") => {
@@ -97,7 +106,7 @@ export function NewWebsiteProject({ onSaved }: { onSaved?: () => void }) {
   const blank = () => ({ name: "", district: "", building: "villa", material: "Riyadh Limestone", other: "", m2: "", ongoing: true, year: String(new Date().getFullYear()), scope: "supply_install", fixing: [] as string[], client: "", show_client: false, partner: false, notes: "", photos: [] as { uri: string; url: string }[] });
   const [f, setF] = useState<any>(null), [busy, setBusy] = useState(""), [err, setErr] = useState(""), [list, setList] = useState<any[]>([]);
   const load = async () => { const { data } = await supabase.from("website_projects").select("*").order("created_at", { ascending: false }).limit(10); setList(data || []); };
-  useEffect(() => { load(); }, []);
+  useLoad(load);
   const addPhotos = async () => {
     setErr("");
     try {
