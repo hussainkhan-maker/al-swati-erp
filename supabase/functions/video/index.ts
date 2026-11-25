@@ -4,12 +4,15 @@
 //  workflow "Video", which takes the plan ("claim"), renders the MP4 (video/render.py), uploads it ("upload_url") and reports
 //  ("done"): status "review". The owner watches it in Growth → Videos and presses Approve ("approve"): the video goes to YouTube
 //  at once, private, set to go public at the next slot (Sunday or Wednesday, 7 pm Riyadh): status "scheduled", and "tick" marks
-//  it "posted" when that time has passed. TikTok lets only apps it has approved post, so the owner posts there himself.
+//  it "posted" when that time has passed. TikTok does not approve tools that post only to your own account, so the owner posts there himself.
 //  • "waiting" / "tick" (public, from the autopilot): how many plans wait (a number only); scheduled → posted, retry YouTube.
 //  • "claim" / "upload_url" / "done" (only the "Video" workflow of this repository: GitHub signs each run, checked below).
 //  • "link" / "approve" / "redo" / "retry" (Super-Admin, Growth → Videos).
 //  • "yt_status" / "yt_start" / "yt_finish" / "yt_disconnect" (Super-Admin): the owner's own "Connect YouTube" (upload only).
-// Nothing goes public without the owner's Approve.
+//  • "pic_claim" / "pic_upload" / "pic_done" (the same workflow): blog pictures. Every morning Claude makes a Higgsfield picture
+//    for each new blog draft (blog_posts.picture_status "ready" with picture_src); the workflow saves it as a 1600x900 JPEG in the
+//    public "blog" storage and it goes on the post and its other-language twin ("done").
+// Nothing goes public without the owner's Approve (videos) or Publish (blog posts).
 import { createClient } from "npm:@supabase/supabase-js@2.45.4";
 import { createRemoteJWKSet, jwtVerify } from "npm:jose@5.9.6";
 
@@ -51,7 +54,39 @@ const staleBefore = () => new Date(Date.now() - STALE_MIN * 60e3).toISOString();
 async function waiting() {
   const { count } = await db.from("video_ideas").select("id", { count: "exact", head: true }).eq("status", "rendering").lt("render_tries", MAX_TRIES)
     .or(`render_started.is.null,render_started.lt.${staleBefore()}`);
-  return count ?? 0;
+  const { count: pics } = await db.from("blog_posts").select("id", { count: "exact", head: true }).eq("picture_status", "ready");
+  return (count ?? 0) + (pics ?? 0);
+}
+
+// ───────── blog pictures (Higgsfield → "blog" storage) ─────────
+async function picClaim() {
+  const { data } = await db.from("blog_posts").select("id, slug, picture_src").eq("picture_status", "ready").not("picture_src", "is", null).order("updated_at").limit(6);
+  return { pictures: (data || []).map((r: any) => ({ id: r.id, slug: r.slug, src: r.picture_src })) };
+}
+async function picUpload(id: string) {
+  const { data: p } = await db.from("blog_posts").select("id, slug, picture_status").eq("id", id).maybeSingle();
+  if (!p || p.picture_status !== "ready") throw new Error("this picture is not waiting");
+  const path = `hf/${String(p.slug || p.id).replace(/[^a-z0-9-]/gi, "").slice(0, 70) || p.id}-${Date.now().toString(36)}.jpg`;
+  const { data, error } = await db.storage.from("blog").createSignedUploadUrl(path, { upsert: true });
+  if (error) throw new Error(error.message);
+  return { url: data.signedUrl, path };
+}
+async function picDone(b: any) {
+  const { data: p } = await db.from("blog_posts").select("id, lang, title, twin_id, picture_status, picture_alt_en, picture_alt_ar").eq("id", b.id).maybeSingle();
+  if (!p || p.picture_status !== "ready") return { ok: false, error: "not waiting" };
+  const now = new Date().toISOString();
+  if (!b.ok) {
+    await db.from("blog_posts").update({ picture_status: "failed", picture_error: clean(b.error, 500), updated_at: now }).eq("id", p.id);
+    return { ok: true };
+  }
+  const url = db.storage.from("blog").getPublicUrl(String(b.path)).data.publicUrl;
+  const alt = (lang: string, title: string) => clean((lang === "ar" ? p.picture_alt_ar : p.picture_alt_en) || title, 120);
+  await db.from("blog_posts").update({ image_url: url, image_alt: alt(p.lang, p.title), picture_status: "done", picture_src: null, picture_error: null, picture_at: now, updated_at: now }).eq("id", p.id);
+  if (p.twin_id) {
+    const { data: tw } = await db.from("blog_posts").select("id, lang, title").eq("id", p.twin_id).maybeSingle();
+    if (tw) await db.from("blog_posts").update({ image_url: url, image_alt: alt(tw.lang, tw.title), picture_status: "done", picture_at: now, updated_at: now }).eq("id", tw.id);
+  }
+  return { ok: true, image_url: url };
 }
 async function claim() {
   const { data } = await db.from("video_ideas").select("id, plan, render_tries").eq("status", "rendering").lt("render_tries", MAX_TRIES)
@@ -185,6 +220,12 @@ Deno.serve(async (req) => {
     const p = await req.json().catch(() => ({}));
     if (p.action === "waiting") return json({ waiting: await waiting() });
     if (p.action === "tick") return json(await tick());
+    if (["pic_claim", "pic_upload", "pic_done"].includes(p.action)) {
+      if (!(await isWorker(req))) return json({ error: "Only the Video workflow of " + REPO }, 403);
+      if (p.action === "pic_claim") return json(await picClaim());
+      if (p.action === "pic_upload") return json(await picUpload(String(p.id)));
+      return json(await picDone(p));
+    }
     if (["claim", "upload_url", "done"].includes(p.action)) {
       if (!(await isWorker(req))) return json({ error: "Only the Video workflow of " + REPO }, 403);
       if (p.action === "claim") return json(await claim());
