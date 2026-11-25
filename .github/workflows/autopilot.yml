@@ -1,6 +1,7 @@
 # Autopilot on the server, every 30 minutes, with nobody's app open:
 # the linked Outlook inbox is read for client queries, and the AI turns clean queries into draft quotations.
 # It uses only the public (anon) key that the app itself ships with; the function does nothing unless work is waiting.
+# Videos: approved videos go public on YouTube at their time, and a new video plan starts the "Video" workflow (it renders the MP4).
 name: Autopilot (server)
 on:
   schedule:
@@ -8,6 +9,7 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+  actions: write   # to start the "Video" workflow when a video plan is waiting
 jobs:
   run:
     runs-on: ubuntu-latest
@@ -29,3 +31,14 @@ jobs:
           URL=$(grep -oE 'https://[a-z0-9]+\.supabase\.co' app/src/config.ts | head -1)
           KEY=$(grep -oE 'SUPABASE_ANON_KEY = "[^"]+"' app/src/config.ts | cut -d'"' -f2)
           curl -sS -m 200 -X POST "$URL/functions/v1/ai" -H "Authorization: Bearer $KEY" -H "apikey: $KEY" -H "content-type: application/json" -d '{"task":"autopilot"}'
+      - name: Videos (scheduled → posted, and start the renderer when a plan waits)
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: |
+          URL=$(grep -oE 'https://[a-z0-9]+\.supabase\.co' app/src/config.ts | head -1)
+          KEY=$(grep -oE 'SUPABASE_ANON_KEY = "[^"]+"' app/src/config.ts | cut -d'"' -f2)
+          v() { curl -sS -m 120 -X POST "$URL/functions/v1/video" -H "Authorization: Bearer $KEY" -H "apikey: $KEY" -H "content-type: application/json" -d "$1"; }
+          v '{"action":"tick"}' || true
+          n=$(v '{"action":"waiting"}' | grep -oE '"waiting":[0-9]+' | cut -d: -f2)
+          busy=$(gh run list --workflow video.yml --limit 5 --json status --jq '[.[] | select(.status != "completed")] | length' 2>/dev/null || echo 0)
+          echo "video plans waiting: ${n:-0}, renders running: ${busy:-0}"
+          if [ "${n:-0}" -gt 0 ] && [ "${busy:-0}" -eq 0 ]; then gh workflow run video.yml --ref main; fi
