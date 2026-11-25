@@ -327,7 +327,7 @@ function HashtagBank() {
           <View key={g} style={{ paddingVertical: 6, borderTopWidth: 1, borderTopColor: c.line, gap: 4 }}>
             <Row><T bold>{name}</T><T size={12} muted style={{ flex: 1 }}>  {why}</T></Row>
             <Row wrap>{xs.map((t) => <Pill key={t.tag} kind={t.status === "test" ? "warn" : t.uses && t.avg_views != null ? "good" : "plain"}
-              text={t.tag + (t.volume ? ` · ${t.volume}/mahina` : "") + (t.uses ? ` · ${t.uses} videos, ${t.avg_views ?? 0} views avg` : "")} />)}</Row>
+              text={"⁦⁧" + t.tag + "⁩" + (t.volume ? ` · ${t.volume}/mahina` : "") + (t.uses ? ` · ${t.uses} videos, ${t.avg_views ?? 0} views avg` : "") + "⁩"} />)}</Row>
           </View>
         );
       })}
