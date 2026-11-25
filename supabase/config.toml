@@ -4,3 +4,6 @@ verify_jwt = false
 
 [functions.daily-report]
 verify_jwt = false
+
+[functions.visit]
+verify_jwt = false
