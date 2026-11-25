@@ -301,6 +301,41 @@ function StyleTest({ rows }: { rows: any[] }) {
     </Card>
   );
 }
+/** The hashtag bank (table video_hashtags): every video's hashtags come from here; the weekly Growth agent keeps it up to date from the numbers. */
+const HGRP: [string, string, string][] = [
+  ["fixed", "Har video mein", "Shehar, kaam aur hamara naam"],
+  ["search", "Google par search", "Saudi Arabia mein har mahine kitni searches (OpenSEO)"],
+  ["topic", "Topic ke hisaab se", "Sirf us topic ki video mein"],
+  ["market", "Social media", "Saudi facade videos jo zyada chalti hain, un par lage hue"],
+  ["english", "English", "Bahar ke log aur English search"],
+];
+function HashtagBank() {
+  const c = useColors();
+  const [tags, setTags] = useState<any[]>([]), [all, setAll] = useState(false);
+  useEffect(() => { supabase.from("video_hashtags").select("*").order("volume", { ascending: false, nullsFirst: false }).then(({ data }) => setTags(data || [])); }, []);
+  if (!tags.length) return null;
+  const live = tags.filter((t) => t.status !== "removed"), gone = tags.filter((t) => t.status === "removed"), test = live.find((t) => t.status === "test");
+  const used = live.filter((t) => t.uses > 0).length;
+  return (
+    <Card>
+      <Row><Icon name="spark" color={c.accent} /><View style={{ flex: 1 }}><H2>Hashtags (data se)</H2></View><Pill text={`${live.length} chalu`} />{test ? <Pill kind="warn" text={"Test: " + test.tag} /> : null}</Row>
+      <T size={13} muted>Har video ke hashtags isi list se lagte hain (6–8). Har Saturday Growth agent dekhta hai kis hashtag wali videos ko kitne views mile, ek naya hashtag test karta hai, aur jo kaam na kare use hata deta hai.</T>
+      {HGRP.map(([g, name, why]) => {
+        const xs = live.filter((t) => t.grp === g).slice(0, all ? 99 : g === "search" ? 6 : 5);
+        if (!xs.length) return null;
+        return (
+          <View key={g} style={{ paddingVertical: 6, borderTopWidth: 1, borderTopColor: c.line, gap: 4 }}>
+            <Row><T bold>{name}</T><T size={12} muted style={{ flex: 1 }}>  {why}</T></Row>
+            <Row wrap>{xs.map((t) => <Pill key={t.tag} kind={t.status === "test" ? "warn" : t.uses && t.avg_views != null ? "good" : "plain"}
+              text={t.tag + (t.volume ? ` · ${t.volume}/mahina` : "") + (t.uses ? ` · ${t.uses} videos, ${t.avg_views ?? 0} views avg` : "")} />)}</Row>
+          </View>
+        );
+      })}
+      <Row wrap><Btn kind="ghost" title={all ? "Kam dikhao" : "Sab dikhao"} onPress={() => setAll(!all)} />
+        <T size={12} muted style={{ flex: 1 }}>{used ? `${used} hashtags ke numbers aa chuke hain.` : "Numbers videos post hone ke baad aayenge."}{gone.length ? ` Hataye gaye: ${gone.map((t) => t.tag).join(" ")}` : ""}</T></Row>
+    </Card>
+  );
+}
 async function videoFn(action: string, body: any = {}) {
   const { data, error } = await supabase.functions.invoke("video", { body: { action, ...body } });
   if (error) { let m = error.message; try { const j = await (error as any).context?.json?.(); if (j?.error) m = j.error; } catch {} throw new Error(m); }
@@ -359,6 +394,7 @@ function Videos() {
         {msg ? <T size={13} muted>{msg}</T> : null}
       </Card>
       <StyleTest rows={rows} />
+      <HashtagBank />
       <Row wrap>{([["open", `To make and post (${rows.filter((r) => OPEN.includes(r.status)).length})`], ["posted", `Posted (${n("posted")})`], ["all", "All"]] as const).map(([k, l]) => <Btn key={k} kind={show === k ? "primary" : "ghost"} title={l} onPress={() => setShow(k)} />)}</Row>
       {!list.length && <Empty text={show === "posted" ? "No videos posted yet." : "No ideas waiting. Press \"Write 3 new ideas\"."} />}
       {list.map((v) => (
