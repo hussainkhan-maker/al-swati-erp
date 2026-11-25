@@ -21,7 +21,7 @@ const GEMINI_KEY = Deno.env.get("GEMINI_API_KEY") ?? "";
 const CLAUDE_FALLBACK = "claude-sonnet-5-5";
 const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, content-type, apikey, x-client-info" };
 const LANG: Record<string, string> = { ar: "Arabic", ur: "Urdu", en: "English" };
-const AR_WORDS = `In Arabic, cladding work is always called تركيب (تركيب حجر، تركيب رخام، تركيب جرانيت، تركيب بورسلان، تركيب واجهات حجر) - never تكسية or تكسيات, because Saudi clients search for تركيب. The company's Arabic name is "شركة السواطي للمقاولات".`;
+const AR_WORDS = `In Arabic, cladding work is always called تركيب (تركيب حجر، تركيب رخام، تركيب جرانيت، تركيب بورسلان، تركيب واجهات حجر) - never تكسية or تكسيات, because Saudi clients search for تركيب. The company's Arabic name is "شركة السواتي للمقاولات".`;
 
 type Img = { media_type: string; data: string };
 // Fixed company guide + the owner's learned rules, sent once as a cached system prompt (cheaper on every call after the first).
