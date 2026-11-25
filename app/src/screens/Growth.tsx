@@ -245,87 +245,161 @@ function MapsBooster() {
   );
 }
 // ───────── Videos: TikTok, YouTube Shorts and Instagram Reels ─────────
-// The seo function writes 2 new ideas a week while fewer than 4 wait (and 3 more on "Write 3 new ideas"): script, on-screen text
-// in Arabic and English, voice-over, TikTok caption and YouTube title, description and tags. The owner posts every video himself:
-// TikTok lets only apps it has approved post to an account, and nothing goes public without him.
+// The seo function writes 2 new ideas a week while fewer than 4 wait (and 3 more on "Write 3 new ideas"): script, on-screen text,
+// TikTok caption and YouTube title, description and tags. Twice a week (Saturday and Tuesday morning) Claude makes the pictures and
+// clips of the next idea with Higgsfield and the "Video" workflow renders the MP4 (status "To review"). The owner watches it here:
+// Approve sends it to YouTube, public at the next slot (Sunday or Wednesday, 7 pm Riyadh); "New version" sends it back with his note.
+// TikTok lets only apps it has approved post to an account, so the owner posts there himself (download + caption below).
 const TIKTOK_UPLOAD = "https://www.tiktok.com/tiktokstudio/upload";
 const YT_STUDIO = "https://studio.youtube.com";
 const VKIND: Record<string, string> = { "3d": "3D animation", site: "Filmed on site", tips: "Tips" };
-const VSTATUS: Record<string, [string, "plain" | "good" | "warn" | "acc"]> = { idea: ["Idea", "warn"], made: ["Video ready", "acc"], posted: ["Posted", "good"], skipped: ["Skipped", "plain"] };
+const VSTATUS: Record<string, [string, "plain" | "good" | "warn" | "bad" | "acc"]> = {
+  idea: ["Idea", "plain"], generating: ["Making pictures and clips", "plain"], rendering: ["Making the video", "plain"], review: ["To review", "warn"],
+  approved: ["Approved", "acc"], scheduled: ["Scheduled on YouTube", "acc"], made: ["Video ready", "acc"], posted: ["Posted", "good"], skipped: ["Skipped", "plain"], failed: ["Video failed", "bad"] };
+const OPEN = ["idea", "generating", "rendering", "review", "approved", "scheduled", "made", "failed"];
 const RTL = { writingDirection: "rtl" as const, textAlign: "right" as const };
 async function copyText(s: string): Promise<boolean> { try { await (navigator as any).clipboard.writeText(s); return true; } catch { return false; } }
+/** Sunday or Wednesday, 7 pm Riyadh: the next one at least 30 minutes away (the server picks the real slot). */
+function nextSlotText() {
+  for (let d = 0; d < 8; d++) { const t = new Date(Date.now() + d * 864e5); t.setUTCHours(16, 0, 0, 0); if ([0, 3].includes(t.getUTCDay()) && t.getTime() > Date.now() + 30 * 60e3) return (t.getUTCDay() ? "Wednesday" : "Sunday") + " 7 pm"; }
+  return "the next slot";
+}
+async function videoFn(action: string, body: any = {}) {
+  const { data, error } = await supabase.functions.invoke("video", { body: { action, ...body } });
+  if (error) { let m = error.message; try { const j = await (error as any).context?.json?.(); if (j?.error) m = j.error; } catch {} throw new Error(m); }
+  if (data?.error && data?.ok !== false) throw new Error(data.error);
+  return data;
+}
 function Videos() {
   const c = useColors();
-  const [rows, setRows] = useState<any[]>([]), [open, setOpen] = useState<any>(null), [busy, setBusy] = useState(false), [msg, setMsg] = useState(""), [show, setShow] = useState("open");
+  const [rows, setRows] = useState<any[]>([]), [open, setOpen] = useState<any>(null), [busy, setBusy] = useState(""), [msg, setMsg] = useState(""), [show, setShow] = useState("open");
+  const [yt, setYt] = useState<any>(null);
   const load = async () => { const { data } = await supabase.from("video_ideas").select("*").order("created_at", { ascending: false }).limit(300); setRows(data || []); };
-  useEffect(() => { load(); }, []);
+  const ytLoad = () => videoFn("yt_status").then(setYt).catch((e) => setMsg(e.message));
+  useEffect(() => { load(); const i = setInterval(load, 60000); return () => clearInterval(i); }, []);
+  // "Connect YouTube": Google sends the owner back here with ?code=…&state=y.…
+  useEffect(() => {
+    const u = Platform.OS === "web" ? new URLSearchParams(globalThis.location?.search || "") : null;
+    const st = u?.get("state") || "";
+    if (!st.startsWith("y.")) { ytLoad(); return; }
+    try { globalThis.history?.replaceState(null, "", globalThis.location.pathname); } catch { /* keep the address */ }
+    setBusy("yt");
+    videoFn("yt_finish", { code: u?.get("code") || "", state: st, error: u?.get("error") || "", error_description: u?.get("error_description") || "" })
+      .then((r) => setMsg(`YouTube connected: ${r.channel}. Approved videos now go to this channel by themselves.`))
+      .catch((e) => setMsg(e.message)).finally(() => { ytLoad(); setBusy(""); });
+  }, []);
+  const ytStart = async () => {
+    setBusy("yt"); setMsg("");
+    try { const { url } = await videoFn("yt_start"); if (Platform.OS === "web") globalThis.location.assign(url); else Linking.openURL(url); }
+    catch (e: any) { setMsg(e.message); setBusy(""); }
+  };
+  const ytStop = async () => { setBusy("yt"); try { await videoFn("yt_disconnect"); await ytLoad(); } catch (e: any) { setMsg(e.message); } finally { setBusy(""); } };
   const more = async () => {
-    setBusy(true); setMsg("Writing 3 ideas… (about a minute)");
+    setBusy("ideas"); setMsg("Writing 3 ideas… (about a minute)");
     const { data, error } = await supabase.functions.invoke("seo", { body: { action: "video_ideas", n: 3 } });
-    setBusy(false);
+    setBusy("");
     if (error || data?.error) setMsg("The ideas could not be written: " + (data?.error || error?.message || "")); else { setMsg(`${data.added} new ideas below.`); setShow("open"); load(); }
   };
-  const n = (st: string) => rows.filter((r) => r.status === st).length;
-  const list = rows.filter((r) => (show === "open" ? r.status === "idea" || r.status === "made" : show === "posted" ? r.status === "posted" : true));
+  const n = (...st: string[]) => rows.filter((r) => st.includes(r.status)).length;
+  const list = rows.filter((r) => (show === "open" ? OPEN.includes(r.status) : show === "posted" ? r.status === "posted" : true))
+    .sort((a, b) => (a.status === "review" ? 0 : 1) - (b.status === "review" ? 0 : 1));
   return (
     <>
       <Card>
         <H2>Videos for TikTok, YouTube Shorts and Reels</H2>
-        <T size={13} muted>Every week 2 new ideas are written here while fewer than 4 wait: the script, the text on screen in Arabic and English, a voice-over, the TikTok caption and the YouTube title, description and tags. You post each video yourself in TikTok and YouTube: TikTok lets only apps it has approved post to an account.</T>
-        <StatStrip items={[{ label: "Ideas waiting", value: String(n("idea")) }, { label: "Videos ready to post", value: String(n("made")) }, { label: "Posted", value: String(n("posted")) }]} />
+        <T size={13} muted>Every Saturday and Tuesday morning Claude makes the next video by itself with Higgsfield (informative, in Saudi Arabic). It waits here under "To review" until you watch it. Approve: it goes to YouTube by itself, public on Sunday or Wednesday at 7 pm. TikTok: you post it yourself with the download and caption here, until TikTok approves the app.</T>
+        <StatStrip items={[{ label: "To review", value: String(n("review")) }, { label: "Being made", value: String(n("generating", "rendering")) }, { label: "Scheduled", value: String(n("approved", "scheduled")) }, { label: "Posted", value: String(n("posted")) }]} />
         <Row wrap>
-          <Btn kind="primary" icon={<Icon name="spark" color={c.accentInk} />} title="Write 3 new ideas" busy={busy} disabled={busy} onPress={more} />
+          {yt?.linked ? <Pill kind="good" text={"YouTube: " + (yt.channel || "connected")} /> : <Pill kind="warn" text="YouTube not connected" />}
+          {yt?.linked ? <Btn kind="ghost" title="Disconnect YouTube" busy={busy === "yt"} disabled={!!busy} onPress={ytStop} />
+            : <Btn kind="primary" title="Connect YouTube" busy={busy === "yt"} disabled={!!busy} onPress={ytStart} />}
+          <Btn kind="ghost" icon={<Icon name="spark" color={c.accent} />} title="Write 3 new ideas" busy={busy === "ideas"} disabled={!!busy} onPress={more} />
           <Btn kind="ghost" title="Open TikTok Studio" onPress={() => Linking.openURL(TIKTOK_UPLOAD)} />
           <Btn kind="ghost" title="Open YouTube Studio" onPress={() => Linking.openURL(YT_STUDIO)} />
         </Row>
+        {yt?.error ? <T size={12} color={c.bad}>{yt.error}</T> : null}
+        {!yt?.linked ? <T size={12} muted>Connect YouTube once: Google asks you to choose the AL-Swati channel and allow uploads. Until then approved videos wait here.</T> : null}
         {msg ? <T size={13} muted>{msg}</T> : null}
       </Card>
-      <Row wrap>{([["open", `To make and post (${n("idea") + n("made")})`], ["posted", `Posted (${n("posted")})`], ["all", "All"]] as const).map(([k, l]) => <Btn key={k} kind={show === k ? "primary" : "ghost"} title={l} onPress={() => setShow(k)} />)}</Row>
+      <Row wrap>{([["open", `To make and post (${rows.filter((r) => OPEN.includes(r.status)).length})`], ["posted", `Posted (${n("posted")})`], ["all", "All"]] as const).map(([k, l]) => <Btn key={k} kind={show === k ? "primary" : "ghost"} title={l} onPress={() => setShow(k)} />)}</Row>
       {!list.length && <Empty text={show === "posted" ? "No videos posted yet." : "No ideas waiting. Press \"Write 3 new ideas\"."} />}
       {list.map((v) => (
         <Card key={v.id}>
           <Row wrap><Pill kind={VSTATUS[v.status]?.[1] || "plain"} text={VSTATUS[v.status]?.[0] || v.status} /><Pill text={VKIND[v.kind] || v.kind} />{v.keyword ? <Pill kind="acc" text={v.keyword} /> : null}<View style={{ flex: 1 }} /><T size={12} muted>{day(v.created_at)}</T></Row>
           {v.title_ar ? <T size={17} bold style={RTL}>{v.title_ar}</T> : null}
           {v.title_en ? <T size={14} muted>{v.title_en}</T> : null}
-          {v.why ? <T size={13} muted>{v.why}</T> : null}
-          <Row wrap><Btn title={v.status === "posted" ? "Open" : "Open script and captions"} onPress={() => setOpen(v)} />
+          {v.status === "scheduled" && v.publish_at ? <T size={13} color={c.good}>Public on YouTube {riyadhTime(v.publish_at)} (Riyadh). Post it on TikTok yourself at the same time.</T> : null}
+          {v.status === "posted" && !v.tiktok_url && v.video_path ? <T size={13} color={c.warn}>TikTok: not posted yet. Download it and post it with the caption.</T> : null}
+          {v.youtube_error ? <T size={12} color={c.bad}>YouTube: {v.youtube_error}</T> : null}
+          {v.render_error && v.status !== "review" ? <T size={12} color={c.bad}>Video: {v.render_error}</T> : null}
+          {v.review_note && v.status === "idea" ? <T size={12} muted>New version asked: {v.review_note}</T> : null}
+          <Row wrap><Btn kind={v.status === "review" ? "primary" : "default"} title={v.status === "review" ? "Watch and approve" : v.status === "posted" ? "Open" : "Open script and captions"} onPress={() => setOpen(v)} />
             {v.tiktok_url ? <Btn kind="ghost" title="TikTok post" onPress={() => Linking.openURL(v.tiktok_url)} /> : null}
             {v.youtube_url ? <Btn kind="ghost" title="YouTube post" onPress={() => Linking.openURL(v.youtube_url)} /> : null}</Row>
         </Card>
       ))}
-      {open && <VideoSheet v={open} onClose={() => { setOpen(null); load(); }} />}
+      {open && <VideoSheet v={open} ytLinked={!!yt?.linked} onClose={() => { setOpen(null); load(); }} />}
     </>
   );
 }
-function VideoSheet({ v: first, onClose }: { v: any; onClose: () => void }) {
+function VideoSheet({ v: first, ytLinked, onClose }: { v: any; ytLinked: boolean; onClose: () => void }) {
   const c = useColors();
-  const [v, setV] = useState<any>(first), [note, setNote] = useState(""), [saving, setSaving] = useState(false);
+  const [v, setV] = useState<any>(first), [note, setNote] = useState(""), [saving, setSaving] = useState(""), [src, setSrc] = useState(""), [redo, setRedo] = useState("");
   const set = (k: string, val: any) => setV({ ...v, [k]: val });
   const copy = async (s: string, what: string) => setNote((await copyText(s || "")) ? `${what} copied.` : "Copy did not work: select the text and copy it.");
+  useEffect(() => { if (v.video_path) videoFn("link", { id: v.id }).then((r) => setSrc(r.url)).catch((e) => setNote(e.message)); }, [v.video_path]);
   const save = async (extra: any = {}, done?: string) => {
-    setSaving(true);
+    setSaving("save");
     const row = { tiktok_caption: v.tiktok_caption, youtube_title: v.youtube_title, youtube_description: v.youtube_description, youtube_tags: v.youtube_tags,
       tiktok_url: v.tiktok_url || null, youtube_url: v.youtube_url || null, updated_at: new Date().toISOString(), ...extra };
     const { error } = await supabase.from("video_ideas").update(row).eq("id", v.id);
-    setSaving(false);
+    setSaving("");
     if (error) setNote("Not saved: " + error.message); else { setV({ ...v, ...row }); setNote(done || "Saved."); }
   };
+  const reread = async () => { const { data } = await supabase.from("video_ideas").select("*").eq("id", v.id).single(); if (data) setV(data); };
+  const approve = async (when: "slot" | "now") => {
+    setSaving(when); setNote("");
+    try {
+      await save();   // the title, description and tags as they stand now
+      const r = await videoFn("approve", { id: v.id, when });
+      setNote(r.ok ? (when === "now" ? "On YouTube now: " + r.youtube_url : `On YouTube, public ${riyadhTime(r.publish_at)} (Riyadh). Post it on TikTok yourself at the same time.`) : "Approved. YouTube: " + r.error);
+    } catch (e: any) { setNote(e.message); } finally { setSaving(""); reread(); }
+  };
+  const act = async (action: string, body: any, done: string) => { setSaving(action); try { await videoFn(action, { id: v.id, ...body }); setNote(done); await reread(); } catch (e: any) { setNote(e.message); } finally { setSaving(""); } };
+  const download = async () => { try { const r = await videoFn("link", { id: v.id, download: true }); Linking.openURL(r.url); } catch (e: any) { setNote(e.message); } };
   const scenes: any[] = Array.isArray(v.scenes) ? v.scenes : [];
   const CopyRow = ({ text, what }: { text: string; what: string }) => <Row wrap><Btn kind="ghost" title={"Copy " + what} onPress={() => copy(text, what)} /></Row>;
+  const player = Platform.OS === "web" && src ? React.createElement("video", { src, controls: true, playsInline: true, preload: "metadata", style: { width: "100%", maxWidth: 360, aspectRatio: "9 / 16", background: "#000", borderRadius: 12 } }) : null;
   return (
     <Sheet open onClose={onClose} title={v.title_en || v.title_ar || "Video"}>
-      <Row wrap><Pill kind={VSTATUS[v.status]?.[1] || "plain"} text={VSTATUS[v.status]?.[0] || v.status} /><Pill text={VKIND[v.kind] || v.kind} />{v.keyword ? <Pill kind="acc" text={"Search: " + v.keyword} /> : null}</Row>
+      <Row wrap><Pill kind={VSTATUS[v.status]?.[1] || "plain"} text={VSTATUS[v.status]?.[0] || v.status} /><Pill text={VKIND[v.kind] || v.kind} />{v.keyword ? <Pill kind="acc" text={"Search: " + v.keyword} /> : null}{v.credits ? <Pill text={`${v.credits} Higgsfield credits`} /> : null}</Row>
       {v.title_ar ? <T size={18} bold style={RTL}>{v.title_ar}</T> : null}
+      {v.video_path ? <>
+        <H2>The video</H2>
+        {player || <Btn title="Watch the video" onPress={() => src && Linking.openURL(src)} />}
+        {v.status === "review" ? <>
+          <T size={13} muted>Check the stone, the angles and the Arabic before you approve. Approve sends it to YouTube{ytLinked ? `, public ${nextSlotText()} (Riyadh)` : " once YouTube is connected"}.</T>
+          <Row wrap>
+            <Btn kind="primary" icon={<Icon name="check" color={c.accentInk} />} title={"Approve: YouTube " + nextSlotText()} busy={saving === "slot"} disabled={!!saving} onPress={() => approve("slot")} />
+            <Btn kind="ghost" title="Approve and post now" busy={saving === "now"} disabled={!!saving} onPress={() => approve("now")} />
+          </Row>
+          <Field label="Something wrong? Write what to change (Claude makes a new version on its next run)" value={redo} multiline onChange={setRedo} placeholder="e.g. the screw goes through the stone; the lower stone moves" />
+          <Row wrap><Btn kind="danger" title="New version" busy={saving === "redo"} disabled={!!saving || !redo.trim()} onPress={() => act("redo", { note: redo }, "Sent back. Claude makes a new version on its next run (Saturday or Tuesday).")} /></Row>
+        </> : null}
+        {v.status === "approved" && v.youtube_error ? <Row wrap><Btn kind="primary" title="Try YouTube again" busy={saving === "slot"} disabled={!!saving} onPress={() => approve("slot")} /></Row> : null}
+        {v.status === "scheduled" && v.publish_at ? <T color={c.good}>On YouTube, public {riyadhTime(v.publish_at)} (Riyadh).</T> : null}
+      </> : null}
+      {v.status === "failed" ? <><T color={c.bad}>The video could not be made: {v.render_error}</T><Row wrap><Btn title="Try again" busy={saving === "retry"} disabled={!!saving} onPress={() => act("retry", {}, "It will be made again within 30 minutes.")} /></Row></> : null}
       {v.hook_ar || v.hook_en ? <><T size={13} muted>Hook (first 2 seconds)</T>{v.hook_ar ? <T style={RTL}>{v.hook_ar}</T> : null}{v.hook_en ? <T muted>{v.hook_en}</T> : null}</> : null}
       {scenes.length ? <><H2>Scenes</H2><Table cols={["Seconds", "What we see", "Text (Arabic)", "Text (English)"]} rows={scenes.map((x) => [x.sec || "", x.visual || "", x.ar || "", x.en || ""])} /></> : null}
       {v.shots ? <><H2>What to film on site</H2><T>{v.shots}</T></> : null}
       {v.voice_ar || v.voice_en ? <><H2>Voice-over</H2>
         {v.voice_ar ? <><T style={RTL}>{v.voice_ar}</T><CopyRow text={v.voice_ar} what="Arabic voice-over" /></> : null}
         {v.voice_en ? <><T>{v.voice_en}</T><CopyRow text={v.voice_en} what="English voice-over" /></> : null}</> : null}
-      <H2>TikTok</H2>
+      <H2>TikTok (you post it)</H2>
       <Field label="Caption (with hashtags)" value={v.tiktok_caption || ""} multiline onChange={(x) => set("tiktok_caption", x)} />
-      <Row wrap><Btn kind="primary" title="Copy TikTok caption" onPress={() => copy(v.tiktok_caption, "TikTok caption")} /><Btn kind="ghost" title="Open TikTok Studio" onPress={() => Linking.openURL(TIKTOK_UPLOAD)} /></Row>
-      <T size={12} muted>Location: Riyadh. A link in a TikTok caption cannot be clicked, so the website stays in your profile bio.</T>
+      <Row wrap>{v.video_path ? <Btn kind="primary" title="Download the video" onPress={download} /> : null}<Btn kind={v.video_path ? "ghost" : "primary"} title="Copy TikTok caption" onPress={() => copy(v.tiktok_caption, "TikTok caption")} /><Btn kind="ghost" title="Open TikTok Studio" onPress={() => Linking.openURL(TIKTOK_UPLOAD)} /></Row>
+      <T size={12} muted>Location: Riyadh. Turn on "AI-generated content" under Show more. A link in a TikTok caption cannot be clicked, so the website stays in your profile bio.</T>
       <H2>YouTube Shorts</H2>
       <Field label="Title" value={v.youtube_title || ""} onChange={(x) => set("youtube_title", x)} />
       <Row wrap><Btn kind="ghost" title="Copy title" onPress={() => copy(v.youtube_title, "Title")} /></Row>
@@ -333,16 +407,15 @@ function VideoSheet({ v: first, onClose }: { v: any; onClose: () => void }) {
       <Row wrap><Btn kind="ghost" title="Copy description" onPress={() => copy(v.youtube_description, "Description")} /></Row>
       <Field label="Tags" value={v.youtube_tags || ""} onChange={(x) => set("youtube_tags", x)} />
       <Row wrap><Btn kind="ghost" title="Copy tags" onPress={() => copy(v.youtube_tags, "Tags")} /><Btn kind="ghost" title="Open YouTube Studio" onPress={() => Linking.openURL(YT_STUDIO)} /></Row>
-      <T size={12} muted>Video location: Riyadh, Saudi Arabia. Made for kids: No.</T>
+      <T size={12} muted>Made for kids: No. Altered or synthetic content: Yes (the app sets both when it uploads).</T>
       <H2>After posting</H2>
       <Row wrap><Field label="TikTok link" value={v.tiktok_url || ""} onChange={(x) => set("tiktok_url", x)} placeholder="https://www.tiktok.com/@…" /><Field label="YouTube link" value={v.youtube_url || ""} onChange={(x) => set("youtube_url", x)} placeholder="https://youtube.com/shorts/…" /></Row>
       <Row wrap>
-        <Btn title="Save" busy={saving} disabled={saving} onPress={() => save()} />
+        <Btn title="Save" busy={saving === "save"} disabled={!!saving} onPress={() => save()} />
         {v.status === "idea" ? <Btn kind="ghost" title="Video is ready" onPress={() => save({ status: "made" }, "Marked: video ready.")} /> : null}
-        {v.status !== "posted" ? <Btn kind="primary" title="Mark as posted" onPress={() => save({ status: "posted", posted_at: new Date().toISOString() }, "Marked as posted.")} /> : null}
+        {!["posted", "review", "approved", "scheduled", "generating", "rendering"].includes(v.status) ? <Btn kind="primary" title="Mark as posted" onPress={() => save({ status: "posted", posted_at: new Date().toISOString() }, "Marked as posted.")} /> : null}
         {v.status === "idea" ? <Btn kind="ghost" title="Skip this idea" onPress={() => save({ status: "skipped" }, "Skipped.")} /> : null}
       </Row>
-      {v.kind === "3d" && v.status === "idea" ? <T size={12} muted>For the 3D animation, send this idea to Claude in chat; it renders the video in Arabic and English.</T> : null}
       {note ? <T size={12} color={c.good}>{note}</T> : null}
     </Sheet>
   );
@@ -986,7 +1059,8 @@ function WriteMail({ o, kind, profile, signature, onClose }: { o: any; kind: str
 }
 
 export default function Growth() {
-  const [tab, setTab] = useState<"blog" | "areas" | "cases" | "maps" | "videos" | "outreach">("blog");
+  // Back from "Connect YouTube" (state "y.…"): open Videos, where that link is finished.
+  const [tab, setTab] = useState<"blog" | "areas" | "cases" | "maps" | "videos" | "outreach">(() => (Platform.OS === "web" && (new URLSearchParams(globalThis.location?.search || "").get("state") || "").startsWith("y.") ? "videos" : "blog"));
   return (
     <Screen>
       <H1>Growth</H1>
