@@ -249,7 +249,7 @@ function MapsBooster() {
 // TikTok caption and YouTube title, description and tags. Twice a week (Saturday and Tuesday morning) Claude makes the pictures and
 // clips of the next idea with Higgsfield and the "Video" workflow renders the MP4 (status "To review"). The owner watches it here:
 // Approve sends it to YouTube, public at the next slot (Sunday or Wednesday, 7 pm Riyadh); "New version" sends it back with his note.
-// TikTok lets only apps it has approved post to an account, so the owner posts there himself (download + caption below).
+// TikTok does not approve tools that post only to the owner's own account, so he posts there himself (download + caption below).
 const TIKTOK_UPLOAD = "https://www.tiktok.com/tiktokstudio/upload";
 const YT_STUDIO = "https://studio.youtube.com";
 const VKIND: Record<string, string> = { "3d": "3D animation", site: "Filmed on site", tips: "Tips" };
@@ -307,7 +307,7 @@ function Videos() {
     <>
       <Card>
         <H2>Videos for TikTok, YouTube Shorts and Reels</H2>
-        <T size={13} muted>Every Saturday and Tuesday morning Claude makes the next video by itself with Higgsfield (informative, in Saudi Arabic). It waits here under "To review" until you watch it. Approve: it goes to YouTube by itself, public on Sunday or Wednesday at 7 pm. TikTok: you post it yourself with the download and caption here, until TikTok approves the app.</T>
+        <T size={13} muted>Every Saturday and Tuesday morning Claude makes the next video by itself with Higgsfield (informative, in Saudi Arabic). It waits here under "To review" until you watch it. Approve: it goes to YouTube by itself, public on Sunday or Wednesday at 7 pm. TikTok: you post it yourself with the download and caption here (TikTok does not approve tools that post only to your own account).</T>
         <StatStrip items={[{ label: "To review", value: String(n("review")) }, { label: "Being made", value: String(n("generating", "rendering")) }, { label: "Scheduled", value: String(n("approved", "scheduled")) }, { label: "Posted", value: String(n("posted")) }]} />
         <Row wrap>
           {yt?.linked ? <Pill kind="good" text={"YouTube: " + (yt.channel || "connected")} /> : <Pill kind="warn" text="YouTube not connected" />}
