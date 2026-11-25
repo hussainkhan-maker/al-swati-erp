@@ -1,9 +1,9 @@
 // Edge Function "video": videos on autopilot (Growth → Videos).
-//  Twice a week Claude (a scheduled task with the Higgsfield connector) makes the pictures and clips and writes the plan into
+//  Four times a week Claude (a scheduled task with the Higgsfield connector) makes the pictures and clips and writes the plan into
 //  video_ideas with status "rendering". The autopilot workflow asks "waiting" every 30 minutes and then starts the GitHub
 //  workflow "Video", which takes the plan ("claim"), renders the MP4 (video/render.py), uploads it ("upload_url") and reports
 //  ("done"): status "review". The owner watches it in Growth → Videos and presses Approve ("approve"): the video goes to YouTube
-//  at once, private, set to go public at the next slot (Sunday or Wednesday, 7 pm Riyadh): status "scheduled", and "tick" marks
+//  at once, private, set to go public at the next slot (Sunday, Tuesday, Thursday or Saturday, 7 pm Riyadh): status "scheduled", and "tick" marks
 //  it "posted" when that time has passed. TikTok does not approve tools that post only to your own account, so the owner posts there himself.
 //  • "waiting" / "tick" (public, from the autopilot): how many plans wait (a number only); scheduled → posted, retry YouTube.
 //  • "claim" / "upload_url" / "done" (only the "Video" workflow of this repository: GitHub signs each run, checked below).
@@ -26,7 +26,7 @@ const G_CLIENT = Deno.env.get("GOOGLE_OAUTH_CLIENT_ID") ?? "479124517333-jc3h1mj
 const G_SECRET = Deno.env.get("GOOGLE_OAUTH_SECRET") ?? "";
 const APP_URL = "https://hussainkhan-maker.github.io/al-swati-erp/";
 const YT_SCOPE = "openid email https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.readonly";
-const SLOTS = [0, 3], SLOT_HOUR_UTC = 16;   // Sunday and Wednesday, 16:00 UTC = 7 pm Riyadh
+const SLOTS = [0, 2, 4, 6], SLOT_HOUR_UTC = 16;   // Sunday, Tuesday, Thursday and Saturday, 16:00 UTC = 7 pm Riyadh
 const STALE_MIN = 40, MAX_TRIES = 3;          // a render that has not reported for 40 minutes is taken again, 3 times at most
 const H = 3600e3;
 const b64url = (b: Uint8Array) => btoa(String.fromCharCode(...b)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
@@ -150,7 +150,7 @@ async function ytFinish(p: any) {
   await saveYLink({ account, channel_id: ch.id, channel_title: ch.snippet?.title || "", refresh_token: j.refresh_token, pkce: null, pkce_expires: null, connected_at: new Date().toISOString(), last_error: null });
   return { done: true, channel: ch.snippet?.title || ch.id, account };
 }
-/** The next free slot (Sunday or Wednesday 7 pm Riyadh) at least 30 minutes away. */
+/** The next free slot (Sunday, Tuesday, Thursday or Saturday, 7 pm Riyadh) at least 30 minutes away. */
 async function nextSlot(skipId: string) {
   const { data } = await db.from("video_ideas").select("publish_at").in("status", ["scheduled", "approved"]).neq("id", skipId).not("publish_at", "is", null);
   const taken = new Set((data || []).map((r: any) => new Date(r.publish_at).toISOString()));
