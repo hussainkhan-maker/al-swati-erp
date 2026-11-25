@@ -25,6 +25,8 @@ const SCOPES = [{ value: "supply_install", label: "Supply + installation" }, { v
 const FIXINGS = [{ value: "Up-Down", label: "Up-Down" }, { value: "PEN", label: "PEN" }, { value: "C-Channel", label: "C-Channel" }, { value: "Undercut", label: "Undercut" }];
 const PSTATUS: Record<string, [string, "good" | "warn" | "bad" | "plain"]> = { new: ["Line mein", "plain"], working: ["Ban raha hai", "warn"], done: ["Website par", "good"], failed: ["Masla", "bad"] };
 
+/** Agents may save a page as "/projects/…/" or as a full address; open both. */
+const full = (u: string) => (/^https?:\/\//.test(u) ? u : "https://al-swaticontracting.com" + (u.startsWith("/") ? u : "/" + u));
 async function copyText(s: string) { try { await (navigator as any).clipboard.writeText(s); return true; } catch { return false; } }
 
 export default function WebsiteTeam() {
@@ -63,7 +65,7 @@ export default function WebsiteTeam() {
             {a.why ? <T size={13} muted>{a.why}</T> : null}
             {a.steps ? <T size={14} style={{ userSelect: "text" } as any}>{a.steps}</T> : null}
             <Row wrap>
-              {a.url ? <Btn kind="primary" icon={<Icon name="share" color={c.accentInk} />} title="Page kholen" onPress={() => Linking.openURL(a.url)} /> : null}
+              {a.url ? <Btn kind="primary" icon={<Icon name="share" color={c.accentInk} />} title="Page kholen" onPress={() => Linking.openURL(full(a.url))} /> : null}
               {a.steps ? <Btn kind="ghost" title="Copy" onPress={async () => setNote((await copyText(a.steps)) ? "Copy ho gaya." : "Copy nahi hua: text select kar ke copy karein.")} /> : null}
               <Btn kind="ghost" icon={<Icon name="check" />} title="Ho gaya" onPress={() => done(a, "done")} />
               <Btn kind="ghost" title="Chhor dein" onPress={() => done(a, "skipped")} />
@@ -140,7 +142,7 @@ export function NewWebsiteProject({ onSaved }: { onSaved?: () => void }) {
             <Row wrap><T bold style={{ flex: 1 }}>{p.name || `${p.material} · ${p.district}`}</T><Pill kind={st[1] as any} text={st[0]} /></Row>
             <T size={12} muted>{p.district} · {p.m2 ? `${p.m2} m² · ` : ""}{p.ongoing ? "jari" : "mukammal"} · {p.photos?.length || 0} photos · {stamp(p.created_at)}</T>
             {p.error ? <T size={13} color={c.bad}>{p.error}</T> : null}
-            {r.case_en ? <Row wrap><Btn kind="ghost" title="Project page" onPress={() => Linking.openURL(r.case_en)} />{r.district_en ? <Btn kind="ghost" title="Area page" onPress={() => Linking.openURL(r.district_en)} /> : null}</Row> : null}
+            {r.case_en ? <Row wrap><Btn kind="ghost" title="Project page" onPress={() => Linking.openURL(full(r.case_en))} />{r.district_en ? <Btn kind="ghost" title="Area page" onPress={() => Linking.openURL(full(r.district_en))} /> : null}</Row> : null}
           </View>);
       })}
       <Sheet open={!!f} onClose={() => setF(null)} title="Naya project website par">
