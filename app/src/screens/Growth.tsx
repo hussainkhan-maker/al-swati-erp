@@ -646,6 +646,7 @@ function PostEditor({ p: first, onClose }: { p: any; onClose: () => void }) {
   const p = (d.blog_posts || []).find((x: any) => x.id === first.id) || first; // picture and Arabic twin arrive while the sheet is open
   const twin = p.twin_id ? (d.blog_posts || []).find((x: any) => x.id === p.twin_id) : null;
   const [f, setF] = useState<any>({ ...first, keywords: (first.keywords || []).join(", ") }), [err, setErr] = useState(""), [step, setStep] = useState("");
+  const [pnote, setPnote] = useState(""), [pmsg, setPmsg] = useState("");
   const words = String(f.body || "").split(/\s+/).filter(Boolean).length;
   const checks = [
     { ok: f.title.length > 10 && f.title.length <= 65, text: `Title ${f.title.length} characters (best 30–65)` },
@@ -700,10 +701,11 @@ function PostEditor({ p: first, onClose }: { p: any; onClose: () => void }) {
     }
     if (!(await save({ status: "Published", published_at: p.published_at || new Date().toISOString() }))) return;
     const problems: string[] = [];
-    if (!p.image_url) {
+    if (!p.image_url) { // a stand-in photo for now; Claude puts the exact Higgsfield picture on it at its next morning run
       setStep("Making the picture…");
       try { await media("image", p.id); } catch (e: any) { problems.push("Picture: " + e.message); }
     }
+    if (!["done", "ready"].includes(p.picture_status || "")) await supabase.from("blog_posts").update({ picture_status: "wanted" }).eq("id", p.id);
     setStep(`Writing the ${other} version…`);
     try {
       const r = await media("arabic", p.id);
@@ -721,6 +723,14 @@ function PostEditor({ p: first, onClose }: { p: any; onClose: () => void }) {
     } catch (e: any) { setErr(e.message); }
     setStep(""); if (p.status === "Published") siteRebuild(); await reload(["blog_posts"]);
   };
+  // A new picture: Claude makes it with Higgsfield at its next morning run (about 10:40), from the topic and the owner's note.
+  const wantPicture = async () => {
+    setPmsg("");
+    const { error } = await supabase.from("blog_posts").update({ picture_status: "wanted", picture_note: pnote.trim() || null, picture_error: null }).eq("id", p.id);
+    if (error) { setPmsg(error.message); return; }
+    setPnote(""); setPmsg("Asked. Claude makes the new picture with Higgsfield at its next run (every morning about 10:40); the other-language version gets it too.");
+    await reload(["blog_posts"]);
+  };
   const unpublish = async () => {
     if (!(await save({ status: "Draft" }))) return;
     if (p.twin_id) await supabase.from("blog_posts").update({ status: "Draft", updated_at: new Date().toISOString() }).eq("id", p.twin_id);
@@ -736,9 +746,15 @@ function PostEditor({ p: first, onClose }: { p: any; onClose: () => void }) {
       </> : <>
       {p.image_url
         ? <Image source={{ uri: p.image_url }} accessibilityLabel={p.image_alt || p.title} resizeMode="cover" style={{ width: "100%", aspectRatio: 16 / 9, borderRadius: 8, backgroundColor: c.sunk }} />
-        : <T size={13} muted>No picture yet. The AI makes one for this topic when you press Publish.</T>}
+        : <T size={13} muted>No picture yet. Claude makes one for exactly this topic with Higgsfield at its next morning run (about 10:40).</T>}
+      {p.picture_status === "done" ? <T size={12} color={c.good}>Picture made with Higgsfield for this topic.</T>
+        : p.picture_status === "wanted" ? <T size={12} color={c.accent}>A new picture is asked{p.picture_note ? ` ("${p.picture_note}")` : ""}: Claude makes it with Higgsfield at its next run (every morning about 10:40).</T>
+        : p.picture_status === "ready" ? <T size={12} color={c.accent}>The new picture is made; it is being saved and put on the post (within about an hour).</T>
+        : p.picture_status === "failed" ? <T size={12} color={c.bad}>The picture could not be saved: {p.picture_error}. Ask for a new one below.</T> : null}
+      <Field label="New picture: what should it show? (optional)" value={pnote} onChange={setPnote} placeholder="e.g. white salt stains on a beige limestone facade, close up" />
+      {pmsg ? <T size={12} color={c.good}>{pmsg}</T> : null}
       <Row wrap>
-        <Btn kind="ghost" icon={<Icon name="spark" />} title={p.image_url ? "Make a new picture" : "Make the picture now"} busy={step.startsWith("Making")} disabled={!!step} onPress={() => redo("image")} />
+        <Btn kind="ghost" icon={<Icon name="spark" />} title={p.image_url ? "New picture (Higgsfield)" : "Make the picture (Higgsfield)"} disabled={!!step || p.picture_status === "wanted"} onPress={wantPicture} />
         {!twin && !upgrade && p.status === "Published" ? <Btn kind="ghost" icon={<Icon name="spark" />} title={`Make the ${other} version`} busy={step.startsWith("Writing")} disabled={!!step} onPress={() => redo("arabic")} /> : null}
       </Row></>}
       {upgrade ? <T size={13} color={c.accent}>Top-3 upgrade{p.boost_query ? ` for "${p.boost_query}"` : ""} of {link}. {p.revision_of ? "Publish copies this text into the live post (same address) and refreshes its other-language version." : "Publish replaces that page with this version (same address). Unpublish puts the old page back."}</T> : null}
