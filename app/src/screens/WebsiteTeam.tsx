@@ -15,6 +15,7 @@ const AGENTS = [
   { key: "seo", name: "SEO agent", job: "Google searches, competitors aur trends dekh kar pages behtar karta hai aur naye pages banata hai", when: "Itwaar aur Budh 9:13" },
   { key: "projects", name: "Projects agent", job: "Aap ke naye project ki photos saaf kar ke project page aur area page banata aur publish karta hai", when: "Har 3 ghante, jab naya project ho" },
   { key: "maps", name: "Google Maps agent", job: "Google Business Profile ke liye har hafte update tayyar karta hai", when: "Jumeraat 11:07" },
+  { key: "growth", name: "Growth agent", job: "Har hafte sab numbers jama karta hai (website visits, Google, YouTube, TikTok), animated vs realistic test ka hisaab rakhta hai aur agle hafte ke kaam tay karta hai", when: "Hafta (Saturday) 8:41 pm" },
 ];
 const RUN: Record<string, [string, "good" | "warn" | "bad" | "plain"]> = {
   ok: ["OK", "good"], warn: ["Dekhein", "warn"], action: ["Aap ka kaam", "bad"], failed: ["Ruk gaya", "bad"], running: ["Chal raha hai", "plain"],
@@ -84,12 +85,13 @@ export default function WebsiteTeam() {
         {acts.length > 6 ? <Btn kind="ghost" title={showAll ? "Kam dikhayen" : `Sab ${acts.length} dikhayen`} onPress={() => setShowAll(!showAll)} /> : null}
         {note ? <T size={13} muted>{note}</T> : null}
       </Card>
+      <WebsiteVisitors />
       <NewWebsiteProject onSaved={load} />
       {AGENTS.map((a) => {
         const r = last(a.key), st = r ? RUN[r.status] || [r.status, "plain"] : ["Abhi chala nahi", "plain"];
         return (
           <Card key={a.key}>
-            <Row><Icon name={a.key === "manager" ? "people" : a.key === "projects" ? "camera" : a.key === "maps" ? "pin" : "spark"} color={c.accent} />
+            <Row><Icon name={a.key === "manager" ? "people" : a.key === "projects" ? "camera" : a.key === "maps" ? "pin" : a.key === "growth" ? "pct" : "spark"} color={c.accent} />
               <View style={{ flex: 1 }}><T bold>{a.name}</T><T muted size={13}>{a.job}</T></View><Pill kind={st[1] as any} text={st[0]} /></Row>
             {r?.summary && a.key !== "manager" ? <T size={14}>{r.summary}</T> : null}
             <T size={12} muted>{a.when}{r ? ` · aakhri baar ${stamp(r.finished_at || r.started_at)}` : ""}</T>
@@ -97,6 +99,53 @@ export default function WebsiteTeam() {
       })}
       <T size={12} muted>{tasks} kaam agents ke paas khule hain. Videos aur blog pictures Growth → Videos aur Blog mein dikhte hain.</T>
     </>
+  );
+}
+
+// Where visitors came from, in the owner's words. Tags on our own links (tt-…, yt-…) name the platform too.
+const SOURCE: Record<string, string> = {
+  google: "Google search", "google-maps": "Google Maps", bing: "Bing", tiktok: "TikTok", youtube: "YouTube", instagram: "Instagram",
+  facebook: "Facebook", linkedin: "LinkedIn", snapchat: "Snapchat", x: "X (Twitter)", whatsapp: "WhatsApp par bheja link",
+  chatgpt: "ChatGPT", "ai-search": "AI search", erp: "ERP se", direct: "Seedha (address likha / app se)",
+};
+const sourceName = (s: string) => SOURCE[s] || (s.startsWith("other:") ? s.slice(6) : s);
+
+/** The website's own visit counter (no cookies): visits and WhatsApp / call / email / form presses, by source and page. */
+function WebsiteVisitors() {
+  const c = useColors();
+  const [days, setDays] = useState(28), [s, setS] = useState<any>(null), [err, setErr] = useState("");
+  const load = async (d = days) => {
+    const { data, error } = await supabase.rpc("visit_stats", { days: d });
+    if (error) setErr(error.message); else { setErr(""); setS(data); }
+  };
+  useLoad(() => load());
+  const pick = (d: number) => { setDays(d); load(d); };
+  const kinds = s?.by_kind || {}, line = { gap: 4, paddingVertical: 6, borderTopWidth: 1, borderTopColor: c.line } as const;
+  const Rowx = ({ left, views, leads }: { left: string; views?: number; leads?: number }) => (
+    <Row style={line as any}><T style={{ flex: 1 }}>{left}</T><T size={13} muted>{views != null ? `${views} visits` : ""}{leads ? ` · ${leads} rabta` : ""}</T></Row>);
+  return (
+    <Card>
+      <Row><Icon name="people" color={c.accent} /><View style={{ flex: 1 }}><H2>Website par log</H2></View>
+        <Btn kind={days === 7 ? "primary" : "ghost"} title="7 din" onPress={() => pick(7)} /><Btn kind={days === 28 ? "primary" : "ghost"} title="28 din" onPress={() => pick(28)} /></Row>
+      <T size={13} muted>Website ka apna counter (bina cookie): kitne log aaye, kahan se aaye, aur kis ne WhatsApp, call, email ya quote form dabaya ("rabta"). Counter 25 Nov 2026 se chal raha hai.</T>
+      {err ? <T color={c.bad}>{err}</T> : null}
+      {s ? <>
+        <Row wrap><Pill text={`${s.views} visits`} /><Pill kind={s.leads ? "good" : "plain"} text={`${s.leads} rabta`} />
+          {kinds.whatsapp ? <Pill text={`WhatsApp ${kinds.whatsapp}`} /> : null}{kinds.call ? <Pill text={`Call ${kinds.call}`} /> : null}
+          {kinds.form ? <Pill text={`Quote form ${kinds.form}`} /> : null}{kinds.email ? <Pill text={`Email ${kinds.email}`} /> : null}
+          {s.mobile_share != null ? <Pill text={`${s.mobile_share}% mobile`} /> : null}</Row>
+        {!s.views ? <T muted>Abhi koi visit nahi gina gaya. Pehle visits kuch ghanton mein yahan dikhenge.</T> : <>
+          <T bold>Kahan se aaye</T>
+          {(s.by_source || []).slice(0, 10).map((x: any) => <Rowx key={x.source} left={sourceName(x.source)} views={x.views} leads={x.leads} />)}
+          {(s.leads_by_landing || []).length ? <><T bold>Kis page se rabta aaya (visit ka pehla page)</T>
+            {s.leads_by_landing.slice(0, 8).map((x: any) => <Rowx key={x.landing} left={x.landing} leads={x.leads} />)}</> : null}
+          {(s.by_tag || []).length ? <><T bold>Hamari videos aur posts ke links</T>
+            {s.by_tag.slice(0, 10).map((x: any) => <Rowx key={x.tag} left={x.tag} views={x.views} leads={x.leads} />)}</> : null}
+          <T bold>Sab se zyada dekhe gaye pages</T>
+          {(s.by_page || []).slice(0, 8).map((x: any) => <Rowx key={x.path} left={x.path} views={x.views} leads={x.leads} />)}
+        </>}
+      </> : <T muted>Load ho raha hai…</T>}
+    </Card>
   );
 }
 

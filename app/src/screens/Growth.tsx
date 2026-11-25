@@ -247,23 +247,59 @@ function MapsBooster() {
 }
 // ───────── Videos: TikTok, YouTube Shorts and Instagram Reels ─────────
 // The seo function writes 2 new ideas a week while fewer than 4 wait (and 3 more on "Write 3 new ideas"): script, on-screen text,
-// TikTok caption and YouTube title, description and tags. Twice a week (Saturday and Tuesday morning) Claude makes the pictures and
-// clips of the next idea with Higgsfield and the "Video" workflow renders the MP4 (status "To review"). The owner watches it here:
-// Approve sends it to YouTube, public at the next slot (Sunday or Wednesday, 7 pm Riyadh); "New version" sends it back with his note.
+// TikTok caption and YouTube title, description and tags. Four times a week (Sunday, Tuesday, Thursday and Saturday morning) Claude
+// makes the pictures and clips of the next idea with Higgsfield and the "Video" workflow renders the MP4 (status "To review").
+// The style test: every topic is made twice, once "realistic" (photo-real) and once "animated" (3D explainer), linked by pair_id;
+// the weekly Growth agent saves each posted video's TikTok and YouTube numbers in video_ideas.stats, and the card below compares
+// the two styles so the data decides which one to make more of. The owner watches each video here:
+// Approve sends it to YouTube, public at the next slot (Sunday, Tuesday, Thursday or Saturday, 7 pm Riyadh); "New version" sends it back with his note.
 // TikTok does not approve tools that post only to the owner's own account, so he posts there himself (download + caption below).
 const TIKTOK_UPLOAD = "https://www.tiktok.com/tiktokstudio/upload";
 const YT_STUDIO = "https://studio.youtube.com";
 const VKIND: Record<string, string> = { "3d": "3D animation", site: "Filmed on site", tips: "Tips" };
+const VSTYLE: Record<string, string> = { realistic: "Realistic", animated: "Animated" };
+const SLOT_DAYS = [0, 2, 4, 6], DAY_NAME = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const VSTATUS: Record<string, [string, "plain" | "good" | "warn" | "bad" | "acc"]> = {
   idea: ["Idea", "plain"], generating: ["Making pictures and clips", "plain"], rendering: ["Making the video", "plain"], review: ["To review", "warn"],
   approved: ["Approved", "acc"], scheduled: ["Scheduled on YouTube", "acc"], made: ["Video ready", "acc"], posted: ["Posted", "good"], skipped: ["Skipped", "plain"], failed: ["Video failed", "bad"] };
 const OPEN = ["idea", "generating", "rendering", "review", "approved", "scheduled", "made", "failed"];
 const RTL = { writingDirection: "rtl" as const, textAlign: "right" as const };
 async function copyText(s: string): Promise<boolean> { try { await (navigator as any).clipboard.writeText(s); return true; } catch { return false; } }
-/** Sunday or Wednesday, 7 pm Riyadh: the next one at least 30 minutes away (the server picks the real slot). */
+/** Sunday, Tuesday, Thursday or Saturday, 7 pm Riyadh: the next one at least 30 minutes away (the server picks the real slot). */
 function nextSlotText() {
-  for (let d = 0; d < 8; d++) { const t = new Date(Date.now() + d * 864e5); t.setUTCHours(16, 0, 0, 0); if ([0, 3].includes(t.getUTCDay()) && t.getTime() > Date.now() + 30 * 60e3) return (t.getUTCDay() ? "Wednesday" : "Sunday") + " 7 pm"; }
+  for (let d = 0; d < 8; d++) { const t = new Date(Date.now() + d * 864e5); t.setUTCHours(16, 0, 0, 0); if (SLOT_DAYS.includes(t.getUTCDay()) && t.getTime() > Date.now() + 30 * 60e3) return DAY_NAME[t.getUTCDay()] + " 7 pm"; }
   return "the next slot";
+}
+/** One video's numbers: TikTok and YouTube added up (saved by the weekly Growth agent in video_ideas.stats). */
+function vNums(v: any) {
+  const s = v.stats || {}, t = s.tiktok || {}, y = s.youtube || {};
+  const n = (x: any) => Number(x) || 0;
+  return { views: n(t.views) + n(y.views), likes: n(t.likes) + n(y.likes), shares: n(t.shares) + n(y.shares), comments: n(t.comments) + n(y.comments),
+    watch: y.avg_view_pct != null ? n(y.avg_view_pct) : null, has: !!(s.tiktok || s.youtube) };
+}
+/** The style test: average numbers per video for "animated" and "realistic", from the posted videos that have numbers. */
+function StyleTest({ rows }: { rows: any[] }) {
+  const c = useColors();
+  const by = (st: string) => {
+    const vs = rows.filter((r) => r.style === st && r.status === "posted" && vNums(r).has).map(vNums), k = vs.length || 1;
+    const sum = (f: (x: any) => number) => vs.reduce((a, x) => a + f(x), 0);
+    const w = vs.filter((x) => x.watch != null);
+    return { n: vs.length, views: Math.round(sum((x) => x.views) / k), likes: Math.round(sum((x) => x.likes) / k), shares: Math.round(sum((x) => x.shares) / k),
+      watch: w.length ? Math.round(w.reduce((a, x) => a + (x.watch || 0), 0) / w.length) : null };
+  };
+  const a = by("animated"), r = by("realistic"), made = rows.filter((x) => x.style).length;
+  const lead = a.n >= 3 && r.n >= 3 ? (a.views > r.views * 1.2 ? "Animated aage hai" : r.views > a.views * 1.2 ? "Realistic aage hai" : "Abhi barabar") : null;
+  const Line = ({ name, x }: { name: string; x: any }) => (
+    <Row style={{ paddingVertical: 6, borderTopWidth: 1, borderTopColor: c.line }}><T bold style={{ width: 90 }}>{name}</T>
+      <T size={13} style={{ flex: 1 }}>{x.n} videos · {x.views} views · {x.likes} likes · {x.shares} shares{x.watch != null ? ` · ${x.watch}% dekhi gayi (YouTube)` : ""}</T></Row>);
+  return (
+    <Card>
+      <Row><Icon name="pct" color={c.accent} /><View style={{ flex: 1 }}><H2>Test: animated ya realistic?</H2></View>{lead ? <Pill kind="acc" text={lead} /> : null}</Row>
+      <T size={13} muted>Har topic do dafa banta hai: ek realistic, ek animated. Har hafte Growth agent TikTok aur YouTube ke numbers yahan laata hai (har video ka average). Faisla tab, jab har style ki kam az kam 3 videos post ho chuki hon.</T>
+      <Line name="Animated" x={a} /><Line name="Realistic" x={r} />
+      {!a.n && !r.n ? <T size={12} muted>{made ? `${made} videos style ke saath bani hain; numbers post hone ke baad aayenge.` : "Test ki pehli videos is hafte se banengi."}</T> : null}
+    </Card>
+  );
 }
 async function videoFn(action: string, body: any = {}) {
   const { data, error } = await supabase.functions.invoke("video", { body: { action, ...body } });
@@ -308,7 +344,7 @@ function Videos() {
     <>
       <Card>
         <H2>Videos for TikTok, YouTube Shorts and Reels</H2>
-        <T size={13} muted>Every Saturday and Tuesday morning Claude makes the next video by itself with Higgsfield (informative, in Saudi Arabic). It waits here under "To review" until you watch it. Approve: it goes to YouTube by itself, public on Sunday or Wednesday at 7 pm. TikTok: you post it yourself with the download and caption here (TikTok does not approve tools that post only to your own account).</T>
+        <T size={13} muted>Every Sunday, Tuesday, Thursday and Saturday morning Claude makes the next video by itself with Higgsfield (informative, in Saudi Arabic): each topic once realistic and once animated, to see which works better. It waits here under "To review" until you watch it. Approve: it goes to YouTube by itself, public at the next slot (Sunday, Tuesday, Thursday or Saturday, 7 pm). TikTok: you post it yourself with the download and caption here, or ask Claude in chat to post it.</T>
         <StatStrip items={[{ label: "To review", value: String(n("review")) }, { label: "Being made", value: String(n("generating", "rendering")) }, { label: "Scheduled", value: String(n("approved", "scheduled")) }, { label: "Posted", value: String(n("posted")) }]} />
         <Row wrap>
           {yt?.linked ? <Pill kind="good" text={"YouTube: " + (yt.channel || "connected")} /> : <Pill kind="warn" text="YouTube not connected" />}
@@ -322,15 +358,17 @@ function Videos() {
         {!yt?.linked ? <T size={12} muted>Connect YouTube once: Google asks you to choose the AL-Swati channel and allow uploads. Until then approved videos wait here.</T> : null}
         {msg ? <T size={13} muted>{msg}</T> : null}
       </Card>
+      <StyleTest rows={rows} />
       <Row wrap>{([["open", `To make and post (${rows.filter((r) => OPEN.includes(r.status)).length})`], ["posted", `Posted (${n("posted")})`], ["all", "All"]] as const).map(([k, l]) => <Btn key={k} kind={show === k ? "primary" : "ghost"} title={l} onPress={() => setShow(k)} />)}</Row>
       {!list.length && <Empty text={show === "posted" ? "No videos posted yet." : "No ideas waiting. Press \"Write 3 new ideas\"."} />}
       {list.map((v) => (
         <Card key={v.id}>
-          <Row wrap><Pill kind={VSTATUS[v.status]?.[1] || "plain"} text={VSTATUS[v.status]?.[0] || v.status} /><Pill text={VKIND[v.kind] || v.kind} />{v.keyword ? <Pill kind="acc" text={v.keyword} /> : null}<View style={{ flex: 1 }} /><T size={12} muted>{day(v.created_at)}</T></Row>
+          <Row wrap><Pill kind={VSTATUS[v.status]?.[1] || "plain"} text={VSTATUS[v.status]?.[0] || v.status} /><Pill text={VKIND[v.kind] || v.kind} />{v.style ? <Pill kind="acc" text={VSTYLE[v.style] || v.style} /> : null}{v.keyword ? <Pill kind="acc" text={v.keyword} /> : null}<View style={{ flex: 1 }} /><T size={12} muted>{day(v.created_at)}</T></Row>
           {v.title_ar ? <T size={17} bold style={RTL}>{v.title_ar}</T> : null}
           {v.title_en ? <T size={14} muted>{v.title_en}</T> : null}
           {v.status === "scheduled" && v.publish_at ? <T size={13} color={c.good}>Public on YouTube {riyadhTime(v.publish_at)} (Riyadh). Post it on TikTok yourself at the same time.</T> : null}
           {v.status === "posted" && !v.tiktok_url && v.video_path ? <T size={13} color={c.warn}>TikTok: not posted yet. Download it and post it with the caption.</T> : null}
+          {v.status === "posted" && vNums(v).has ? <T size={13} muted>{vNums(v).views} views · {vNums(v).likes} likes · {vNums(v).shares} shares{v.stats_at ? ` (${day(v.stats_at)})` : ""}</T> : null}
           {v.youtube_error ? <T size={12} color={c.bad}>YouTube: {v.youtube_error}</T> : null}
           {v.render_error && v.status !== "review" ? <T size={12} color={c.bad}>Video: {v.render_error}</T> : null}
           {v.review_note && v.status === "idea" ? <T size={12} muted>New version asked: {v.review_note}</T> : null}
@@ -373,7 +411,7 @@ function VideoSheet({ v: first, ytLinked, onClose }: { v: any; ytLinked: boolean
   const player = Platform.OS === "web" && src ? React.createElement("video", { src, controls: true, playsInline: true, preload: "metadata", style: { width: "100%", maxWidth: 360, aspectRatio: "9 / 16", background: "#000", borderRadius: 12 } }) : null;
   return (
     <Sheet open onClose={onClose} title={v.title_en || v.title_ar || "Video"}>
-      <Row wrap><Pill kind={VSTATUS[v.status]?.[1] || "plain"} text={VSTATUS[v.status]?.[0] || v.status} /><Pill text={VKIND[v.kind] || v.kind} />{v.keyword ? <Pill kind="acc" text={"Search: " + v.keyword} /> : null}{v.credits ? <Pill text={`${v.credits} Higgsfield credits`} /> : null}</Row>
+      <Row wrap><Pill kind={VSTATUS[v.status]?.[1] || "plain"} text={VSTATUS[v.status]?.[0] || v.status} /><Pill text={VKIND[v.kind] || v.kind} />{v.style ? <Pill kind="acc" text={VSTYLE[v.style] || v.style} /> : null}{v.keyword ? <Pill kind="acc" text={"Search: " + v.keyword} /> : null}{v.credits ? <Pill text={`${v.credits} Higgsfield credits`} /> : null}</Row>
       {v.title_ar ? <T size={18} bold style={RTL}>{v.title_ar}</T> : null}
       {v.video_path ? <>
         <H2>The video</H2>
