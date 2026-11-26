@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 # Automatic videos for TikTok and YouTube Shorts: a plan (JSON) becomes one MP4, 1080x1920, 24 fps, with its own music.
-# The plan lists the shots: a background (a picture or a clip from Higgsfield) and the text on it, in one of the styles of
-# text.html (hook, step, drop, swap, stack, big, brand). See sample-plan.json. The brand end card is added when it is missing.
+# The plan lists the shots: a background and the text on it, in one of the styles of text.html (hook, step, drop, swap, stack,
+# big, brand). The background is a drawn scene (scene.html: every part drawn in code from its real measurements; the normal
+# way since 26 Nov 2026), or a picture or a clip from a link. See sample-plan.json. The brand end card is added when it is missing.
 #   python3 render.py plan.json out.mp4              the whole video
 #   python3 render.py plan.json chk --at 1.0,5.2     only these moments, as chk_<t>.jpg (for checking)
 # Needs: ffmpeg, numpy, scipy, pillow, playwright (chromium), and the fonts in video/fonts (the workflow downloads them).
@@ -23,9 +24,13 @@ def check(plan):
         x = dict(s.get('text') or {}); st = x.get('style', 'none')
         if st not in MIN and st != 'none': raise ValueError('unknown text style: ' + st)
         bg = dict(s.get('bg') or {})
-        if not bg.get('url'): raise ValueError('a shot has no background url')
-        bg['kind'] = bg.get('kind') or ('clip' if bg['url'].split('?')[0].lower().endswith(('.mp4', '.mov', '.webm')) else 'image')
-        bg['move'] = bg.get('move') if bg.get('move') in MOVES else ('none' if bg['kind'] == 'clip' else 'in')
+        if bg.get('kind') == 'scene' or bg.get('scene') or bg.get('code'):   # drawn in scene.html
+            bg['kind'] = 'scene'; bg['move'] = 'none'
+            if not (bg.get('scene') or bg.get('code')): raise ValueError('a scene shot needs "scene" or "code"')
+        else:
+            if not bg.get('url'): raise ValueError('a shot has no background (a scene or a url)')
+            bg['kind'] = bg.get('kind') or ('clip' if bg['url'].split('?')[0].lower().endswith(('.mp4', '.mov', '.webm')) else 'image')
+            bg['move'] = bg.get('move') if bg.get('move') in MOVES else ('none' if bg['kind'] == 'clip' else 'in')
         x['style'] = st
         shots.append({'bg': bg, 'text': x, 'dur': round(max(MIN.get(st, 2.5), min(8.0, float(s.get('dur') or 4))), 3)})
     if len(shots) < 2: raise ValueError('a video needs at least 2 shots')
@@ -86,7 +91,9 @@ def moved(im, k, move):
 class Shot:
     def __init__(self, s, t0):
         self.s, self.t0, self.n = s, t0, int(round(s['dur'] * FPS))
-        bg = s['bg']; path = fetch(bg['url'])
+        bg = s['bg']; self.scene = bg['kind'] == 'scene'; self.frames = self.im = None
+        if self.scene: return
+        path = fetch(bg['url'])
         if bg['kind'] == 'clip':
             self.frames = clip_frames(path, float(bg.get('start') or 0), self.n); self.im = None
         else:
@@ -116,6 +123,12 @@ class Renderer:
         self.pg = self.b.new_page(viewport={'width': W, 'height': H})
         self.pg.goto('file://' + HERE + '/text.html')
         info = self.pg.evaluate('p => setup(p)', {'shots': self.shots})
+        self.sc = None
+        if any(s['bg']['kind'] == 'scene' for s in self.shots):   # the drawn scenes: their own page, with no way out to the network
+            self.sc = self.b.new_page(viewport={'width': W, 'height': H})
+            self.sc.route('**/*', lambda r: r.continue_() if r.request.url.startswith(('file://' + HERE + '/', 'data:')) else r.abort())
+            self.sc.goto('file://' + HERE + '/scene.html'); self.sc.evaluate('document.fonts.ready')
+            self.sc.evaluate('p => setupScenes(p)', self.shots)
         self.hits, self.words = info['hits'], info['words']
         self.rng = np.random.default_rng(3); self.shake_cache = {}
         self.cache = {}
@@ -136,7 +149,10 @@ class Renderer:
 
     def frame(self, j, i):
         sh = self.shot(j); T = sh.t0 + i / FPS
-        out = sh.background(i).astype(np.float32)
+        if sh.scene:
+            self.sc.evaluate(f'drawScene({j}, {i / FPS:.5f})')
+            out = np.asarray(Image.open(io.BytesIO(self.sc.screenshot(type='jpeg', quality=96))).convert('RGB')).astype(np.float32)
+        else: out = sh.background(i).astype(np.float32)
         self.pg.evaluate(f'render({T:.5f})')
         ov = np.asarray(Image.open(io.BytesIO(self.pg.screenshot(omit_background=True, type='png'))).convert('RGBA')).astype(np.float32)
         a = ov[..., 3:4] / 255; out = out * (1 - a) + ov[..., :3] * a

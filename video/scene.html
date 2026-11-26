@@ -1,0 +1,374 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<!-- Drawn backgrounds of the automatic videos ("scene" shots): every part is drawn from its real measurements, in code, so an
+     angle, a kerf or a stone can never end up in the wrong place (pictures made by an image model did). render.py calls
+     setupScenes(shots) once, then drawScene(j, t) for every frame and uses the screenshot as that shot's background; the
+     text layer (text.html) goes on top, so the upper third of every scene stays calm.
+     A scene shot's background in the plan:  {"kind":"scene","scene":"<name>", ...parameters}   one of SCENES below, or
+                                            {"kind":"scene","code":"<JavaScript>"}             own drawing, see CODE below.
+     Everything is a function of the time t (seconds from the start of the shot): no timers, no random numbers at draw time.
+
+     SCENES (parameters in brackets; stone = limestone | white | travertine | marble | granite | porcelain):
+       updown   {stage: wall | anchor | angle | upper | gap, stone}   side section of the Up-Down angle fixing, step by step
+       facade   {stone, cols, rows}                                    front view: panels set row by row on their angles
+       villa    {stone, frame: dark | bronze | light}                  a finished modern villa front
+       compare  {stones:[a,b(,c)], labels:[..]}                        the same villa, the stone changes with a wipe
+       swatches {stones:[..], labels:[..]}                             2 to 4 stone samples side by side
+       checklist{items:[..], bad:[indexes that get a cross]}           a list that ticks itself
+       bars     {items:[{label, value, note}], unit}                   bars that grow to their values
+
+     CODE: the text of a function body that returns SVG markup for one frame. It gets (K, t, dur, W, H) and draws on a
+     1080 x 1920 canvas; K is the kit below (easings, textures, the section parts with their real measurements, labels).
+       return K.sky("dusk") + K.mm(540, 1250, 5.6, K.wall() + K.stone(-460, 0, {kerfBottom: true})) + K.tag(540, 1700, "30 mm", K.pop(t, .4));
+-->
+<style>
+@font-face{font-family:Tajawal;font-weight:500;src:url(fonts/Tajawal-Medium.ttf)}
+@font-face{font-family:Tajawal;font-weight:700;src:url(fonts/Tajawal-Bold.ttf)}
+@font-face{font-family:Tajawal;font-weight:800;src:url(fonts/Tajawal-ExtraBold.ttf)}
+@font-face{font-family:Tajawal;font-weight:900;src:url(fonts/Tajawal-Black.ttf)}
+@font-face{font-family:Mont;font-weight:100 900;src:url(fonts/Montserrat.ttf)}
+*{margin:0;padding:0}html,body{width:1080px;height:1920px;overflow:hidden;background:#0c1220}
+svg{position:absolute;inset:0}
+text{font-family:Tajawal,Mont,sans-serif}
+</style></head>
+<body><svg id="s" xmlns="http://www.w3.org/2000/svg" width="1080" height="1920" viewBox="0 0 1080 1920"><defs id="defs"></defs><g id="g"></g></svg>
+<script>
+const W = 1080, H = 1920;
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const lerp = (a, b, k) => a + (b - a) * k;
+const f1 = x => (+x).toFixed(1), f2 = x => (+x).toFixed(2);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+/* ---------- the kit ---------- */
+const K = {
+  W, H, clamp, lerp,
+  /** progress 0..1 of a move that starts at a and lasts d seconds */
+  P: (t, a, d) => clamp((t - a) / d),
+  out: k => 1 - Math.pow(1 - k, 3), inn: k => k * k * k, io: k => k < .5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2,
+  /** falls and bounces to rest (a part landing on its seat) */
+  bounce(k) { const n = 7.5625, d = 2.75; if (k < 1 / d) return n * k * k; if (k < 2 / d) return n * (k -= 1.5 / d) * k + .75; if (k < 2.5 / d) return n * (k -= 2.25 / d) * k + .9375; return n * (k -= 2.625 / d) * k + .984375; },
+  /** a heavy part coming to rest on its seat: it falls, then one tiny rebound */
+  land(k) { k = clamp(k); if (k < .72) return Math.pow(k / .72, 2); const q = (k - .72) / .28; return 1 - .03 * Math.abs(Math.sin(q * Math.PI * 2)) * (1 - q); },
+  /** overshoots a little and settles (a label or a tick popping in) */
+  back: k => 1 + 2.7 * Math.pow(k - 1, 3) + 1.7 * Math.pow(k - 1, 2),
+  /** 0..1 pop used for labels: K.pop(t, start) */
+  pop: (t, a, d = .45) => K.back(clamp((t - a) / d)),
+  /** a slow breathing value between -1 and 1 */
+  wave: (t, hz = .5, ph = 0) => Math.sin((t * hz + ph) * Math.PI * 2),
+
+  /* colours */
+  C: { navy: "#0c1220", navy2: "#16213a", gold: "#e9c27d", gold2: "#c9a74a", steel: "#c9d1da", steel2: "#8f9aa6", steelDark: "#5d6772", concrete: "#8d9096", concrete2: "#6f7278",
+       green: "#7fe0a0", red: "#e2533e", white: "#ffffff", ink: "#0a0e18" },
+  STONES: { limestone: ["#d9c39a", "حجر الرياض", "Riyadh limestone"], white: ["#ece4d2", "حجر الرياض الأبيض", "White Riyadh stone"], travertine: ["#cdb48c", "ترافرتين", "Travertine"],
+            marble: ["#eeeeec", "رخام", "Marble"], granite: ["#7d7f84", "جرانيت", "Granite"], porcelain: ["#b9bcc0", "بورسلان", "Porcelain"] },
+  FRAMES: { dark: "#1c2026", bronze: "#5a4630", light: "#d9dcdf" },
+  stoneOf: s => K.STONES[s] ? s : "limestone",
+  /** fill of a stone: its texture */
+  tex: s => `url(#tx-${K.stoneOf(s)})`,
+
+  /* backdrops */
+  sky(kind = "studio") {
+    if (kind === "dusk") return `<rect width="${W}" height="${H}" fill="url(#g-dusk)"/>`;
+    if (kind === "day") return `<rect width="${W}" height="${H}" fill="url(#g-day)"/>`;
+    return `<rect width="${W}" height="${H}" fill="url(#g-studio)"/><rect width="${W}" height="${H}" fill="url(#g-vig)"/>`;
+  },
+  floor: (y = 1640, a = .5) => `<rect x="0" y="${y}" width="${W}" height="${H - y}" fill="url(#g-floor)" opacity="${a}"/>`,
+  /** content drawn in millimetres: (cx, cy) on the canvas is the point (0, 0) of the drawing, u = pixels per millimetre */
+  mm: (cx, cy, u, inner) => `<g transform="translate(${f1(cx)} ${f1(cy)}) scale(${f2(u)})">${inner}</g>`,
+  at: (x, y, inner, extra = "") => `<g transform="translate(${f1(x)} ${f1(y)}) ${extra}">${inner}</g>`,
+  fade: (a, inner) => a >= 1 ? inner : a <= 0 ? "" : `<g opacity="${f2(a)}">${inner}</g>`,
+
+  /* ----- the side section of a mechanically fixed facade, in millimetres -----
+     x: 0 is the face of the wall, the stone is on the right. y: 0 is the top of the angle's blade (the seat of the upper
+     stone), up is negative. Measurements: air gap 40, stone 30 thick, kerf 4 wide and 15 deep in the middle of the edge,
+     angle 3 thick with a 55 leg on the wall (slotted hole for the anchor), joint 8 (blade 3 + 5 clear, so the blade never rests on the stone below). */
+  D: { gap: 40, stone: 30, kerfW: 4, kerfD: 15, th: 3, leg: 55, tongue: 12, joint: 8, anchorY: -28, anchorIn: 70 },
+  wall(y0 = -900, y1 = 900) {
+    return `<rect x="-260" y="${y0}" width="260" height="${y1 - y0}" fill="url(#txm-concrete)"/><rect x="-260" y="${y0}" width="260" height="${y1 - y0}" fill="url(#g-wallshade)"/>
+      <rect x="-1.2" y="${y0}" width="1.2" height="${y1 - y0}" fill="#4d5056"/>`;
+  },
+  /** the hole drilled for the anchor; k = how far it is drilled (0..1) */
+  hole(k = 1, y = K.D.anchorY) { const d = K.D.anchorIn * clamp(k); return d <= 0 ? "" : `<rect x="${f1(-d)}" y="${y - 5}" width="${f1(d)}" height="10" fill="#23262b"/>`; },
+  /** the anchor bolt; out = millimetres it still stands out of its final seat (0 = home); turn = radians of the nut */
+  anchor(out = 0, turn = 0, y = K.D.anchorY, nut = true) {
+    const x = out, th = K.D.th;
+    let s = `<g transform="translate(${f1(x)} ${y})"><rect x="${-K.D.anchorIn}" y="-3.6" width="${K.D.anchorIn + th + 11}" height="7.2" rx="1.2" fill="url(#g-bolt)"/>`;
+    for (let i = 0; i < 9; i++) s += `<rect x="${-K.D.anchorIn + 4 + i * 3.2}" y="-3.6" width="1" height="7.2" fill="#5d6772" opacity=".55"/>`;   // the expansion sleeve's grooves
+    for (let i = 0; i < 4; i++) s += `<rect x="${th + 1.5 + i * 2.4}" y="-3.6" width=".8" height="7.2" fill="#5d6772" opacity=".7"/>`;                 // thread
+    if (nut) { const w = 9 + 1.6 * Math.abs(Math.cos(turn * 3));   // a hexagon seen from the side changes width as it turns
+      s += `<rect x="${th}" y="-9" width="1.6" height="18" rx=".5" fill="${K.C.steel2}"/><rect x="${th + 1.6}" y="${f1(-w / 2 - 2)}" width="6.5" height="${f1(w + 4)}" rx="1" fill="url(#g-steelV)" stroke="#4d5661" stroke-width=".4"/>
+        <rect x="${th + 1.6}" y="${f1(-1 + 2.2 * Math.sin(turn * 3))}" width="6.5" height=".7" fill="#4d5661" opacity=".6"/>`; }
+    return s + `</g>`;
+  },
+  /** the Up-Down angle: a leg on the wall, a blade out to the middle of the stone, one tongue up and one tongue down */
+  angle(dx = 0, dy = 0, glow = 0) {
+    const d = K.D, kx = d.gap + d.stone / 2, th = d.th;
+    const p = `M0 ${-d.leg} h${th} v${d.leg - 0} h${kx - th - th / 2} v${-d.tongue} h${th} v${d.tongue + th + d.tongue} h${-th} v${-d.tongue} H0 Z`;
+    return `<g transform="translate(${f1(dx)} ${f1(dy)})">${glow > 0 ? `<path d="${p}" fill="none" stroke="${K.C.gold}" stroke-width="${f1(3 * glow)}" opacity="${f2(.55 * glow)}" filter="url(#f-glow)"/>` : ""}
+      <path d="${p}" fill="url(#g-steel)" stroke="#49525c" stroke-width=".5" stroke-linejoin="round"/>
+      <path d="M.8 ${-d.leg + 1} V-.2" stroke="#fff" stroke-width=".5" opacity=".55"/><path d="M${th} .7 H${kx - th}" stroke="#fff" stroke-width=".45" opacity=".5"/>
+      <rect x="-.2" y="${d.anchorY - 4.5}" width="${th + .4}" height="${9 + d.tongue + 4}" rx="1" fill="#2a2f36" opacity=".85"/></g>`;
+  },
+  /** a stone panel in section. y = its bottom edge when it sits (top = y - h). kerfTop / kerfBottom cut the grooves. */
+  stone(top, bottom, o = {}) {
+    const d = K.D, x = d.gap, kx = d.gap + d.stone / 2 - d.kerfW / 2, s = K.stoneOf(o.stone);
+    let m = `<rect x="${x}" y="${top}" width="${d.stone}" height="${bottom - top}" fill="url(#txm-${s})"/><rect x="${x}" y="${top}" width="${d.stone}" height="${bottom - top}" fill="url(#g-stoneshade)"/>
+      <rect x="${x + d.stone - 1.4}" y="${top}" width="1.4" height="${bottom - top}" fill="#fff" opacity=".35"/>`;
+    if (o.kerfTop) m += `<rect x="${kx}" y="${top - .3}" width="${d.kerfW}" height="${d.kerfD + .3}" fill="#1b1e24"/>`;
+    if (o.kerfBottom) m += `<rect x="${kx}" y="${bottom - d.kerfD}" width="${d.kerfW}" height="${d.kerfD + .3}" fill="#1b1e24"/>`;
+    return `<g transform="translate(${f1(o.dx || 0)} ${f1(o.dy || 0)}) ${o.rot ? `rotate(${f2(o.rot)} ${x + d.stone / 2} ${bottom})` : ""}">${m}<rect x="${x}" y="${top}" width="${d.stone}" height="${bottom - top}" fill="none" stroke="#5b5346" stroke-width=".45"/></g>`;
+  },
+  /** arrows of air rising in the gap behind the stone */
+  air(t, a = 1, y0 = -420, y1 = 420) {
+    let s = ""; const x = K.D.gap / 2;
+    for (let i = 0; i < 7; i++) { const k = ((t * .28 + i / 7) % 1), y = lerp(y1, y0, k), o = Math.sin(k * Math.PI) * a;
+      s += `<g transform="translate(${x + 5 * Math.sin((k * 3 + i) * 2)} ${f1(y)})" opacity="${f2(o)}"><path d="M0 16 V-10 M-6 -3 L0 -11 L6 -3" fill="none" stroke="#8fd3ff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></g>`; }
+    return s;
+  },
+  /** a measurement line with its value, drawn in the units of the group it is put in (px or mm); k = how far it has grown */
+  dim(x1, y1, x2, y2, label, k = 1, o = {}) {
+    k = clamp(k); if (k <= 0) return "";
+    const sw = o.sw || 3, fs = o.fs || 44, cx = (x1 + x2) / 2, cy = (y1 + y2) / 2, ax = lerp(cx, x1, k), ay = lerp(cy, y1, k), bx = lerp(cx, x2, k), by = lerp(cy, y2, k);
+    const horiz = Math.abs(x2 - x1) > Math.abs(y2 - y1), tk = sw * 3.2;
+    const ticks = horiz ? `M${f1(ax)} ${f1(ay - tk)} V${f1(ay + tk)} M${f1(bx)} ${f1(by - tk)} V${f1(by + tk)}` : `M${f1(ax - tk)} ${f1(ay)} H${f1(ax + tk)} M${f1(bx - tk)} ${f1(by)} H${f1(bx + tk)}`;
+    const lx = horiz ? cx : cx + (o.side || 1) * fs * 1.5, ly = horiz ? cy + (o.side || -1) * fs * .9 : cy + fs * .35;
+    return `<path d="M${f1(ax)} ${f1(ay)} L${f1(bx)} ${f1(by)} ${ticks}" stroke="${K.C.gold}" stroke-width="${sw}" stroke-linecap="round" fill="none"/>
+      <text x="${f1(lx)}" y="${f1(ly)}" font-size="${fs}" font-weight="800" fill="${K.C.gold}" text-anchor="middle" font-family="Mont" opacity="${f2(clamp(k * 2 - 1))}" paint-order="stroke" stroke="${K.C.ink}" stroke-width="${fs * .16}">${esc(label)}</text>`;
+  },
+  /** a pill label on the canvas (px); k = its pop (use K.pop). ar = true for Arabic text. */
+  tag(x, y, text, k = 1, o = {}) {
+    if (k <= 0) return ""; const fs = o.fs || 46, w = o.w || Math.max(150, String(text).length * fs * (o.ar ? .52 : .6) + 56), h = fs * 1.55, col = o.color || K.C.gold;
+    return `<g transform="translate(${f1(x)} ${f1(y)}) scale(${f2(k)})" opacity="${f2(clamp(k * 1.5))}"><rect x="${-w / 2}" y="${-h / 2}" width="${w}" height="${h}" rx="${h / 2}" fill="${K.C.ink}" fill-opacity=".82" stroke="${col}" stroke-width="3"/>
+      <text x="0" y="${fs * .34}" font-size="${fs}" font-weight="800" fill="${col}" text-anchor="middle" ${o.ar ? 'direction="rtl" font-family="Tajawal"' : 'font-family="Mont"'}>${esc(text)}</text></g>`;
+  },
+  /** a thin leader line from a label to the part it names (px) */
+  lead: (x1, y1, x2, y2, k = 1) => k <= 0 ? "" : `<path d="M${f1(x1)} ${f1(y1)} L${f1(lerp(x1, x2, clamp(k)))} ${f1(lerp(y1, y2, clamp(k)))}" stroke="${K.C.gold}" stroke-width="3" stroke-linecap="round" opacity=".9"/><circle cx="${f1(x2)}" cy="${f1(y2)}" r="${f1(7 * clamp(k * 2 - 1))}" fill="${K.C.gold}"/>`,
+  /** a green tick or a red cross that draws itself; k = 0..1 */
+  tick(x, y, k, r = 34) { k = clamp(k); return k <= 0 ? "" : `<g transform="translate(${x} ${y})"><circle r="${r}" fill="${K.C.green}" opacity="${f2(.18 * k)}"/><path d="M${-r * .45} 0 L${-r * .1} ${r * .36} L${r * .5} ${-r * .38}" fill="none" stroke="${K.C.green}" stroke-width="${r * .2}" stroke-linecap="round" stroke-linejoin="round" pathLength="1" stroke-dasharray="1" stroke-dashoffset="${f2(1 - k)}"/></g>`; },
+  cross(x, y, k, r = 34) { k = clamp(k); return k <= 0 ? "" : `<g transform="translate(${x} ${y})"><circle r="${r}" fill="${K.C.red}" opacity="${f2(.18 * k)}"/><path d="M${-r * .38} ${-r * .38} L${r * .38} ${r * .38} M${r * .38} ${-r * .38} L${-r * .38} ${r * .38}" fill="none" stroke="${K.C.red}" stroke-width="${r * .2}" stroke-linecap="round" pathLength="1" stroke-dasharray="1" stroke-dashoffset="${f2(1 - k)}"/></g>`; },
+  /** small dust puff where a part lands; k = 0..1 since the landing */
+  puff(x, y, k, n = 8, r = 60) { if (k <= 0 || k >= 1) return ""; let s = ""; for (let i = 0; i < n; i++) { const a = Math.PI * (1 + (i + .5) / n), d = r * K.out(k); s += `<circle cx="${f1(x + Math.cos(a) * d * 1.5)}" cy="${f1(y + Math.sin(a) * d * .45)}" r="${f1(9 * (1 - k) + 2)}" fill="#e8dcc6" opacity="${f2(.5 * (1 - k))}"/>`; } return s; },
+  text(x, y, s, o = {}) { return `<text x="${f1(x)}" y="${f1(y)}" font-size="${o.fs || 48}" font-weight="${o.w || 800}" fill="${o.color || "#fff"}" text-anchor="${o.anchor || "middle"}" opacity="${f2(o.a ?? 1)}" ${o.ar ? 'direction="rtl" font-family="Tajawal"' : 'font-family="Mont"'} paint-order="stroke" stroke="${K.C.ink}" stroke-width="${(o.fs || 48) * .12}" stroke-opacity=".7">${esc(s)}</text>`; },
+
+  /* ----- front views (px) ----- */
+  /** a modern villa front, drawn inside the box (x, y, w, h); the facade panels take the stone, frames take the frame colour */
+  villa(x, y, w, h, o = {}) {
+    const s = K.stoneOf(o.stone), fr = K.FRAMES[o.frame] || K.FRAMES.dark, glass = o.night ? "url(#g-glassNight)" : "url(#g-glass)", u = w / 100, v = h / 100;
+    const R = (a, b, c, d, fill, extra = "") => `<rect x="${f1(x + a * u)}" y="${f1(y + b * v)}" width="${f1(c * u)}" height="${f1(d * v)}" fill="${fill}" ${extra}/>`;
+    const grid = (a, b, c, d, cols, rows) => { let g = ""; for (let i = 1; i < cols; i++) g += `<path d="M${f1(x + (a + c * i / cols) * u)} ${f1(y + b * v)} v${f1(d * v)}"/>`; for (let j = 1; j < rows; j++) g += `<path d="M${f1(x + a * u)} ${f1(y + (b + d * j / rows) * v)} h${f1(c * u)}"/>`; return `<g stroke="#3d382f" stroke-width="2" opacity=".5">${g}</g>`; };
+    const win = (a, b, c, d, mull = 2) => { let m = R(a - .8, b - .8, c + 1.6, d + 1.6, fr) + R(a, b, c, d, glass); for (let i = 1; i < mull; i++) m += R(a + c * i / mull - .3, b, .6, d, fr); return m; };
+    return `<ellipse cx="${f1(x + 50 * u)}" cy="${f1(y + 100 * v)}" rx="${f1(62 * u)}" ry="${f1(3.2 * v)}" fill="#000" opacity=".35"/>
+      ${R(8, 42, 84, 58, K.tex(s))}${grid(8, 42, 84, 58, 7, 5)}
+      ${R(0, 14, 58, 86, K.tex(s))}${grid(0, 14, 58, 86, 4, 7)}
+      ${R(0, 14, 58, 86, "url(#g-facadeshade)")}${R(58, 42, 34, 58, "#000", 'opacity=".12"')}
+      ${R(-2, 11.5, 62, 3, fr)}${R(56, 39.5, 38, 3, fr)}
+      ${win(8, 22, 16, 22, 2)}${win(32, 22, 18, 22, 2)}${win(8, 58, 16, 42, 2)}${R(34, 60, 14, 40, fr)}${R(35.5, 62, 11, 38, o.frame === "light" ? "#8d7a5c" : "#3a2c1c")}
+      ${win(64, 52, 24, 20, 3)}${R(62, 80, 28, 20, fr)}${R(63, 81.5, 26, 18.5, "#22262c")}
+      <g stroke="${fr}" stroke-width="2" opacity=".5">${[0, 1, 2, 3, 4].map(i => `<path d="M${f1(x + 63 * u)} ${f1(y + (84 + i * 3.4) * v)} h${f1(26 * u)}"/>`).join("")}</g>`;
+  },
+};
+
+/* ---------- textures and gradients, made once ---------- */
+function rng(seed) { let a = seed >>> 0; return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+/** value noise that repeats every `per` cells, so the texture tiles without a seam */
+function noise(seed, per) {
+  const r = rng(seed), g = [...Array(per * per)].map(r), s = k => k * k * (3 - 2 * k);
+  return (x, y) => { const xi = Math.floor(x), yi = Math.floor(y), fx = s(x - xi), fy = s(y - yi), q = (i, j) => g[((j % per) + per) % per * per + ((i % per) + per) % per];
+    return lerp(lerp(q(xi, yi), q(xi + 1, yi), fx), lerp(q(xi, yi + 1), q(xi + 1, yi + 1), fx), fy); };
+}
+function texture(kind, size = 512) {
+  const c = document.createElement("canvas"); c.width = c.height = size; const x = c.getContext("2d"), im = x.createImageData(size, size), d = im.data;
+  const n1 = noise(11, 8), n2 = noise(23, 16), n3 = noise(37, 64), n4 = noise(51, 128), r = rng(kind.length * 7 + 3);
+  const hex = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
+  const base = kind === "concrete" ? [141, 144, 150] : hex(K.STONES[kind][0]);
+  for (let j = 0; j < size; j++) for (let i = 0; i < size; i++) {
+    const u = i / size, v = j / size; let k = 0, tint = [0, 0, 0];
+    if (kind === "limestone" || kind === "white") k = (n1(u * 8, v * 8) - .5) * 22 + (n2(u * 16, v * 16) - .5) * 14 + (n4(u * 128, v * 128) - .5) * 16;
+    else if (kind === "travertine") { k = (n2(u * 4, v * 16) - .5) * 36 + (n3(u * 16, v * 64) - .5) * 26 + (n4(u * 128, v * 128) - .5) * 10; if (n3(u * 32 + 5, v * 64 + 9) > .86) k -= 46; }
+    else if (kind === "marble") { const w = n1(u * 8, v * 8) * 5 + n2(u * 16, v * 16) * 2, vein = Math.pow(1 - Math.abs(Math.sin((u * 3 + v * 2 + w) * Math.PI)), 14), vein2 = Math.pow(1 - Math.abs(Math.sin((u * 5 - v * 4 + w * 1.7) * Math.PI)), 26);
+      k = -vein * 92 - vein2 * 48 + (n2(u * 16, v * 16) - .5) * 12; tint = [0, 0, vein * 8]; }
+    else if (kind === "granite") { const sp = n4(u * 128, v * 128), sp2 = n3(u * 64 + 3, v * 64 + 7); k = (sp - .5) * 110 + (sp2 - .5) * 60; if (sp > .8) tint = [22, 10, 4]; }
+    else if (kind === "porcelain") k = (n1(u * 8, v * 8) - .5) * 12 + (n2(u * 16, v * 16) - .5) * 5;
+    else k = (n2(u * 16, v * 16) - .5) * 26 + (n4(u * 128, v * 128) - .5) * 30;   // concrete
+    const o = (j * size + i) * 4; d[o] = clamp(base[0] + k + tint[0], 0, 255); d[o + 1] = clamp(base[1] + k + tint[1], 0, 255); d[o + 2] = clamp(base[2] + k * .92 + tint[2], 0, 255); d[o + 3] = 255;
+  }
+  x.putImageData(im, 0, 0);
+  if (kind === "concrete") { x.fillStyle = "rgba(60,62,68,.5)"; for (let i = 0; i < 260; i++) { const a = r() * size, b = r() * size, q = 1 + r() * 3.2; x.beginPath(); x.ellipse(a, b, q, q * (.6 + r() * .5), r() * 3, 0, 7); x.fill(); } }
+  if (kind === "limestone" || kind === "white") { x.fillStyle = "rgba(120,100,70,.28)"; for (let i = 0; i < 170; i++) { x.beginPath(); x.arc(r() * size, r() * size, .6 + r() * 1.5, 0, 7); x.fill(); } }
+  return c.toDataURL("image/png");
+}
+function defs() {
+  let s = "";
+  for (const k of [...Object.keys(K.STONES), "concrete"]) { const mmTile = k === "concrete" ? 160 : 512;
+    const img = texture(k), tile = (id, n) => `<pattern id="${id}" width="${n}" height="${n}" patternUnits="userSpaceOnUse"><image href="${img}" width="${n}" height="${n}" preserveAspectRatio="none"/></pattern>`;
+    s += tile("tx-" + k, mmTile) + tile("txm-" + k, 72); }   // tx- for drawings in pixels, txm- for drawings in millimetres
+  const lg = (id, x2, y2, stops) => `<linearGradient id="${id}" x1="0" y1="0" x2="${x2}" y2="${y2}">${stops.map(([o, c, a]) => `<stop offset="${o}" stop-color="${c}"${a != null ? ` stop-opacity="${a}"` : ""}/>`).join("")}</linearGradient>`;
+  s += lg("g-studio", 0, 1, [[0, "#0a0f1c"], [.55, "#141d33"], [1, "#1b2743"]]) + lg("g-dusk", 0, 1, [[0, "#0b1226"], [.42, "#27335a"], [.7, "#b9785a"], [.86, "#e9b77c"], [1, "#2a2a33"]])
+    + lg("g-day", 0, 1, [[0, "#1f4f86"], [.6, "#8cc0e8"], [.86, "#dfeefa"], [1, "#c9c2b4"]]) + lg("g-floor", 0, 1, [[0, "#000", .0], [1, "#000", .6]])
+    + lg("g-steel", 1, 1, [[0, "#f1f4f7"], [.45, "#b9c2cc"], [1, "#7e8994"]]) + lg("g-steelV", 0, 1, [[0, "#e9edf1"], [.5, "#aab4be"], [1, "#6f7a85"]]) + lg("g-bolt", 0, 1, [[0, "#dfe4e9"], [.5, "#a7b0ba"], [1, "#69737e"]])
+    + lg("g-wallshade", 1, 0, [[0, "#000", .45], [.7, "#000", .08], [1, "#000", 0]]) + lg("g-stoneshade", 1, 0, [[0, "#000", .22], [.5, "#000", 0], [1, "#fff", .1]])
+    + lg("g-facadeshade", 1, 0, [[0, "#000", 0], [1, "#000", .14]]) + lg("g-glass", 0, 1, [[0, "#9fc6e6"], [1, "#39536e"]]) + lg("g-glassNight", 0, 1, [[0, "#ffd98a"], [1, "#e89a4a"]])
+    + `<radialGradient id="g-vig" cx=".5" cy=".62" r=".75"><stop offset="0" stop-color="#3a5fa8" stop-opacity=".28"/><stop offset="1" stop-color="#000" stop-opacity=".35"/></radialGradient>
+       <filter id="f-glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="3"/></filter>
+       <filter id="f-shadow" x="-30%" y="-30%" width="160%" height="160%"><feDropShadow dx="0" dy="14" stdDeviation="16" flood-color="#000" flood-opacity=".45"/></filter>`;
+  document.getElementById("defs").innerHTML = s;
+}
+
+/* ---------- the ready-made scenes ---------- */
+const SCENES = {
+  /* Up-Down angle fixing in section. Each stage starts from the end of the one before it, so the video reads as one build. */
+  updown(K, t, dur, p) {
+    const d = K.D, st = p.stage || "upper", stone = p.stone, u = 7.2, cx = 430, cy = 1290;
+    const order = ["wall", "anchor", "angle", "upper", "gap"], n = order.indexOf(st);
+    const push = 1 + .035 * K.io(K.P(t, 0, dur)), ky = 3 * K.wave(t, .18);   // a slow push-in keeps the still parts alive
+    let m = K.wall(), over = "";
+    const lowerTop = d.joint;
+    m += K.stone(lowerTop, 900, { stone, kerfTop: true });
+    if (st === "wall") {
+      const k = K.out(K.P(t, .5, 1.1));   // a level line sweeps across, then the mark for the anchor
+      over += `<path d="M0 ${cy + d.anchorY * u} H${f1(W * k)}" stroke="${K.C.red}" stroke-width="4" stroke-dasharray="18 12" opacity=".85" transform="translate(0 0)"/>`;
+      const mk = K.pop(t, 1.7); m += mk > 0 ? `<g transform="translate(0 ${d.anchorY}) scale(${f2(mk)})"><circle r="9" fill="none" stroke="${K.C.gold}" stroke-width="1.4"/><path d="M-13 0 H13 M0 -13 V13" stroke="${K.C.gold}" stroke-width="1"/></g>` : "";
+      over += K.tag(215, cy + 250, "جدار خرساني", K.pop(t, 2.2), { ar: true }) + K.tag(860, cy + 330, K.STONES[K.stoneOf(stone)][1], K.pop(t, 2.5), { ar: true });
+    }
+    if (n >= 1) {
+      const drill = st === "anchor" ? K.io(K.P(t, .4, 1.3)) : 1; m += K.hole(drill);
+      if (st === "anchor") {
+        const back = K.io(K.P(t, 1.8, .5)), bx = -d.anchorIn * drill + 150 * (1 - K.out(K.P(t, 0, .4))) + 300 * back, spin = (t * 40) % 11;   // the bit comes, drills in, comes out; then the anchor goes home
+        if (back < 1) m += `<g transform="translate(${f1(bx)} ${d.anchorY})"><rect x="0" y="-4.2" width="135" height="8.4" rx="1" fill="#5b636d"/>${[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(i => `<path d="M${f1(i * 11 + spin)} -4.2 l5 8.4" stroke="#2c3138" stroke-width="1.4"/>`).join("")}
+          <rect x="135" y="-12" width="34" height="24" rx="3" fill="#3a4049"/><rect x="169" y="-26" width="150" height="52" rx="10" fill="#d9a441"/><rect x="169" y="-26" width="150" height="14" rx="7" fill="#fff" opacity=".2"/></g>`;
+        if (drill > 0 && drill < 1) for (let i = 0; i < 6; i++) { const q = ((t * 3 + i / 6) % 1); m += `<circle cx="${f1(4 + q * 26)}" cy="${f1(d.anchorY + (i - 2.5) * 3 + q * q * 20)}" r="${f1(2.2 * (1 - q))}" fill="#c9c2b4" opacity="${f2(.8 * (1 - q))}"/>`; }
+        const ins = K.out(K.P(t, 2.5, .8)); if (t > 2.5) m += K.anchor(lerp(120, 9, ins), 0, d.anchorY, false);
+        over += K.tag(230, cy + d.anchorY * u - 170, "انكر في الجدار", K.pop(t, 3.4), { ar: true }) + K.lead(230, cy + d.anchorY * u - 132, cx - 200, cy + d.anchorY * u - 30, K.P(t, 3.5, .35));
+      }
+    }
+    if (n >= 2) {
+      if (st === "angle") {
+        const a = K.io(K.P(t, .35, .9)), b = K.land(K.P(t, 1.3, .75)), up = d.tongue + 4;   // straight in over the bolt (it passes through the slot), then down: the down-tongue enters the kerf of the stone below
+        const dx = lerp(170, 0, a), dy = -up + up * b;
+        m += K.angle(dx, dy, clamp(1 - K.P(t, 2.0, .6)) * (t > .35 ? 1 : 0)) + K.anchor(lerp(9, 0, K.out(K.P(t, 2.2, .5))), 0, d.anchorY, false);
+        const tight = K.P(t, 2.2, 1.3); if (t > 2.15) m += K.fade(K.P(t, 2.15, .2), K.anchor(lerp(9, 0, K.out(K.P(t, 2.2, .5))), K.out(tight) * 9, d.anchorY, true));
+        over += K.tag(800, cy - 330, "زاوية Up-Down", K.pop(t, 1.6), { ar: true }) + K.lead(780, cy - 292, cx + 30 * u, cy - 8, K.P(t, 1.7, .35));
+        over += K.tag(215, cy + 250, "لسان تحت ↓ في الشق", K.pop(t, 2.7), { ar: true, fs: 38 });
+      } else m += K.angle() + K.anchor(0, 0, d.anchorY, true);
+    }
+    if (n >= 3) {
+      if (st === "upper") {
+        const k = K.P(t, .5, 1.3), y = lerp(-430, 0, K.land(k)), sway = (1 - K.out(clamp(k * 1.8))) * 2 * Math.sin(t * 9);   // the stone comes down, its kerf takes the up-tongue, it lands on the blade
+        m += K.stone(-900, 0, { stone, kerfBottom: true, dy: y, dx: sway });
+        const land = .5 + 1.3 * .72; over += K.puff(cx + (d.gap + d.stone / 2) * u, cy, K.P(t, land, .6));
+        over += K.tag(215, cy - 400, "لسان فوق ↑ يشيل الحجر", K.pop(t, 2.2), { ar: true, fs: 36 });
+        over += K.tick(cx + (d.gap + d.stone + 10) * u, cy - 60, K.out(K.P(t, 2.0, .45)), 40);
+      } else m += K.stone(-900, 0, { stone, kerfBottom: true });
+    }
+    if (st === "gap") {
+      m += K.air(t, K.P(t, .3, .6));
+      const g1 = K.out(K.P(t, 1.0, .5)), g2 = K.out(K.P(t, 1.5, .5)), g3 = K.out(K.P(t, 2.0, .5));
+      m += K.dim(0, 38, d.gap, 38, "", g1, { sw: 1.1, fs: 1 }) + K.dim(d.gap, -78, d.gap + d.stone, -78, "", g2, { sw: 1.1, fs: 1 }) + K.dim(d.gap + d.stone + 9, 0, d.gap + d.stone + 9, d.joint, "", g3, { sw: 1.1, fs: 1 });
+      over += K.tag(cx + 20 * u, cy + 38 * u + 62, "فراغ هواء", K.pop(t, 1.2), { ar: true, fs: 40 }) + K.tag(cx + 55 * u + 20, cy - 78 * u - 62, "30 mm", K.pop(t, 1.7), { fs: 40 })
+        + K.tag(cx + 66 * u, cy + 150, "فاصل 8 مم", K.pop(t, 2.2), { ar: true, fs: 38 }) + K.tag(215, cy - 400, "بدون أسمنت", K.pop(t, 2.7), { ar: true, color: K.C.green });
+    }
+    return K.sky("studio") + `<g transform="translate(${cx} ${f1(cy + ky)}) scale(${f2(push)}) translate(${-cx} ${-cy})">` + K.mm(cx, cy, u, m) + over + `</g>`;
+  },
+
+  /* The facade from the front: rows of panels come down onto the angles of the row below, bottom row first. */
+  facade(K, t, dur, p) {
+    const cols = clamp(p.cols || 4, 2, 6), rows = clamp(p.rows || 5, 3, 7), stone = K.stoneOf(p.stone), j = 9;
+    const x0 = 90, wAll = W - 180, pw = (wAll - j * (cols - 1)) / cols, ph = Math.min(190, 860 / rows), yBase = 1640;
+    const per = Math.min(.5, (dur - 1.4) / rows);
+    let s = K.sky("studio") + `<rect x="${x0 - 24}" y="${yBase - rows * (ph + j) - 30}" width="${wAll + 48}" height="${rows * (ph + j) + 40}" fill="url(#tx-concrete)" opacity=".9"/><rect x="${x0 - 24}" y="${yBase - rows * (ph + j) - 30}" width="${wAll + 48}" height="${rows * (ph + j) + 40}" fill="#0a0e18" opacity=".35"/>`;
+    for (let r = 0; r < rows; r++) {
+      const yRow = yBase - (r + 1) * ph - r * j, tRow = .4 + r * per;
+      for (let c = 0; c < cols; c++) {   // the angles of this row: two per panel, on the top edge, set just before the next row comes
+        const a = K.pop(t, tRow + per * .55 + c * .03, .3), xP = x0 + c * (pw + j);
+        if (a > 0 && r < rows - 1) for (const f of [.25, .75]) s += `<g transform="translate(${f1(xP + pw * f)} ${f1(yRow - j / 2)}) scale(${f2(a)})"><rect x="-22" y="-26" width="44" height="30" rx="3" fill="url(#g-steel)" stroke="#49525c" stroke-width="1.5"/><circle cy="-12" r="6" fill="#59626c"/></g>`;
+      }
+    }
+    for (let r = 0; r < rows; r++) {
+      const yRow = yBase - (r + 1) * ph - r * j, tRow = .4 + r * per;
+      for (let c = 0; c < cols; c++) {
+        const k = K.P(t, tRow + c * .06, .55); if (k <= 0) continue;
+        const y = lerp(-ph - 300, yRow, K.land(k)), xP = x0 + c * (pw + j);
+        s += `<g transform="translate(${f1(xP)} ${f1(y)})" opacity="${f2(clamp(k * 4))}"><rect width="${f1(pw)}" height="${f1(ph)}" fill="${K.tex(stone)}"/><rect width="${f1(pw)}" height="${f1(ph)}" fill="url(#g-facadeshade)"/><rect x="0" y="0" width="${f1(pw)}" height="3" fill="#fff" opacity=".25"/></g>`;
+      }
+    }
+    return s + K.floor(1640, .6);
+  },
+
+  /* The finished villa: dusk sky, a slow push-in. The brand card usually sits on this. */
+  villa(K, t, dur, p) {
+    const z = 1 + .06 * K.io(K.P(t, 0, dur)), night = p.sky !== "day";
+    return K.sky(night ? "dusk" : "day") + `<g transform="translate(540 1330) scale(${f2(z)}) translate(-540 -1330)">` + K.villa(60, 800, 960, 840, { stone: p.stone, frame: p.frame, night }) + `</g>`
+      + `<rect x="0" y="1640" width="${W}" height="280" fill="#15171c"/><rect x="0" y="1640" width="${W}" height="6" fill="#000" opacity=".4"/>`;
+  },
+
+  /* The same villa while the stone changes: a wipe from left to right for each stone, with its name. */
+  compare(K, t, dur, p) {
+    const stones = (p.stones || ["limestone", "marble"]).slice(0, 3).map(K.stoneOf), each = (dur - .6) / stones.length;
+    let s = K.sky(p.sky === "dusk" ? "dusk" : "day");
+    stones.forEach((st, i) => {
+      const k = i === 0 ? 1 : K.io(K.P(t, .3 + i * each, .8)); if (k <= 0) return;
+      s += `<clipPath id="cw${i}"><rect x="0" y="0" width="${f1(W * k)}" height="${H}"/></clipPath><g clip-path="url(#cw${i})">` + K.villa(60, 800, 960, 840, { stone: st, frame: p.frame, night: p.sky === "dusk" }) + `</g>`;
+      if (k < 1) s += `<rect x="${f1(W * k - 4)}" y="840" width="8" height="820" fill="${K.C.gold}"/>`;
+      const lab = (p.labels || [])[i] || K.STONES[st][1], a = K.pop(t, .5 + i * each + (i ? .6 : 0)) * (i < stones.length - 1 ? 1 - K.P(t, .3 + (i + 1) * each, .3) : 1);
+      s += K.tag(540, 1760, lab, a, { ar: true, fs: 54 });
+    });
+    return s + `<rect x="0" y="1640" width="${W}" height="6" fill="#000" opacity=".35"/>`;
+  },
+
+  /* Stone samples side by side, each drops in and tilts to catch the light. */
+  swatches(K, t, dur, p) {
+    const stones = (p.stones || ["limestone", "white", "travertine"]).slice(0, 4).map(K.stoneOf), n = stones.length, w = n > 2 ? 420 : 520, h = n > 2 ? 420 : 560;
+    const pos = n === 2 ? [[540, 1010], [540, 1620]] : n === 3 ? [[290, 1010], [790, 1010], [540, 1520]] : [[290, 1010], [790, 1010], [290, 1520], [790, 1520]];
+    let s = K.sky("studio");
+    stones.forEach((st, i) => {
+      const k = K.P(t, .3 + i * .35, .7); if (k <= 0) return;
+      const [cx, cy] = pos[i], y = lerp(-500, cy, K.bounce(k)), rot = 3 * (1 - K.out(k)) * (i % 2 ? 1 : -1) + .8 * K.wave(t, .2, i / n), sh = (K.wave(t, .25, i * .2) + 1) / 2;
+      s += `<g transform="translate(${cx} ${f1(y)}) rotate(${f2(rot)})" filter="url(#f-shadow)"><rect x="${-w / 2}" y="${-h / 2}" width="${w}" height="${h}" rx="10" fill="${K.tex(st)}"/><rect x="${-w / 2}" y="${-h / 2}" width="${w}" height="${h}" rx="10" fill="#fff" opacity="${f2(.05 + .09 * sh)}"/><rect x="${-w / 2}" y="${-h / 2}" width="${w}" height="${h}" rx="10" fill="none" stroke="#fff" stroke-opacity=".35" stroke-width="3"/></g>`;
+      s += K.tag(cx, cy + h / 2 - 50, (p.labels || [])[i] || K.STONES[st][1], K.pop(t, 1.0 + i * .35), { ar: true, fs: n > 2 ? 40 : 48 });
+    });
+    return s;
+  },
+
+  /* A list that ticks itself; indexes in "bad" get a red cross. */
+  checklist(K, t, dur, p) {
+    const items = (p.items || []).slice(0, 5), bad = p.bad || [], gap = Math.min(170, 760 / Math.max(1, items.length)), y0 = 1000, step = Math.min(.9, (dur - 1.2) / Math.max(1, items.length));
+    let s = K.sky("studio");
+    items.forEach((it, i) => {
+      const a = K.out(K.P(t, .4 + i * step, .45)), y = y0 + i * gap; if (a <= 0) return;
+      s += `<g opacity="${f2(a)}" transform="translate(${f1(60 * (1 - a))} 0)"><rect x="90" y="${y - 58}" width="900" height="${Math.min(130, gap - 24)}" rx="22" fill="#fff" fill-opacity=".07" stroke="#fff" stroke-opacity=".14" stroke-width="2"/>
+        <text x="880" y="${y + 22}" font-size="52" font-weight="800" fill="#fff" text-anchor="end" direction="rtl" font-family="Tajawal">${esc(it)}</text></g>`;
+      s += bad.includes(i) ? K.cross(940, y + 6, K.out(K.P(t, .7 + i * step, .4)), 36) : K.tick(940, y + 6, K.out(K.P(t, .7 + i * step, .4)), 36);
+    });
+    return s;
+  },
+
+  /* Bars that grow to their values (a comparison in numbers). */
+  bars(K, t, dur, p) {
+    const items = (p.items || []).slice(0, 5), max = Math.max(1, ...items.map(i => +i.value || 0)), gap = Math.min(190, 800 / Math.max(1, items.length));
+    let s = K.sky("studio");
+    items.forEach((it, i) => {
+      const k = K.out(K.P(t, .4 + i * .3, .9)), y = 1010 + i * gap, w = 780 * (+it.value || 0) / max * k;
+      s += `<text x="990" y="${y - 22}" font-size="46" font-weight="800" fill="#fff" text-anchor="end" direction="rtl" font-family="Tajawal" opacity="${f2(clamp(k * 3))}">${esc(it.label)}</text>
+        <rect x="90" y="${y}" width="900" height="54" rx="27" fill="#fff" fill-opacity=".08"/><rect x="${f1(990 - w - 60)}" y="${y}" width="${f1(w + 60)}" height="54" rx="27" fill="${it.color || K.C.gold}"/>
+        <text x="${f1(990 - w - 78)}" y="${y + 40}" font-size="40" font-weight="800" fill="#fff" text-anchor="end" font-family="Mont" opacity="${f2(clamp(k * 2 - 1))}">${esc(Math.round((+it.value || 0) * k) + (p.unit ? " " + p.unit : ""))}</text>`;
+    });
+    return s;
+  },
+};
+
+/* ---------- what render.py calls ---------- */
+let LIST = [];
+window.setupScenes = function (shots) {
+  defs();
+  LIST = shots.map(s => {
+    const b = s.bg || {}; if (b.kind !== "scene") return null;
+    if (b.code) { const fn = new Function("K", "t", "dur", "W", "H", b.code); return (t) => fn(K, t, s.dur, W, H); }
+    const sc = SCENES[b.scene]; if (!sc) throw new Error("unknown scene: " + b.scene);
+    return (t) => sc(K, t, s.dur, b);
+  });
+  LIST.forEach((fn, i) => { if (fn) { const out = fn(0); if (typeof out !== "string") throw new Error("scene " + i + " must return SVG text"); } });   // fail early, with the shot's number
+  return LIST.map(Boolean);
+};
+window.drawScene = function (j, t) { document.getElementById("g").innerHTML = LIST[j](t); };
+window.SCENE_NAMES = Object.keys(SCENES);
+</script></body></html>

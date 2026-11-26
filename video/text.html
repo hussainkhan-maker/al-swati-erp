@@ -55,13 +55,13 @@ const eo = k => 1 - Math.pow(1 - k, 3), eo5 = k => 1 - Math.pow(1 - k, 5), ei = 
 const eio = k => k < .5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2;
 const lerp = (a, b, k) => a + (b - a) * k;
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-const AR_DIGITS = "٠١٢٣٤٥٦٧٨٩", arNum = n => String(n).replace(/\d/g, d => AR_DIGITS[d]);
+const arNum = n => String(n);   // Western digits in Arabic text too (the owner's rule)
 // arrows ↑ ↓ ← → in a line become gold and bob
 const withArrows = s => esc(s).replace(/[↑↓←→]/g, a => `<span class="arrow">${a}</span>`);
 const words = (s, cls = "w") => String(s || "").trim().split(/\s+/).filter(Boolean).map(x => `<span class="${cls}">${esc(x)}</span>`).join("");
 const el = (html) => { const d = document.createElement("div"); d.innerHTML = html.trim(); return d.firstElementChild; };
 // The brand end card is the same in every video.
-const BRAND = { name: "السواتي", tag: "للمقاولات", line: "تركيب حجر ميكانيكي بالرياض منذ 1994", pill: "ضمان مكتوب 5 سنوات", phone: "واتساب 0511826313", site: "al-swaticontracting.com" };
+const BRAND = { name: "السواتي", tag: "للمقاولات", line: "تركيب حجر ميكانيكي بالرياض", pill: "خبرة منذ 1994", phone: "واتساب 0511826313", site: "al-swaticontracting.com" };
 let SHOTS = [], T_NOW = 0;
 window.hits = [];   // moments where text lands: a small camera shake (render.py) and a hit in the sound (audio.py)
 

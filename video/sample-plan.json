@@ -1,12 +1,109 @@
 {
-  "about": "Example plan for render.py: the Up-Down system. Each shot: bg = a picture or clip (kind image|clip, move in|out|left|right|up|down|none, start = second in the clip), dur = seconds, text = one style: hook {ar: [1-2 lines], en} | step {n, ar, en, points: [up to 3 lines, arrows ↑↓ bob]} | drop {n, ar, en, words: [2-4 words fall onto a gold rail]} | swap {q, wrong, right, ar2, en} | stack {words: [3 words], ar2, en} | big {ar, ar2, en} | brand {} (the end card, added when missing). 12 to 60 seconds in all.",
-  "shots": [
-    {"bg": {"url": "https://d8j0ntlcm91z4.cloudfront.net/user_3MZWcmh3GysHImEYU4vbCVzxZof/hf_20261125_042837_0cdafdf3-e90d-4838-a068-6012e359f3ed.png", "move": "in"}, "dur": 3.5, "text": {"style": "hook", "ar": ["كيف ينركّب الحجر", "بدون أسمنت؟"], "en": "How is stone fixed without cement?"}},
-    {"bg": {"url": "https://d8j0ntlcm91z4.cloudfront.net/user_3MZWcmh3GysHImEYU4vbCVzxZof/hf_20261125_042837_6d587e8e-f647-489f-8429-879b917461b4.png", "move": "in"}, "dur": 4, "text": {"style": "step", "n": 1, "ar": "مرساة ستانلس بالخرسانة", "en": "Stainless anchor into the concrete wall"}},
-    {"bg": {"url": "https://d8j0ntlcm91z4.cloudfront.net/user_3MZWcmh3GysHImEYU4vbCVzxZof/hf_20261125_050521_e60354a5-1b82-435f-bb08-864030c2b31d.png", "move": "in"}, "dur": 4, "text": {"style": "step", "n": 2, "ar": "زاوية Up-Down ستانلس", "en": "The Up-Down angle, stainless steel", "points": ["لسان لفوق ↑", "ولسان لتحت ↓"]}},
-    {"bg": {"url": "https://d8j0ntlcm91z4.cloudfront.net/user_3MZWcmh3GysHImEYU4vbCVzxZof/hf_20261125_050650_8948160c-c770-469e-ad22-b70fdb168431.png", "move": "down"}, "dur": 5, "text": {"style": "drop", "n": 3, "ar": "اللوح ينزل على اللسان", "en": "The stone drops onto the tongue", "words": ["ويتعلّق", "بدون", "أسمنت"]}},
-    {"bg": {"url": "https://d8j0ntlcm91z4.cloudfront.net/user_3MZWcmh3GysHImEYU4vbCVzxZof/hf_20261125_042837_0cdafdf3-e90d-4838-a068-6012e359f3ed.png", "move": "left"}, "dur": 3.4, "text": {"style": "swap", "q": "ورا الحجر؟", "wrong": "أسمنت", "right": "فراغ هواء", "ar2": "لا بقع بيضاء… وكل لوح يتمدد براحته", "en": "An air gap, not mortar: no white stains, free to move"}},
-    {"bg": {"url": "https://d8j0ntlcm91z4.cloudfront.net/user_3MZWcmh3GysHImEYU4vbCVzxZof/hf_20261125_050521_314a8cfc-9e52-485c-b774-fa0f75e00652.png", "move": "up"}, "dur": 4, "text": {"style": "stack", "words": ["صف", "ورا", "صف"], "ar2": "↑ من تحت لفوق", "en": "Row by row, from the bottom up"}},
-    {"bg": {"url": "https://d8j0ntlcm91z4.cloudfront.net/user_3MZWcmh3GysHImEYU4vbCVzxZof/hf_20261124_224202_9b8edc8a-b3dc-4264-86aa-beb211e71945.png", "move": "out"}, "dur": 5, "text": {"style": "brand"}}
-  ]
+ "shots": [
+  {
+   "bg": {
+    "kind": "scene",
+    "scene": "facade",
+    "stone": "limestone",
+    "cols": 4,
+    "rows": 5
+   },
+   "dur": 3.8,
+   "text": {
+    "style": "hook",
+    "ar": [
+     "كيف يثبت الحجر",
+     "بدون أسمنت؟"
+    ],
+    "en": "How does stone stay up without cement?"
+   }
+  },
+  {
+   "bg": {
+    "kind": "scene",
+    "scene": "updown",
+    "stage": "wall",
+    "stone": "limestone"
+   },
+   "dur": 4.0,
+   "text": {
+    "style": "step",
+    "n": 1,
+    "ar": "خط الميزان أول",
+    "en": "First, the level line"
+   }
+  },
+  {
+   "bg": {
+    "kind": "scene",
+    "scene": "updown",
+    "stage": "anchor",
+    "stone": "limestone"
+   },
+   "dur": 4.6,
+   "text": {
+    "style": "step",
+    "n": 2,
+    "ar": "ثقب وانكر في الجدار",
+    "en": "Drill, then an anchor into the wall"
+   }
+  },
+  {
+   "bg": {
+    "kind": "scene",
+    "scene": "updown",
+    "stage": "angle",
+    "stone": "limestone"
+   },
+   "dur": 4.8,
+   "text": {
+    "style": "step",
+    "n": 3,
+    "ar": "زاوية Up-Down",
+    "en": "The angle: one tongue up, one down"
+   }
+  },
+  {
+   "bg": {
+    "kind": "scene",
+    "scene": "updown",
+    "stage": "upper",
+    "stone": "limestone"
+   },
+   "dur": 4.4,
+   "text": {
+    "style": "step",
+    "n": 4,
+    "ar": "الحجر يركب على اللسان",
+    "en": "The next stone sits on the up-tongue"
+   }
+  },
+  {
+   "bg": {
+    "kind": "scene",
+    "scene": "updown",
+    "stage": "gap",
+    "stone": "limestone"
+   },
+   "dur": 4.8,
+   "text": {
+    "style": "step",
+    "n": 5,
+    "ar": "هواء ورا الحجر",
+    "en": "An air gap behind the stone"
+   }
+  },
+  {
+   "bg": {
+    "kind": "scene",
+    "scene": "villa",
+    "stone": "limestone",
+    "frame": "dark"
+   },
+   "dur": 5.0,
+   "text": {
+    "style": "brand"
+   }
+  }
+ ]
 }
