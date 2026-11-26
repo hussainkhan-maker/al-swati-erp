@@ -377,12 +377,15 @@ const SCENES = {
         over += K.tag(sx(d.gap) + 300, cy - 300, "مرساة Undercut", K.pop(t, .9), { ar: true, fs: 42 }) + K.tag(sx(d.gap) + 320, cy + 300, "تفتح وتقفل بشكلها", K.pop(t, 1.7), { ar: true, fs: 42 }) + K.lead(sx(d.gap) + 320, cy + 262, sx(d.gap + 14), cy + 50, K.P(t, 1.8, .35)) + K.tag(170, cy - 170, "مشبك التعليق", K.pop(t, 2.6), { ar: true, fs: 38 }); }
       return K.sky("studio") + K.mm(cx, cy, u, `<g transform="translate(${14 - d.gap} 0)">${m}</g>`) + over;
     }
-    const u = 7.2, cx = 430, cy = 1290, a = K.io(K.P(t, .4, 1.0)), b = K.land(K.P(t, 1.5, .8));   // hang: across above the rail's lip, then down onto it
+    const u = 6.4, cx = 520, cy = 1290, a = K.io(K.P(t, .4, 1.0)), b = K.land(K.P(t, 1.5, .8));   // hang: across above the rail's lip, then down onto it
     const dx = lerp(120, 0, a), dy = -34 + 34 * b, yR = -12;
-    let m = K.wall() + K.ucRail(yR) + `<g transform="translate(0 ${21})">` + K.anchor(0, 0, d.anchorY, true) + `</g>` + K.ucRail(yR + 330) + K.stone(d.joint + 4, 900, { stone });
+    // as built on site: the wall, a vertical profile standing on wall brackets, and the horizontal rails screwed to that profile
+    const post = `<g transform="translate(-52 0)">` + K.wall() + K.wallBracket(60).replace("M0 -30 h4 v28 h54 v4 h-54 v28 h-4 Z", "M0 -30 h4 v28 h20 v4 h-20 v28 h-4 Z") + `<g transform="translate(0 ${75 - d.anchorY})">` + K.anchor(0, 0, d.anchorY, true) + `</g></g>`
+      + `<rect x="-30" y="-900" width="30" height="1800" fill="url(#g-steel)" stroke="#49525c" stroke-width=".5"/><rect x="-26" y="-900" width="22" height="1800" fill="#39414b" opacity=".5"/>`;
+    let m = post + K.ucRail(yR) + K.bolt(4, yR + 17, 9) + K.ucRail(yR + 330) + K.stone(d.joint + 4, 900, { stone });
     m += `<g transform="translate(${f1(dx)} ${f1(dy)})">` + K.stone(-330, 0, { stone }) + K.ucHole(-9, 1, 1) + K.ucAnchor(-9, 0, 1) + K.hanger(-9) + `</g>`;
-    const over = K.puff(cx + 20 * u, cy - 80, K.P(t, 1.5 + .8 * .72, .5), 6, 40) + K.tag(800, cy - 330, "مجرى أفقي على الجدار", K.pop(t, .8), { ar: true, fs: 40 }) + K.lead(780, cy - 292, cx + 14 * u, cy - 110, K.P(t, .9, .35))
-      + K.tag(215, cy + 250, "اللوح يتعلق من ظهره", K.pop(t, 2.5), { ar: true, fs: 38 }) + K.tick(cx + 82 * u, cy - 60, K.out(K.P(t, 2.4, .45)), 40);
+    const over = K.puff(cx + 20 * u, cy - 80, K.P(t, 1.5 + .8 * .72, .5), 6, 40) + K.tag(790, cy - 330, "مجرى أفقي على قائم رأسي", K.pop(t, .8), { ar: true, fs: 40 }) + K.lead(780, cy - 292, cx + 14 * u, cy - 110, K.P(t, .9, .35))
+      + K.tag(760, cy + 250, "اللوح يتعلق من ظهره", K.pop(t, 2.5), { ar: true, fs: 38 }) + K.tick(cx + 76 * u, cy - 60, K.out(K.P(t, 2.4, .45)), 40);
     return K.sky("studio") + K.mm(cx, cy, u, m) + over;
   },
 
