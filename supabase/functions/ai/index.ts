@@ -31,7 +31,7 @@ Ground rules for every task:
 - Digits 0-9 only. Money in SAR. Saudi VAT is 15%, shown separately. Calculations are done by the app's code, not by you: give raw quantities and facts.
 - Materials: Arabic and English names refer to the same thing (رخام = marble, جرانيت = granite, بورسلان = porcelain, حجر رياض = Riyadh stone, ترافرتين = travertine). Keep size and thickness with the name; a different size or thickness is a different product.
 - Normal values: facade cladding stone 20-30 mm (30-40 mm heavy panels), marble/granite wall cladding usually 20-30 mm, porcelain 9-20 mm; common tile sizes 60x60, 60x120, 80x80, 120x120 cm, stone panels 30x60, 40x80, 60x90 cm; cutting waste 10-15% for normal work, 15-20% for book-match, many cuts or curves, and 15-18% at bid stage when no engineer has checked the drawings.
-- Dry-fix cladding needs stainless steel anchors/brackets (count per panel, typically 4 per panel); wet-fix needs adhesive/mortar. Flag missing skirting, risers, steps, sills, coping, cut edges, sealant, mock-up and protection.
+- Dry-fix cladding needs anchors and brackets (stainless or hot-dip galvanised steel as the specification says) (count per panel, typically 4 per panel); wet-fix needs adhesive/mortar. Flag missing skirting, risers, steps, sills, coping, cut edges, sealant, mock-up and protection.
 - Plain, professional language. Roman Urdu only where the task asks for it.`;
 let TASK = ""; // which task is running, for the usage log
 const LOG = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);

@@ -47,7 +47,7 @@ export function proposalHTML(q: any, p: any, profile: any, lang: string) {
   <div class="muted" style="margin-top:28px;font-size:10px">${esc(profile.name || COMPANY.name)} · AL-Swati ERP</div></body></html>`;
 }
 
-const FIXING = ["As per specification", "Mechanical dry-fix (stainless steel anchors)", "Ventilated facade on aluminium sub-frame", "Wet fix (adhesive / mortar)", "Mixed: dry-fix facade, wet-fix internal walls"];
+const FIXING = ["As per specification", "Mechanical dry-fix (brackets per the project specification)", "Ventilated facade on metal sub-frame", "Wet fix (adhesive / mortar)", "Mixed: dry-fix facade, wet-fix internal walls"];
 const ORIGIN = ["As per specification", "Local (Riyadh stone, Saudi granite)", "Imported (Italy / Spain / Turkey / Egypt / India / China)", "Mixed local and imported"];
 
 export function ProposalSheet({ q, onClose }: { q: any; onClose: () => void }) {
@@ -78,7 +78,7 @@ export function ProposalSheet({ q, onClose }: { q: any; onClose: () => void }) {
     <Sheet open onClose={onClose} title={`Technical proposal · ${q.title}`}>
       <T size={13} muted>The AI writes the method statement, materials, programme, quality and safety sections from this quotation, the tender specs and your company profile. Read every section before sending.</T>
       <Row wrap>
-        <Select label="Fixing method" value={opt.fixing} options={FIXING.map((x) => ({ value: x, label: x }))} onChange={(v) => setOpt({ ...opt, fixing: v })} />
+        <Select label="Fixing method" value={opt.fixing} options={(FIXING.includes(opt.fixing) ? FIXING : [...FIXING, opt.fixing]).map((x) => ({ value: x, label: x }))} onChange={(v) => setOpt({ ...opt, fixing: v })} />
         <Select label="Stone origin" value={opt.origin} options={ORIGIN.map((x) => ({ value: x, label: x }))} onChange={(v) => setOpt({ ...opt, origin: v })} />
       </Row>
       <Row wrap>
