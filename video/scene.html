@@ -139,9 +139,11 @@ const K = {
   ucHole(y, k = 1, w = 1) { const x = K.D.gap, dp = 16 * clamp(k), e = 2.6 * clamp(w); return dp <= 0 ? "" : `<path d="M${x - .3} ${y - 3.5} H${f1(x + dp - 5)} L${f1(x + dp)} ${f1(y - 3.5 - e)} V${f1(y + 3.5 + e)} L${f1(x + dp - 5)} ${y + 3.5} H${x - .3} Z" fill="#1b1e24"/>`; },
   /** Undercut: the anchor in its hole (out = mm still outside, open = how far its sleeve has spread 0..1) and the hanger that hooks on the rail */
   ucAnchor(y, out = 0, open = 1) { const x = K.D.gap - out, e = 2.4 * clamp(open); return `<path d="M${x + 11} ${y - 3.2} L${x + 16} ${f1(y - 3.2 - e)} V${f1(y + 3.2 + e)} L${x + 11} ${y + 3.2} Z" fill="#aab4be" stroke="#49525c" stroke-width=".4"/><rect x="${x - 12}" y="${y - 2.4}" width="24" height="4.8" rx="1" fill="url(#g-bolt)"/>`; },
-  hanger(y, a = 1) { const x = K.D.gap; return K.fade(a, K.steel(`M${x} ${y - 9} h-4 v-7 h-22 v14 h3 v-10 h15 v20 h8 Z`) + `<rect x="${x - 10.5}" y="${y - 5}" width="5" height="10" rx="1" fill="url(#g-steelV)" stroke="#4d5661" stroke-width=".4"/>`); },
-  /** Undercut: the horizontal rail on the wall that the hangers hook over (its lip stands up at x 19..22, top at y) */
-  ucRail(y) { return K.steel(`M0 ${y - 18} h4 v26 h18 v-20 h-3 v17 h-15 v25 h-4 Z`) + `<rect x="-.2" y="${y + 14}" width="4.4" height="7" fill="#2a2f36" opacity=".8"/>`; },
+  /** Undercut: the hanger as on site (an aluminium clip): a plate on the anchor, a top flange with the level-adjusting screw, a hook that sits in the rail's channel */
+  hanger(y, a = 1) { const g = K.D.gap; return K.fade(a, `<g transform="translate(0 ${y + 9})">` + K.steel(`M${g} -28 H2 v3 H${g - 3} V-3 H12 V4.5 h3 V0 H${g} Z`)
+    + `<rect x="3.6" y="-37" width="2.8" height="17" rx=".6" fill="url(#g-bolt)"/><rect x="2" y="-40" width="6" height="3" rx=".6" fill="url(#g-steelV)" stroke="#4d5661" stroke-width=".4"/><rect x="${g - 8}" y="-13" width="5" height="8" rx="1" fill="url(#g-steelV)" stroke="#4d5661" stroke-width=".4"/></g>`); },
+  /** Undercut: the horizontal aluminium rail: a web on the vertical profile, a head the adjusting screw bears on, a channel with a lip for the hanger's hook (y = -12 puts its head 20 above the seat line) */
+  ucRail(y) { return `<g transform="translate(0 ${y + 12})">` + K.steel("M0 -20 h9 v4 h-6 v21 h14 v-5 h3 v8 h-20 Z") + `</g>`; },
   /** arrows of air rising in the gap behind the stone */
   air(t, a = 1, y0 = -420, y1 = 420) {
     let s = ""; const x = K.D.gap / 2;
@@ -378,11 +380,11 @@ const SCENES = {
       return K.sky("studio") + K.mm(cx, cy, u, `<g transform="translate(${14 - d.gap} 0)">${m}</g>`) + over;
     }
     const u = 6.4, cx = 520, cy = 1290, a = K.io(K.P(t, .4, 1.0)), b = K.land(K.P(t, 1.5, .8));   // hang: across above the rail's lip, then down onto it
-    const dx = lerp(120, 0, a), dy = -34 + 34 * b, yR = -12;
+    const dx = lerp(120, 0, a), dy = -30 + 30 * b, yR = -12;
     // as built on site: the wall, a vertical profile standing on wall brackets, and the horizontal rails screwed to that profile
     const post = `<g transform="translate(-52 0)">` + K.wall() + K.wallBracket(60).replace("M0 -30 h4 v28 h54 v4 h-54 v28 h-4 Z", "M0 -30 h4 v28 h20 v4 h-20 v28 h-4 Z") + `<g transform="translate(0 ${75 - d.anchorY})">` + K.anchor(0, 0, d.anchorY, true) + `</g></g>`
       + `<rect x="-30" y="-900" width="30" height="1800" fill="url(#g-steel)" stroke="#49525c" stroke-width=".5"/><rect x="-26" y="-900" width="22" height="1800" fill="#39414b" opacity=".5"/>`;
-    let m = post + K.ucRail(yR) + K.bolt(4, yR + 17, 9) + K.ucRail(yR + 330) + K.stone(d.joint + 4, 900, { stone });
+    let m = post + K.ucRail(yR) + K.bolt(3, yR + 3, 9) + K.ucRail(yR + 330) + K.stone(d.joint + 4, 900, { stone });
     m += `<g transform="translate(${f1(dx)} ${f1(dy)})">` + K.stone(-330, 0, { stone }) + K.ucHole(-9, 1, 1) + K.ucAnchor(-9, 0, 1) + K.hanger(-9) + `</g>`;
     const over = K.puff(cx + 20 * u, cy - 80, K.P(t, 1.5 + .8 * .72, .5), 6, 40) + K.tag(790, cy - 330, "مجرى أفقي على قائم رأسي", K.pop(t, .8), { ar: true, fs: 40 }) + K.lead(780, cy - 292, cx + 14 * u, cy - 110, K.P(t, .9, .35))
       + K.tag(760, cy + 250, "اللوح يتعلق من ظهره", K.pop(t, 2.5), { ar: true, fs: 38 }) + K.tick(cx + 76 * u, cy - 60, K.out(K.P(t, 2.4, .45)), 40);
