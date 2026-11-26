@@ -10,6 +10,10 @@
 
      SCENES (parameters in brackets; stone = limestone | white | travertine | marble | granite | porcelain):
        updown   {stage: wall | anchor | angle | upper | gap, stone}   side section of the Up-Down angle fixing, step by step
+       pen      {stage: bracket | pin | upper | gap, stone}           PEN (pin) fixing in section
+       cchannel {stage: bracket | channel | angle | upper | gap, stone}  vertical C-Channel in section
+       kerfrail {stage: front | section | upper | gap, stone}         kerf rail: front (one long rail per row), then its section
+       undercut {stage: drill | anchor | hang | face, stone}          undercut anchors in the back of the panel, on a rail
        facade   {stone, cols, rows}                                    front view: panels set row by row on their angles
        villa    {stone, frame: dark | bronze | light}                  a finished modern villa front
        compare  {stones:[a,b(,c)], labels:[..]}                        the same villa, the stone changes with a wipe
@@ -111,13 +115,33 @@ const K = {
   },
   /** a stone panel in section. y = its bottom edge when it sits (top = y - h). kerfTop / kerfBottom cut the grooves. */
   stone(top, bottom, o = {}) {
-    const d = K.D, x = d.gap, kx = d.gap + d.stone / 2 - d.kerfW / 2, s = K.stoneOf(o.stone);
+    const d = K.D, x = d.gap, kw = o.slotW || d.kerfW, kd = o.slotD || d.kerfD, kx = d.gap + d.stone / 2 - kw / 2, s = K.stoneOf(o.stone);
     let m = `<rect x="${x}" y="${top}" width="${d.stone}" height="${bottom - top}" fill="url(#txm-${s})"/><rect x="${x}" y="${top}" width="${d.stone}" height="${bottom - top}" fill="url(#g-stoneshade)"/>
       <rect x="${x + d.stone - 1.4}" y="${top}" width="1.4" height="${bottom - top}" fill="#fff" opacity=".35"/>`;
-    if (o.kerfTop) m += `<rect x="${kx}" y="${top - .3}" width="${d.kerfW}" height="${d.kerfD + .3}" fill="#1b1e24"/>`;
-    if (o.kerfBottom) m += `<rect x="${kx}" y="${bottom - d.kerfD}" width="${d.kerfW}" height="${d.kerfD + .3}" fill="#1b1e24"/>`;
+    if (o.kerfTop) m += `<rect x="${kx}" y="${top - .3}" width="${kw}" height="${kd + .3}" fill="#1b1e24"/>`;
+    if (o.kerfBottom) m += `<rect x="${kx}" y="${bottom - kd}" width="${kw}" height="${kd + .3}" fill="#1b1e24"/>`;
     return `<g transform="translate(${f1(o.dx || 0)} ${f1(o.dy || 0)}) ${o.rot ? `rotate(${f2(o.rot)} ${x + d.stone / 2} ${bottom})` : ""}">${m}<rect x="${x}" y="${top}" width="${d.stone}" height="${bottom - top}" fill="none" stroke="#5b5346" stroke-width=".45"/></g>`;
   },
+  /** steel drawn as a closed path (mm), with the same finish as the angle */
+  steel: (d, glow = 0) => (glow > 0 ? `<path d="${d}" fill="none" stroke="${K.C.gold}" stroke-width="${f1(3 * glow)}" opacity="${f2(.55 * glow)}" filter="url(#f-glow)"/>` : "") + `<path d="${d}" fill="url(#g-steel)" stroke="#49525c" stroke-width=".5" stroke-linejoin="round"/>`,
+  /** PEN fixing: the bracket (a leg on the wall and a flat blade with a hole for the pin, no tongues) */
+  bracket(dx = 0, dy = 0, glow = 0) { const d = K.D, e = d.gap + d.stone / 2 + 9;
+    return `<g transform="translate(${f1(dx)} ${f1(dy)})">` + K.steel(`M0 ${-d.leg} h${d.th} v${d.leg} H${e} v${d.th} H0 Z`, glow) + `<rect x="${d.gap + d.stone / 2 - 3}" y="-.3" width="6" height="${d.th + .6}" fill="#23262b"/><rect x="-.2" y="${d.anchorY - 4.5}" width="${d.th + .4}" height="9" rx="1" fill="#2a2f36" opacity=".85"/></g>`; },
+  /** PEN fixing: the round pin, 50 long: half in the stone above, half in the stone below */
+  pin: (dy = 0) => `<rect x="${K.D.gap + K.D.stone / 2 - 2.5}" y="${f1(-25 + dy)}" width="5" height="50" rx="2" fill="url(#g-bolt)" stroke="#49525c" stroke-width=".4"/>`,
+  /** a short bolt with its head on the right (through an angle into a channel or a rail) */
+  bolt: (x, y, len = 16, a = 1) => `<g opacity="${f2(a)}"><rect x="${x - len}" y="${y - 3}" width="${len + 3}" height="6" rx="1" fill="url(#g-bolt)"/><rect x="${x + 3}" y="${y - 6.5}" width="6" height="13" rx="1" fill="url(#g-steelV)" stroke="#4d5661" stroke-width=".4"/></g>`,
+  /** C-Channel: the vertical channel in section (40 deep), standing 50 off the wall on its brackets */
+  channel(dy = 0, y0 = -900, y1 = 900) { return `<g transform="translate(0 ${f1(dy)})"><rect x="50" y="${y0}" width="40" height="${y1 - y0}" fill="url(#g-steel)" stroke="#49525c" stroke-width=".5"/><rect x="54" y="${y0}" width="32" height="${y1 - y0}" fill="#39414b" opacity=".55"/><rect x="50" y="${y0}" width="1.2" height="${y1 - y0}" fill="#fff" opacity=".5"/></g>`; },
+  /** C-Channel: a wall bracket (a leg on the wall, an arm out to the channel) at height y */
+  wallBracket(y = 45, dx = 0, glow = 0) { return `<g transform="translate(${f1(dx)} ${y})">` + K.steel("M0 -30 h4 v28 h54 v4 h-54 v28 h-4 Z", glow) + `</g>`; },
+  /** Undercut: the hole in the BACK of the panel (back face at x = gap), k = drilled depth 0..1, w = how far its base is widened 0..1 */
+  ucHole(y, k = 1, w = 1) { const x = K.D.gap, dp = 16 * clamp(k), e = 2.6 * clamp(w); return dp <= 0 ? "" : `<path d="M${x - .3} ${y - 3.5} H${f1(x + dp - 5)} L${f1(x + dp)} ${f1(y - 3.5 - e)} V${f1(y + 3.5 + e)} L${f1(x + dp - 5)} ${y + 3.5} H${x - .3} Z" fill="#1b1e24"/>`; },
+  /** Undercut: the anchor in its hole (out = mm still outside, open = how far its sleeve has spread 0..1) and the hanger that hooks on the rail */
+  ucAnchor(y, out = 0, open = 1) { const x = K.D.gap - out, e = 2.4 * clamp(open); return `<path d="M${x + 11} ${y - 3.2} L${x + 16} ${f1(y - 3.2 - e)} V${f1(y + 3.2 + e)} L${x + 11} ${y + 3.2} Z" fill="#aab4be" stroke="#49525c" stroke-width=".4"/><rect x="${x - 12}" y="${y - 2.4}" width="24" height="4.8" rx="1" fill="url(#g-bolt)"/>`; },
+  hanger(y, a = 1) { const x = K.D.gap; return K.fade(a, K.steel(`M${x} ${y - 9} h-4 v-7 h-22 v14 h3 v-10 h15 v20 h8 Z`) + `<rect x="${x - 10.5}" y="${y - 5}" width="5" height="10" rx="1" fill="url(#g-steelV)" stroke="#4d5661" stroke-width=".4"/>`); },
+  /** Undercut: the horizontal rail on the wall that the hangers hook over (its lip stands up at x 19..22, top at y) */
+  ucRail(y) { return K.steel(`M0 ${y - 18} h4 v26 h18 v-20 h-3 v17 h-15 v25 h-4 Z`) + `<rect x="-.2" y="${y + 14}" width="4.4" height="7" fill="#2a2f36" opacity=".8"/>`; },
   /** arrows of air rising in the gap behind the stone */
   air(t, a = 1, y0 = -420, y1 = 420) {
     let s = ""; const x = K.D.gap / 2;
@@ -185,14 +209,19 @@ function texture(kind, size = 512) {
     const u = i / size, v = j / size; let k = 0, tint = [0, 0, 0];
     if (kind === "limestone" || kind === "white") k = (n1(u * 8, v * 8) - .5) * 22 + (n2(u * 16, v * 16) - .5) * 14 + (n4(u * 128, v * 128) - .5) * 16;
     else if (kind === "travertine") { k = (n2(u * 4, v * 16) - .5) * 36 + (n3(u * 16, v * 64) - .5) * 26 + (n4(u * 128, v * 128) - .5) * 10; if (n3(u * 32 + 5, v * 64 + 9) > .86) k -= 46; }
-    else if (kind === "marble") { const w = n1(u * 8, v * 8) * 5 + n2(u * 16, v * 16) * 2, vein = Math.pow(1 - Math.abs(Math.sin((u * 3 + v * 2 + w) * Math.PI)), 14), vein2 = Math.pow(1 - Math.abs(Math.sin((u * 5 - v * 4 + w * 1.7) * Math.PI)), 26);
-      k = -vein * 92 - vein2 * 48 + (n2(u * 16, v * 16) - .5) * 12; tint = [0, 0, vein * 8]; }
+    else if (kind === "marble") k = (n1(u * 8, v * 8) - .5) * 16 + (n2(u * 16, v * 16) - .5) * 8;   // soft clouds; the veins are drawn below
     else if (kind === "granite") { const sp = n4(u * 128, v * 128), sp2 = n3(u * 64 + 3, v * 64 + 7); k = (sp - .5) * 110 + (sp2 - .5) * 60; if (sp > .8) tint = [22, 10, 4]; }
     else if (kind === "porcelain") k = (n1(u * 8, v * 8) - .5) * 12 + (n2(u * 16, v * 16) - .5) * 5;
     else k = (n2(u * 16, v * 16) - .5) * 26 + (n4(u * 128, v * 128) - .5) * 30;   // concrete
     const o = (j * size + i) * 4; d[o] = clamp(base[0] + k + tint[0], 0, 255); d[o + 1] = clamp(base[1] + k + tint[1], 0, 255); d[o + 2] = clamp(base[2] + k * .92 + tint[2], 0, 255); d[o + 3] = 255;
   }
   x.putImageData(im, 0, 0);
+  if (kind === "marble") {   // a few long soft veins that wander across the tile (drawn nine times so they continue over its edges)
+    for (let i = 0; i < 7; i++) { let a = r() * size, b = r() * size, dir = .5 + r() * .7; const pts = [[a, b]], lw = .8 + r() * 2.4, al = .16 + r() * .22;
+      for (let q = 0; q < 26; q++) { dir += (r() - .5) * .7; a += Math.cos(dir) * 24; b += Math.sin(dir) * 24; pts.push([a, b]); }
+      x.strokeStyle = `rgba(96,100,112,${al.toFixed(2)})`; x.lineWidth = lw; x.lineJoin = x.lineCap = "round"; x.filter = "blur(.7px)";
+      for (const ox of [-size, 0, size]) for (const oy of [-size, 0, size]) { x.beginPath(); pts.forEach(([c, e], n) => n ? x.lineTo(c + ox, e + oy) : x.moveTo(c + ox, e + oy)); x.stroke(); } }
+    x.filter = "none"; }
   if (kind === "concrete") { x.fillStyle = "rgba(60,62,68,.5)"; for (let i = 0; i < 260; i++) { const a = r() * size, b = r() * size, q = 1 + r() * 3.2; x.beginPath(); x.ellipse(a, b, q, q * (.6 + r() * .5), r() * 3, 0, 7); x.fill(); } }
   if (kind === "limestone" || kind === "white") { x.fillStyle = "rgba(120,100,70,.28)"; for (let i = 0; i < 170; i++) { x.beginPath(); x.arc(r() * size, r() * size, .6 + r() * 1.5, 0, 7); x.fill(); } }
   return c.toDataURL("image/png");
@@ -247,7 +276,7 @@ const SCENES = {
         const dx = lerp(170, 0, a), dy = -up + up * b;
         m += K.angle(dx, dy, clamp(1 - K.P(t, 2.0, .6)) * (t > .35 ? 1 : 0)) + K.anchor(lerp(9, 0, K.out(K.P(t, 2.2, .5))), 0, d.anchorY, false);
         const tight = K.P(t, 2.2, 1.3); if (t > 2.15) m += K.fade(K.P(t, 2.15, .2), K.anchor(lerp(9, 0, K.out(K.P(t, 2.2, .5))), K.out(tight) * 9, d.anchorY, true));
-        over += K.tag(800, cy - 330, "زاوية Up-Down", K.pop(t, 1.6), { ar: true }) + K.lead(780, cy - 292, cx + 30 * u, cy - 8, K.P(t, 1.7, .35));
+        over += K.tag(800, cy - 330, p.name || "زاوية Up-Down", K.pop(t, 1.6), { ar: true }) + K.lead(780, cy - 292, cx + 30 * u, cy - 8, K.P(t, 1.7, .35));
         over += K.tag(215, cy + 250, "لسان تحت ↓ في الشق", K.pop(t, 2.7), { ar: true, fs: 38 });
       } else m += K.angle() + K.anchor(0, 0, d.anchorY, true);
     }
@@ -268,6 +297,93 @@ const SCENES = {
         + K.tag(cx + 66 * u, cy + 150, "فاصل 8 مم", K.pop(t, 2.2), { ar: true, fs: 38 }) + K.tag(215, cy - 400, "بدون أسمنت", K.pop(t, 2.7), { ar: true, color: K.C.green });
     }
     return K.sky("studio") + `<g transform="translate(${cx} ${f1(cy + ky)}) scale(${f2(push)}) translate(${-cx} ${-cy})">` + K.mm(cx, cy, u, m) + over + `</g>`;
+  },
+
+  /* PEN (pin) fixing in section: bracket, pin, the stone above. Stages: bracket | pin | upper | gap. */
+  pen(K, t, dur, p) {
+    const d = K.D, st = p.stage || "upper", stone = p.stone, u = 7.2, cx = 430, cy = 1290, n = ["bracket", "pin", "upper", "gap"].indexOf(st), hole = { slotW: 6.5, slotD: 30 };
+    let m = K.wall() + K.stone(d.joint, 900, { stone, kerfTop: true, ...hole }) + K.hole(1), over = "";
+    if (st === "bracket") {
+      const a = K.io(K.P(t, .4, .9)); m += K.bracket(lerp(170, 0, a), 0, clamp(1 - K.P(t, 1.5, .6)) * (t > .4 ? 1 : 0)) + K.anchor(lerp(9, 0, K.out(K.P(t, 1.6, .5))), 0, d.anchorY, false);
+      if (t > 1.55) m += K.fade(K.P(t, 1.55, .2), K.anchor(lerp(9, 0, K.out(K.P(t, 1.6, .5))), K.out(K.P(t, 1.6, 1.3)) * 9, d.anchorY, true));
+      over += K.tag(800, cy - 330, "زاوية حاملة", K.pop(t, 1.4), { ar: true }) + K.lead(780, cy - 292, cx + 30 * u, cy - 6, K.P(t, 1.5, .35)) + K.tag(215, cy + 250, "ثقب في حافة اللوح", K.pop(t, 2.6), { ar: true, fs: 38 });
+    } else m += K.bracket() + K.anchor(0, 0, d.anchorY, true);
+    if (n >= 1) { const k = st === "pin" ? K.land(K.P(t, .5, 1.0)) : 1; m += K.pin(lerp(-170, 0, k));
+      if (st === "pin") over += K.tag(800, cy - 330, "دبوس PEN", K.pop(t, 1.5), { ar: true }) + K.lead(790, cy - 292, cx + 55 * u, cy - 150, K.P(t, 1.6, .35)) + K.tag(215, cy + 250, "نصه تحت ونصه فوق", K.pop(t, 2.3), { ar: true, fs: 38 }); }
+    if (n >= 2) { const k = st === "upper" ? K.P(t, .5, 1.3) : 1; m += K.stone(-900, 0, { stone, kerfBottom: true, ...hole, dy: lerp(-430, 0, K.land(k)) });
+      if (st === "upper") over += K.puff(cx + 55 * u, cy, K.P(t, .5 + 1.3 * .72, .6)) + K.tick(cx + 80 * u, cy - 60, K.out(K.P(t, 2.0, .45)), 40) + K.tag(215, cy - 400, "الدبوس يمسك اللوحين", K.pop(t, 2.2), { ar: true, fs: 38 }); }
+    if (st === "gap") { m += K.air(t, K.P(t, .3, .6));
+      over += K.tag(cx + 20 * u, cy + 38 * u + 62, "فراغ هواء", K.pop(t, 1.0), { ar: true, fs: 40 }) + K.tag(cx + 62 * u, cy + 150, "الدبوس مخفي في الفاصل", K.pop(t, 1.6), { ar: true, fs: 36 }) + K.tag(215, cy - 400, "بدون أسمنت", K.pop(t, 2.2), { ar: true, color: K.C.green }); }
+    const push = 1 + .035 * K.io(K.P(t, 0, dur));
+    return K.sky("studio") + `<g transform="translate(${cx} ${cy}) scale(${f2(push)}) translate(${-cx} ${-cy})">` + K.mm(cx, cy, u, m) + over + `</g>`;
+  },
+
+  /* Vertical C-Channel in section: wall bracket, channel, then the stone's angle bolts to the channel. Stages: bracket | channel | angle | upper | gap. */
+  cchannel(K, t, dur, p) {
+    const d = K.D, st = p.stage || "upper", stone = p.stone, u = 4.7, cx = 190, cy = 1290, n = ["bracket", "channel", "angle", "upper", "gap"].indexOf(st), off = 90;
+    const sx = x => cx + x * u, front = inner => `<g transform="translate(${off} 0)">${inner}</g>`;
+    let m = K.wall() + front(K.stone(d.joint, 900, { stone, kerfTop: true })), over = "";
+    if (st === "bracket") { const a = K.io(K.P(t, .4, .9)); m += K.wallBracket(45, lerp(150, 0, a), clamp(1 - K.P(t, 1.4, .6)) * (t > .4 ? 1 : 0)) + K.fade(K.P(t, 1.4, .25), `<g transform="translate(0 ${60 - d.anchorY})">` + K.anchor(0, K.out(K.P(t, 1.4, 1.2)) * 9, d.anchorY, true) + `</g>`);
+      over += K.tag(560, cy - 120, "زاوية على الجدار", K.pop(t, 1.6), { ar: true, fs: 40 }) + K.lead(520, cy - 84, sx(30), cy + 44 * u, K.P(t, 1.7, .35)); }
+    else m += K.wallBracket(45) + `<g transform="translate(0 ${60 - d.anchorY})">` + K.anchor(0, 0, d.anchorY, true) + `</g>`;
+    if (n >= 1) { const k = st === "channel" ? K.land(K.P(t, .4, 1.2)) : 1; m += K.channel(lerp(-1900, 0, k)) + K.bolt(54, 47, 10, st === "channel" ? K.P(t, 1.7, .25) : 1);
+      if (st === "channel") over += K.tag(790, cy - 330, "مجرى C-Channel رأسي", K.pop(t, 1.5), { ar: true, fs: 42 }) + K.lead(760, cy - 292, sx(72), cy - 150, K.P(t, 1.6, .35)) + K.tag(800, cy - 120, "من خرسانة لخرسانة", K.pop(t, 2.4), { ar: true, fs: 38 }); }
+    if (n >= 2) { if (st === "angle") { const a = K.io(K.P(t, .35, .9)), b = K.land(K.P(t, 1.3, .75)), up = d.tongue + 4;
+        m += front(K.angle(lerp(170, 0, a), -up + up * b, clamp(1 - K.P(t, 2.0, .6)) * (t > .35 ? 1 : 0))) + K.bolt(off + d.th, d.anchorY, 16, K.P(t, 2.1, .25));
+        over += K.tag(780, cy - 330, "زاوية الحجر على المجرى", K.pop(t, 1.7), { ar: true, fs: 40 }) + K.lead(760, cy - 292, sx(off + 30), cy - 8, K.P(t, 1.8, .35)); }
+      else m += front(K.angle()) + K.bolt(off + d.th, d.anchorY, 16); }
+    if (n >= 3) { const k = st === "upper" ? K.P(t, .5, 1.3) : 1; m += front(K.stone(-900, 0, { stone, kerfBottom: true, dy: lerp(-460, 0, K.land(k)) }));
+      if (st === "upper") over += K.puff(sx(off + 55), cy, K.P(t, .5 + 1.3 * .72, .6)) + K.tick(sx(off + 82), cy - 60, K.out(K.P(t, 2.0, .45)), 40); }
+    if (st === "gap") over += K.tag(300, cy - 330, "الجدار ضعيف؟", K.pop(t, .8), { ar: true, fs: 40 }) + K.tag(760, cy - 240, "المجرى هو اللي يشيل", K.pop(t, 1.5), { ar: true, fs: 40, color: K.C.green }) + K.lead(700, cy - 202, sx(72), cy - 100, K.P(t, 1.6, .35));
+    const push = 1 + .03 * K.io(K.P(t, 0, dur));
+    return K.sky("studio") + `<g transform="translate(${cx} ${cy}) scale(${f2(push)}) translate(${-cx} ${-cy})">` + K.mm(cx, cy, u, m) + over + `</g>`;
+  },
+
+  /* Kerf rail. Stage front: one long rail goes onto the row below, then the next row comes down onto it. Stages section | gap: its section (the same shape as the angle, but continuous). */
+  kerfrail(K, t, dur, p) {
+    if (p.stage === "section") return SCENES.updown(K, t, dur, { stage: "angle", stone: p.stone, name: "مجرى Kerf أفقي" });
+    if (p.stage === "upper" || p.stage === "gap") return SCENES.updown(K, t, dur, { stage: p.stage, stone: p.stone });
+    const stone = K.stoneOf(p.stone), cols = 3, j = 9, x0 = 90, wAll = W - 180, pw = (wAll - j * (cols - 1)) / cols, ph = 250, yJ = 1330;
+    let s = K.sky("studio") + `<rect x="${x0 - 24}" y="880" width="${wAll + 48}" height="760" fill="url(#tx-concrete)"/><rect x="${x0 - 24}" y="880" width="${wAll + 48}" height="760" fill="#0a0e18" opacity=".35"/>`;
+    const panel = (x, y) => `<g transform="translate(${f1(x)} ${f1(y)})"><rect width="${f1(pw)}" height="${ph}" fill="${K.tex(stone)}"/><rect width="${f1(pw)}" height="${ph}" fill="url(#g-facadeshade)"/><rect width="${f1(pw)}" height="3" fill="#fff" opacity=".25"/></g>`;
+    for (let c = 0; c < cols; c++) s += panel(x0 + c * (pw + j), yJ + j);
+    const r = K.out(K.P(t, .4, 1.1)), rw = wAll + 20;   // the rail slides in along the top edge of the row
+    s += `<g transform="translate(${f1(lerp(-rw - 60, x0 - 10, r))} ${yJ - 22})"><rect width="${rw}" height="34" rx="3" fill="url(#g-steelV)" stroke="#49525c" stroke-width="1.5"/><rect y="3" width="${rw}" height="3" fill="#fff" opacity=".5"/></g>`;
+    for (let i = 0; i < 5; i++) { const a = K.pop(t, 1.6 + i * .12, .3); if (a > 0) s += `<g transform="translate(${f1(x0 + 60 + i * (wAll - 120) / 4)} ${yJ - 5}) scale(${f2(a)})"><circle r="11" fill="#59626c" stroke="#2c3138" stroke-width="2"/><path d="M-6 0 H6" stroke="#c9d1da" stroke-width="2.5"/></g>`; }
+    for (let c = 0; c < cols; c++) { const k = K.P(t, 2.5 + c * .3, .7); if (k > 0) s += panel(x0 + c * (pw + j), lerp(yJ - ph - 420, yJ - ph, K.land(k))); }
+    return s + K.tag(540, 1560, "مجرى واحد على طول الصف", K.pop(t, 1.9), { ar: true, fs: 42 });
+  },
+
+  /* Undercut anchors. Stages: drill (the hole in the back of the panel) | anchor (anchor and hanger) | hang (the panel hooks onto the rail) | face (the finished face: one panel comes off alone). */
+  undercut(K, t, dur, p) {
+    const d = K.D, st = p.stage || "hang", stone = p.stone;
+    if (st === "face") {
+      const cols = 3, rows = 3, j = 10, x0 = 110, wAll = W - 220, pw = (wAll - j * (cols - 1)) / cols, ph = 175, y0 = 900, lift = K.io(K.P(t, 1.0, .7)) * (1 - K.io(K.P(t, 2.8, .7)));
+      let s = K.sky("studio") + `<rect x="${x0 - 20}" y="${y0 - 20}" width="${wAll + 40}" height="${rows * (ph + j) + 30}" fill="#0a0e18" opacity=".6"/>`, top = "";
+      for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) { const me = r === 1 && c === 1, x = x0 + c * (pw + j), y = y0 + r * (ph + j);
+        const g = `<g transform="translate(${f1(x + pw / 2)} ${f1(y + ph / 2 - (me ? 26 * lift : 0))}) scale(${f2(me ? 1 + .12 * lift : 1)})" ${me && lift > 0 ? 'filter="url(#f-shadow)"' : ""}><rect x="${f1(-pw / 2)}" y="${-ph / 2}" width="${f1(pw)}" height="${ph}" fill="${K.tex(K.stoneOf(stone))}"/><rect x="${f1(-pw / 2)}" y="${-ph / 2}" width="${f1(pw)}" height="${ph}" fill="url(#g-facadeshade)"/></g>`;
+        if (me) top = g; else s += g; }
+      return s + top + K.tag(540, 1610, "كل لوح ينفك لحاله", K.pop(t, 1.5), { ar: true, fs: 44 }) + K.tag(540, 1520, "ولا شي ظاهر على الوجه", K.pop(t, .5), { ar: true, fs: 40, color: K.C.green });
+    }
+    if (st === "drill" || st === "anchor") {   // the panel alone, close up: back face on the left
+      const u = 15, cx = 60, cy = 1260, sx = x => cx + (x - d.gap + 14) * u; let m = "", over = "";
+      const dk = st === "drill" ? K.io(K.P(t, .5, 1.1)) : 1, wk = st === "drill" ? K.io(K.P(t, 1.8, .9)) : 1;
+      m += K.stone(-200, 200, { stone }) + K.ucHole(0, dk, wk);
+      if (st === "drill") { const back = K.io(K.P(t, 2.9, .5)), bx = d.gap + 16 * dk - 300 * back - 60 * (1 - K.out(K.P(t, 0, .4))), wob = wk > 0 && wk < 1 ? 1.6 * Math.sin(t * 28) : 0;
+        if (back < 1) m += `<g transform="translate(${f1(bx)} ${f1(wob)})"><rect x="-70" y="-3.2" width="70" height="6.4" rx="1" fill="#5b636d"/><rect x="-8" y="-4.6" width="8" height="9.2" rx="1" fill="#3a4049"/><rect x="-170" y="-16" width="100" height="32" rx="6" fill="#d9a441"/></g>`;
+        over += K.tag(sx(d.gap) + 260, cy - 300, "ثقب من ظهر اللوح", K.pop(t, 1.2), { ar: true, fs: 42 }) + K.tag(sx(d.gap) + 300, cy + 300, "قاعدته أوسع", K.pop(t, 2.5), { ar: true, fs: 42 }) + K.lead(sx(d.gap) + 300, cy + 262, sx(d.gap + 15), cy + 60, K.P(t, 2.6, .35))
+          + K.tag(sx(d.gap + 30) + 150, cy, "الوجه سليم", K.pop(t, 3.2), { ar: true, fs: 40, color: K.C.green });
+      } else { const ins = K.out(K.P(t, .4, .8)), op = K.out(K.P(t, 1.4, .6)); m += K.ucAnchor(0, lerp(60, 0, ins), op) + K.hanger(0, K.P(t, 2.3, .3));
+        over += K.tag(sx(d.gap) + 300, cy - 300, "مرساة Undercut", K.pop(t, .9), { ar: true, fs: 42 }) + K.tag(sx(d.gap) + 320, cy + 300, "تفتح وتقفل بشكلها", K.pop(t, 1.7), { ar: true, fs: 42 }) + K.lead(sx(d.gap) + 320, cy + 262, sx(d.gap + 14), cy + 50, K.P(t, 1.8, .35)) + K.tag(170, cy - 170, "مشبك التعليق", K.pop(t, 2.6), { ar: true, fs: 38 }); }
+      return K.sky("studio") + K.mm(cx, cy, u, `<g transform="translate(${14 - d.gap} 0)">${m}</g>`) + over;
+    }
+    const u = 7.2, cx = 430, cy = 1290, a = K.io(K.P(t, .4, 1.0)), b = K.land(K.P(t, 1.5, .8));   // hang: across above the rail's lip, then down onto it
+    const dx = lerp(120, 0, a), dy = -34 + 34 * b, yR = -12;
+    let m = K.wall() + K.ucRail(yR) + `<g transform="translate(0 ${21})">` + K.anchor(0, 0, d.anchorY, true) + `</g>` + K.ucRail(yR + 330) + K.stone(d.joint + 4, 900, { stone });
+    m += `<g transform="translate(${f1(dx)} ${f1(dy)})">` + K.stone(-330, 0, { stone }) + K.ucHole(-9, 1, 1) + K.ucAnchor(-9, 0, 1) + K.hanger(-9) + `</g>`;
+    const over = K.puff(cx + 20 * u, cy - 80, K.P(t, 1.5 + .8 * .72, .5), 6, 40) + K.tag(800, cy - 330, "مجرى أفقي على الجدار", K.pop(t, .8), { ar: true, fs: 40 }) + K.lead(780, cy - 292, cx + 14 * u, cy - 110, K.P(t, .9, .35))
+      + K.tag(215, cy + 250, "اللوح يتعلق من ظهره", K.pop(t, 2.5), { ar: true, fs: 38 }) + K.tick(cx + 82 * u, cy - 60, K.out(K.P(t, 2.4, .45)), 40);
+    return K.sky("studio") + K.mm(cx, cy, u, m) + over;
   },
 
   /* The facade from the front: rows of panels come down onto the angles of the row below, bottom row first. */
