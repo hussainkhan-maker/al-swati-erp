@@ -113,3 +113,14 @@ Database ke qawaid ka test: koi bhi developer `supabase/tests/01_rules_test.sql`
 - **Mukhtalif Gmail accounts:** har Gmail par wahi script lagayein.
 
 Kharcha: Supabase free se shuru hota hai, lekin asal kaam ke liye Pro plan lein, kyunki free project kuch din istemaal na ho to ruk jata hai. Claude API ka bill istemaal ke hisaab se aata hai, is liye console.anthropic.com par mahine ki limit set kar dein. Expo build ka free tier hai. Apple $99 saal, Google Play $25 ek baar.
+
+## Supabase functions kaise deploy hote hain
+
+Har function ka code yahan `supabase/functions/<naam>/index.ts` mein hai. Supabase par jo function deploy hai wo
+sirf ek line ki file hai jo yahi file GitHub se ek fixed commit par import karti hai, masalan:
+
+    import "https://raw.githubusercontent.com/hussainkhan-maker/al-swati-erp/<commit>/supabase/functions/seo/index.ts";
+
+Deploy ke waqt Supabase ye code function mein copy kar leta hai, is liye live function khud se nahi badalta.
+Function badalna ho to pehle yahan commit karein, phir wahi ek line wali file naye commit ke saath deploy karein.
+Abhi is tarah: seo, ai, blog-media (commit 3695e6c, 26 Nov 2026).
