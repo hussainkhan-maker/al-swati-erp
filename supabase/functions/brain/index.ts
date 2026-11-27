@@ -182,24 +182,28 @@ async function triage(_s: any) {
   if (!rows?.length) return "nothing to review";
   const { data: wait } = await db.from("agent_inbox").select("title").eq("status", "waiting").neq("kind", "request").limit(20);
   const room = Math.max(0, 5 - (wait || []).length);
+  const { data: past } = await db.from("agent_inbox").select("title, status, result").in("status", ["done", "rejected"]).eq("kind", "approval").gte("created_at", new Date(Date.now() - 30 * D).toISOString()).order("created_at", { ascending: false }).limit(40);
   const seo = await pref("seo_state");
   const used: Usage = { model: "" };
   const out = await ask([MAIN, ...MAIN_FALLBACK], `You are the main agent: the one who decides. The growth agents prepared the proposals below. The owner, Hussain, has said: he looks only at money; everything else you decide and the team does without asking him. Decide as a careful owner would: only what should bring client queries or remove a real fault, never busywork. For each proposal choose:
 "owner" = ONLY when it touches money: a price or rate shown on the website, the calculator or a quotation, spending money (a paid tool, an advert, a purchase), a discount or an offer. Also when it cannot be done without something only he has (a real site photo, a fact about a project): then say in "benefit" exactly what he must give.
 "auto"  = worth doing and touches no money: it is done without asking him (a page improved, a new page or article, a title or description, a fix). Be strict: choose it only when the expected gain is clear from the numbers.
 "drop"  = weak, a repeat of something already waiting or done, not honest for a cladding contractor, or little benefit for the work it needs.
+Talking about cost is not money: a page that explains what moves the price without printing a figure is "auto"; only a figure, a rate or spending is "owner".
+First read ALREADY DONE OR DROPPED: a proposal that repeats one of those, asks for a page that already exists, or says something that was checked and found untrue there, is "drop" with that reason.
 At most ${room} may be "owner".
 Return ONLY JSON: {"items":[{"n":<number>,"action":"owner|auto|drop","score":<1-10>,"benefit":"<simple Roman Urdu, one line: what the company gains and the number behind it; no invented numbers>","reason":"<for drop: why, one short line in Roman Urdu>"}]}
 PROPOSALS: ${JSON.stringify(rows.map((r: any, i: number) => ({ n: i + 1, from: r.source, type: r.data?.type, title: r.title, text: String(r.body || "").slice(0, 600) })))}
 ALREADY WAITING FOR HIM: ${JSON.stringify((wait || []).map((w: any) => w.title))}
+ALREADY DONE OR DROPPED, last 30 days (what was found): ${JSON.stringify((past || []).map((x: any) => ({ title: x.title, status: x.status, found: String(x.result || "").slice(0, 220) })))}
 WEBSITE, last 28 days: ${JSON.stringify({ totals: seo.summary?.totals, visitors: seo.summary?.web?.week })}`, 2500, used);
   let owner = 0, auto = 0, drop = 0;
   for (const it of (out.items || []) as any[]) {
     const row: any = rows[Number(it.n) - 1];
     if (!row) continue;
     const data = { ...(row.data || {}), benefit: clean(it.benefit, 300), score: Math.max(1, Math.min(10, Number(it.score) || 5)) };
-    // Money never goes through by itself, whatever the model chose.
-    const money = /\b(price|prices|rate|rates|sar|riyal|discount|budget|paid plan|subscription|advert|ads)\b|سعر|أسعار|ريال|خصم/i.test(`${row.title} ${row.body || ""}`) || row.data?.type === "price";
+    // A proposal that an agent marked as a price change never goes through by itself, whatever the model chose.
+    const money = row.data?.type === "price";
     if (money && it.action === "auto") it.action = "owner";
     const canAuto = !money;
     if (it.action === "drop" || (it.action !== "auto" && owner >= room && !money)) {
