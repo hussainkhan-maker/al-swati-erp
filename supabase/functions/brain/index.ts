@@ -42,18 +42,24 @@ async function call(model: string, prompt: string, max: number, searches = 0) {
   const j = await r.json();
   const u = j.usage || {};
   await db.from("ai_usage").insert({ task: "brain", model, input_tokens: u.input_tokens || 0, output_tokens: u.output_tokens || 0, cache_read: u.cache_read_input_tokens || 0, cache_write: u.cache_creation_input_tokens || 0 }).then(() => {}, () => {});
-  return (j.content ?? []).filter((c: { type: string }) => c.type === "text").map((c: { text: string }) => c.text).join("");
-}
-/** Ask a model; when it is not available to this API key, try the next one. Says which model really answered. */
-async function ask(models: string[], prompt: string, max: number, used: Usage, searches = 0) {
-  let last: unknown = null;
-  for (const m of models) { try { const out = await call(m, prompt, max, searches); used.model = m; return out; } catch (e) { last = e; console.error(String(e)); } }
-  throw last;
+  const text = (j.content ?? []).filter((c: { type: string }) => c.type === "text").map((c: { text: string }) => c.text).join("");
+  if (!text.trim()) throw new Error(`Empty answer (${model}), stop: ${j.stop_reason}`);
+  return text;
 }
 function asJson(t: string): any {
   const a = t.indexOf("{"), b = t.lastIndexOf("}");
-  if (a < 0 || b <= a) throw new Error("The model did not return JSON");
+  if (a < 0 || b <= a) throw new Error("No JSON in the answer: " + t.slice(0, 120));
   return JSON.parse(t.slice(a, b + 1));
+}
+/** Ask a model for JSON. An empty or cut answer is asked once more with three times the room; a model this API key
+ *  cannot use is skipped for the next one. Says which model really answered. */
+async function ask(models: string[], prompt: string, max: number, used: Usage, searches = 0): Promise<any> {
+  let last: unknown = null;
+  for (const m of models) for (const k of [1, 3]) {
+    try { const out = asJson(await call(m, prompt, max * k, searches)); used.model = m; return out; }
+    catch (e) { last = e; console.error(String(e)); if (/AI \d{3} /.test(String(e))) break; }
+  }
+  throw last;
 }
 
 async function pref(key: string): Promise<any> {
@@ -86,7 +92,7 @@ async function decide(s: any, force: boolean) {
   if (!force && s.decided_report === rep.id) return "already decided";
   const [{ data: ledger }, seo, inbox] = await Promise.all([db.from("project_ledger").select("name, installed, net, cost, profit, sub_due"), pref("seo_state"), waitingRows()]);
   const used: Usage = { model: "" };
-  const out = asJson(await ask([MAIN, ...MAIN_FALLBACK], `You are the main agent of the company's ERP: the one who decides. The other agents only collect and prepare. Read everything below and decide for the owner, Hussain. He reads simple Roman Urdu (Urdu in Latin letters); numbers as digits.
+  const out = (await ask([MAIN, ...MAIN_FALLBACK], `You are the main agent of the company's ERP: the one who decides. The other agents only collect and prepare. Read everything below and decide for the owner, Hussain. He reads simple Roman Urdu (Urdu in Latin letters); numbers as digits.
 
 Return ONLY this JSON:
 {"summary":"exactly these 6 lines, one per line:\\nProjects: ...\\nAlerts: ...\\nProcurement: ...\\nPaisa: ...\\nWebsite: ...\\nAgla kaam: <the one approval or button he should do first>",
@@ -119,7 +125,7 @@ async function ranking(s: any) {
   const todo = near.filter((x: any) => !busy.has(x.q)).slice(0, 8);
   if (!todo.length) return "every close keyword already has a proposal";
   const used: Usage = { model: "" };
-  const out = asJson(await ask([WORK], `You are the ranking agent. These Google searches show our website between position 4 and 30 (q = search, pos = average position, was = position 28 days before, impr = times shown, page = our page that ranks). Pick the 3 with the best chance to reach page 1 and write ONE concrete change for each page.
+  const out = (await ask([WORK], `You are the ranking agent. These Google searches show our website between position 4 and 30 (q = search, pos = average position, was = position 28 days before, impr = times shown, page = our page that ranks). Pick the 3 with the best chance to reach page 1 and write ONE concrete change for each page.
 ${orderFor(s, "ranking") ? "The main agent's order for this week: " + orderFor(s, "ranking") : ""}
 Return ONLY JSON: {"proposals":[{"keyword":"<q exactly>","page":"<page>","pos":<number>,"title":"<max 14 words: what to change>","change":"<the change, ready to apply: new title tag (max 60 characters), new meta description (max 155), and one section to add with its heading and 80-120 words of text in the page's language (Arabic page → Arabic). End with one line: Why: <reason from the numbers>>"}]}
 DATA: ${JSON.stringify(todo)}`, 3000, used));
@@ -135,7 +141,7 @@ async function ideas(s: any) {
   const [seo, { data: posts }, { data: past }] = await Promise.all([pref("seo_state"), db.from("blog_posts").select("title, area").order("created_at", { ascending: false }).limit(80),
     db.from("agent_inbox").select("title").eq("source", "ideas").order("created_at", { ascending: false }).limit(60)]);
   const used: Usage = { model: "" };
-  const out = asJson(await ask([WORK, FAST], `You are the ideas agent for the company's growth. Give 3 new ideas for this week that can bring client queries from Google, Google Maps, YouTube Shorts or TikTok. Each one different in type when possible. Base them on what people really search (data below); never repeat something already written or already proposed.
+  const out = (await ask([WORK, FAST], `You are the ideas agent for the company's growth. Give 3 new ideas for this week that can bring client queries from Google, Google Maps, YouTube Shorts or TikTok. Each one different in type when possible. Base them on what people really search (data below); never repeat something already written or already proposed.
 ${orderFor(s, "ideas") ? "The main agent's order for this week: " + orderFor(s, "ideas") : ""}
 Return ONLY JSON: {"ideas":[{"type":"post|district|video|gbp","lang":"ar|en","title":"<the idea as a title, max 14 words>","keyword":"<the search it aims at>","plan":"<3 short lines: what it contains, why now (the number), what the owner must give if anything (a photo, a rate)>"}]}
 SEARCHES CLOSE TO PAGE 1: ${JSON.stringify((seo.summary?.striking || []).slice(0, 10))}
@@ -154,7 +160,7 @@ async function competitor(s: any) {
   const mine = (seo.summary?.striking || []).slice(0, 3).map((x: any) => x.q);
   const kws = [...new Set([...mine, "تركيب حجر واجهات الرياض", "تركيب رخام واجهات الرياض", "stone cladding contractor Riyadh", "mechanical fixing stone facade Saudi Arabia"])].slice(0, 5);
   const used: Usage = { model: "" };
-  const out = asJson(await ask([WORK], `You are the competitor agent. Search the web for each of these searches (one search each) and look at who shows up in Saudi Arabia: ${JSON.stringify(kws)}.
+  const out = (await ask([WORK], `You are the competitor agent. Search the web for each of these searches (one search each) and look at who shows up in Saudi Arabia: ${JSON.stringify(kws)}.
 ${orderFor(s, "competitor") ? "The main agent's order for this week: " + orderFor(s, "competitor") : ""}
 Then return ONLY JSON: {"competitors":[{"name":"","site":"","strong":"<what their site has that helps them rank: page types, calculators, galleries, Arabic pages, reviews; one sentence, only what you saw>"}],
  "proposals":[{"title":"<max 14 words: what we should add or change>","body":"<what exactly, on which of our pages or as which new page, and which competitor shows it works; 3-5 lines. Only things a cladding contractor can honestly do>"}]}
