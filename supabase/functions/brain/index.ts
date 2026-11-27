@@ -4,9 +4,9 @@
 //  • ranking agent – weekly: keywords close to page 1 in Google Search Console → one concrete page change each.
 //  • ideas agent   – daily: 3 new ideas (post, district page, video, Google Maps post).
 //  • competitor agent – weekly: who shows up for our keywords on the web, and what they have that we do not.
-// Everything an agent proposes goes to the table agent_inbox as "review". The main agent then sorts it: at most 5 things
-// reach the owner (status "waiting", best first, each with its benefit), a blog idea may go straight to the writing queue,
-// weak ones are dropped with the reason. Nothing is published from here.
+// Everything an agent proposes goes to the table agent_inbox as "review". The main agent then sorts it. The owner's rule:
+// he looks only at money. So only money matters (prices, rates, spending) and things that need a photo or fact from him
+// reach him (status "waiting"); the rest is approved here and done by the team; weak ones are dropped with the reason.
 // Actions: "tick" (scheduler, every 30 min: does at most one job that is due), "run" (Super-Admin: {agent, force}),
 //          "apply" (Super-Admin: {id} after Approve – a blog idea goes to the SEO agent's writing queue).
 import { createClient } from "npm:@supabase/supabase-js@2.45.4";
@@ -101,6 +101,7 @@ Return ONLY this JSON:
  "decisions":[{"title":"<the finding, or the one thing only he can do, max 12 words>","why":"<the fact and number behind it, one sentence>","detail":"<what you worked out yourself: the breakdown, the list or the plan, 3 to 6 short lines separated by \\n, every number from the data>","area":"sales|site|money|buying|website|company"}],
  "orders":[{"agent":"ranking|ideas|competitor","focus":"<what that growth agent should work on this week, one sentence>"}]}
 Do the checking yourself. Never tell him to check, review, find out, look into or make a plan: work it out from the data and give him the result in "detail" (for money owed to subcontractors: who is owed how much, from SUBCONTRACTORS; for a loss: which numbers make it). A decision is only something he alone can do: approve, pay, call someone, or give a number that is missing; if the data cannot explain something, name exactly the number that is missing. In PROJECTS, profit = net + loan_deducted - cost - sub_work (work done x subcontractor rate), so a "loss" with a low cost usually means subcontract work that is done but not yet paid: show that sum instead of calling it a mismatch.
+He has said he looks only at money and the team runs the rest: so decisions are only about money (who owes, who is to be paid, a loss, a price, a bill or a measurement waiting for his yes). Anything about the website, content or the app you settle yourself through "orders" and never put in "decisions".
 At most 3 decisions, most important first: money at risk and deadlines before everything else. At most 3 orders. If there is nothing only he can do, return empty lists and say so in the summary. Use only the data below.
 
 WHAT THE AGENTS FOUND TODAY: ${JSON.stringify((rep.items || []).slice(0, 80))}
@@ -175,7 +176,7 @@ At most 6 competitors (real companies you saw in the results, no directories) an
   return `competitors: ${s.competitors.length}, proposals: ${n}`;
 }
 
-// ───────── Main agent again: which proposals are worth the owner's yes ─────────
+// ───────── Main agent again: the owner sees only money; the rest is decided here and done ─────────
 async function triage(_s: any) {
   const { data: rows } = await db.from("agent_inbox").select("id, source, title, body, data").eq("status", "review").order("created_at").limit(20);
   if (!rows?.length) return "nothing to review";
@@ -183,11 +184,11 @@ async function triage(_s: any) {
   const room = Math.max(0, 5 - (wait || []).length);
   const seo = await pref("seo_state");
   const used: Usage = { model: "" };
-  const out = await ask([MAIN, ...MAIN_FALLBACK], `You are the main agent: the one who decides. The growth agents prepared the proposals below. The owner, Hussain, wants to see only what is worth his yes; you handle the rest. For each proposal choose:
-"owner" = worth his approval because it changes something the public sees (a page, a post, a video) and should bring client queries.
-"auto"  = only for a blog post idea (type "post"): it goes to the writing queue now; he still approves the finished draft before it is published.
-"drop"  = weak, a repeat of something already waiting, not honest for a cladding contractor, or little benefit for the work it needs.
-At most ${room} may be "owner": the ones with the highest expected benefit in client queries for the least work. Everything else is "auto" (if allowed) or "drop".
+  const out = await ask([MAIN, ...MAIN_FALLBACK], `You are the main agent: the one who decides. The growth agents prepared the proposals below. The owner, Hussain, has said: he looks only at money; everything else you decide and the team does without asking him. Decide as a careful owner would: only what should bring client queries or remove a real fault, never busywork. For each proposal choose:
+"owner" = ONLY when it touches money: a price or rate shown on the website, the calculator or a quotation, spending money (a paid tool, an advert, a purchase), a discount or an offer. Also when it cannot be done without something only he has (a real site photo, a fact about a project): then say in "benefit" exactly what he must give.
+"auto"  = worth doing and touches no money: it is done without asking him (a page improved, a new page or article, a title or description, a fix). Be strict: choose it only when the expected gain is clear from the numbers.
+"drop"  = weak, a repeat of something already waiting or done, not honest for a cladding contractor, or little benefit for the work it needs.
+At most ${room} may be "owner".
 Return ONLY JSON: {"items":[{"n":<number>,"action":"owner|auto|drop","score":<1-10>,"benefit":"<simple Roman Urdu, one line: what the company gains and the number behind it; no invented numbers>","reason":"<for drop: why, one short line in Roman Urdu>"}]}
 PROPOSALS: ${JSON.stringify(rows.map((r: any, i: number) => ({ n: i + 1, from: r.source, type: r.data?.type, title: r.title, text: String(r.body || "").slice(0, 600) })))}
 ALREADY WAITING FOR HIM: ${JSON.stringify((wait || []).map((w: any) => w.title))}
@@ -197,8 +198,11 @@ WEBSITE, last 28 days: ${JSON.stringify({ totals: seo.summary?.totals, visitors:
     const row: any = rows[Number(it.n) - 1];
     if (!row) continue;
     const data = { ...(row.data || {}), benefit: clean(it.benefit, 300), score: Math.max(1, Math.min(10, Number(it.score) || 5)) };
-    const canAuto = row.source === "ideas" && row.data?.type === "post";
-    if (it.action === "drop" || (it.action !== "auto" && owner >= room) || (it.action === "auto" && !canAuto && owner >= room)) {
+    // Money never goes through by itself, whatever the model chose.
+    const money = /\b(price|prices|rate|rates|sar|riyal|discount|budget|paid plan|subscription|advert|ads)\b|سعر|أسعار|ريال|خصم/i.test(`${row.title} ${row.body || ""}`) || row.data?.type === "price";
+    if (money && it.action === "auto") it.action = "owner";
+    const canAuto = !money;
+    if (it.action === "drop" || (it.action !== "auto" && owner >= room && !money)) {
       await db.from("agent_inbox").update({ status: "rejected", decided_at: new Date().toISOString(), result: "Main agent: " + (clean(it.reason, 240) || "kam fayda, is hafte nahi"), data }).eq("id", row.id); drop++;
     } else if (it.action === "auto" && canAuto) {
       await db.from("agent_inbox").update({ status: "approved", decided_at: new Date().toISOString(), data }).eq("id", row.id);
