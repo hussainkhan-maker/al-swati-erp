@@ -19,7 +19,14 @@ export const pref = (d: any, key: string, dflt: any) => ({ ...dflt, ...((d.prefe
 export const quoteTotal = (q: any) => r2((q.lines || []).reduce((s: number, l: any) => s + (Number(l.qty) || 0) * (Number(l.rate) || 0), 0));
 
 /** Lowest price we really paid for this material (invoice lines, Arabic or English names, same size), else the price list. */
-export const lowestCost = (d: any, desc: string): number | null => priceSummary(d, desc)?.lowest.price ?? priceHint(d, desc)?.cost?.price ?? null;
+/** What a material costs us for pricing: the lowest price on our own bills plus the owner's uplift (10% unless he sets another).
+ *  The bill's real amount stays in the project's costs; this figure is only what quotations are built on. */
+export const lowestCost = (d: any, desc: string): number | null => {
+  const raw = priceSummary(d, desc)?.lowest.price ?? priceHint(d, desc)?.cost?.price ?? null;
+  if (raw == null) return null;
+  const up = Number(((d.preferences || []).find((p: any) => p.key === "margin")?.value || {}).uplift ?? 10);
+  return Math.round(raw * (1 + (Number.isFinite(up) ? up : 10) / 100) * 100) / 100;
+};
 
 export function priceHint(d: any, desc: string) {
   const m = matchItems(desc, d.items || [])[0];

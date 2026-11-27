@@ -222,10 +222,11 @@ export function Dashboard({ go }: { go?: (k: string) => void } = {}) {
     { k: "buying", icon: "truck", title: "Buying", n: reqWait, unit: reqWait === 1 ? "price request waiting" : "price requests waiting",
       line: rises.length ? `${plural(rises.length, "price rise", "price rises")} in the last 30 days` : "No price rise in the last 30 days", to: "suppliers" },
     { k: "website", icon: "spark", title: "Website", n: blogDrafts, unit: blogDrafts === 1 ? "website draft to review" : "website drafts to review",
-      line: `${plural(flagged.filter((i) => i.area === "website").length, "note", "notes")} from the website agent`, to: "growth" },
+      line: `${plural(flagged.filter((i) => i.area === "website").length, "note", "notes")} on the website`, to: "growth" },
     { k: "company", icon: "people", title: "Company", n: (d.profiles || []).length, unit: "people in the app",
       line: noRate ? `${plural(noRate, "subcontractor", "subcontractors")} without a rate` : "Every subcontractor has a rate", to: "people" },
   ];
+  const measWait = ((d.site_sheets || []) as any[]).filter((x) => x.kind === "measure" && x.status === "final").length;
   const openOrders = ((d.site_sheets || []) as any[]).filter((x) => x.kind !== "measure" && x.status === "final").length;
   const inboxWait = ((d.agent_inbox || []) as any[]).filter((x) => x.kind !== "request" && x.status === "waiting");
   const brainState = ((d.preferences || []).find((p: any) => p.key === "brain_state")?.value || {}) as any;
@@ -237,6 +238,7 @@ export function Dashboard({ go }: { go?: (k: string) => void } = {}) {
     { n: (d.suppliers || []).filter((x: any) => x.approved === false).length, text: "Suppliers found on the web, to approve", from: "Supplier finder", to: "suppliers", go: "Suppliers" },
     { n: (d.blog_posts || []).filter((x: any) => x.status === "Draft" && !x.area).length, text: "Blog drafts to read and publish", from: "Website (SEO) agent", to: "growth", go: "Growth" },
     { n: (d.blog_posts || []).filter((x: any) => x.status === "Draft" && x.area).length, text: "District page drafts to read and publish", from: "Website (SEO) agent · Growth, District pages", to: "growth", go: "Growth" },
+    { n: measWait, text: measWait === 1 ? "Measurement from site to approve" : "Measurements from site to approve", from: "Site supervisors", to: "sheets", go: "Open" },
     { n: openOrders, text: openOrders === 1 ? "Order placed, invoice photo still missing" : "Orders placed, invoice photo still missing", from: "Site supervisors", to: "sheets", go: "Open" },
     { n: vidWait, text: vidWait === 1 ? "Video to review before it is posted" : "Videos to review before they are posted", from: "Video agent", to: "growth", go: "Growth" },
   ] as { n: number; text: string; from: string; to: string; go: string }[]).filter((a) => a.n > 0);
@@ -709,7 +711,7 @@ export function Projects() {
           {siteRows.length ? siteRows.map((sh: any, i: number) => (
             <Row key={sh.id} style={{ paddingVertical: 9, borderTopWidth: i ? 1 : 0, borderColor: c.line }}>
               <View style={{ flex: 1 }}><T bold size={14}>{sh.kind === "material" ? "Material order" : sh.kind === "stone" ? "Stone sizes" : "Measurement"}{sh.party ? " · " + sh.party : ""}</T><T size={12} muted>{dkey(sh)} · {(sh.lines || []).length} lines{sh.kind !== "material" ? ` · ${money(sh.total)} m²` : ""}</T></View>
-              <Pill kind={sh.status === "paid" ? "good" : sh.status === "final" ? (sh.kind === "measure" ? "good" : "warn") : "plain"} text={sh.status === "paid" ? "Invoice saved" : sh.status === "final" ? (sh.kind === "measure" ? "Added to m²" : "Invoice photo missing") : "Draft"} />
+              <Pill kind={sh.status === "paid" ? "good" : sh.status === "final" ? "warn" : "plain"} text={sh.status === "paid" ? (sh.kind === "measure" ? "Added to m²" : "Invoice saved") : sh.status === "final" ? (sh.kind === "measure" ? "Waiting for approval" : "Invoice photo missing") : "Draft"} />
             </Row>)) : <T muted>Nothing yet. Supervisors add these in Orders & measurements.</T>}
         </Card> : null}
 

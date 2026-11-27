@@ -34,7 +34,7 @@ function MoreAdmin({ go }: { go: (k: string) => void }) {
       {([["Site", [["folder", "Projects", "Company, fee, sites, subcontractors", "projects"], ["ruler", "Orders & measurements", "Material orders, stone sizes, contractor meters", "sheets"], ["pin", "Team on site", "Live 06:00–18:00", "team"]]],
          ["Sales", [["inbox", "RFIs", "Questions to consultants, follow-ups", "rfis"], ["spark", "Growth", "Blog for Google, videos, outreach", "growth"]]],
          ["Buying", [["truck", "Suppliers", "Directory and price requests", "suppliers"], ["tag", "Materials & prices", "Invoices, Abu's rates, AI estimates", "prices"]]],
-         ["Company", [["cash", "Entries", "Payments, purchases and work entries", "money"], ["spark", "AI agents", "What each agent checked", "agents"], ["people", "People", "Add Abu, engineers, supervisors", "people"], ["log", "Audit log", "Every change, by whom", "audit"]]]] as [string, string[][]][]).map(([g, items], gi) => (
+         ["Company", [["cash", "Entries", "Payments, purchases and work entries", "money"], ["spark", "Tools & settings", "Contract check, compare quotations, your rules", "agents"], ["people", "People", "Add Abu, engineers, supervisors", "people"], ["log", "Audit log", "Every change, by whom", "audit"]]]] as [string, string[][]][]).map(([g, items], gi) => (
         <Rise key={g} i={gi} style={{ gap: 8 }}>
           <T size={13} bold muted>{g}</T>
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12 }}>
@@ -72,7 +72,7 @@ const TABS: Record<string, TabDef[]> = {
     { key: "report", label: "رپورٹ", icon: "doc", C: Sup.Report },
   ],
 };
-const SUB_LABEL: Record<string, string> = { money: "Entries", sheets: "Orders & measurements", rfis: "RFIs", growth: "Growth", projects: "Projects", suppliers: "Suppliers", prices: "Prices", agents: "AI agents", people: "People", team: "Team on site", audit: "Audit log" };
+const SUB_LABEL: Record<string, string> = { money: "Entries", sheets: "Orders & measurements", rfis: "RFIs", growth: "Growth", projects: "Projects", suppliers: "Suppliers", prices: "Prices", agents: "Tools & settings", people: "People", team: "Team on site", audit: "Audit log" };
 const SUB_ICON: Record<string, string> = { money: "cash", sheets: "ruler", rfis: "inbox", growth: "spark", projects: "folder", suppliers: "truck", prices: "tag", agents: "spark", people: "people", team: "pin", audit: "log" };
 const SUBS: Record<string, React.ComponentType<any>> = { money: Admin.Money, sheets: Sheets, rfis: RFIs, growth: Growth, projects: Admin.Projects, suppliers: Suppliers, prices: Prices, agents: Agents, people: Admin.People, team: Admin.Team, audit: Admin.Audit };
 

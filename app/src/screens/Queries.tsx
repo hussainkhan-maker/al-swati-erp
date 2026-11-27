@@ -114,7 +114,7 @@ export function OutlookLink({ onLinked }: { onLinked?: (linked: boolean) => void
         {st == null ? null : st.linked ? <Pill kind={st.last_error ? "bad" : "good"} text={st.last_error ? "needs attention" : mins == null ? `connected · ${st.account}` : `connected · checked ${mins} min ago`} /> : <Pill kind="warn" text="not connected" />}
       </Row>
       <T size={13} muted>{st?.linked
-        ? `${st.account}: the AI reads each new email in your inbox and brings client queries here with their files (${st.taken} so far, from ${st.checked} emails looked at). They get the category "AL-Swati ERP" in Outlook. Replies you approve go to your Outlook Drafts; nothing is sent by itself.`
+        ? `${st.account}: client queries from your inbox come here with their files (${st.taken} so far, from ${st.checked} emails looked at). They get the category "AL-Swati ERP" in Outlook. Replies you approve go to your Outlook Drafts; nothing is sent by itself.`
         : "Link your Outlook once. The server then reads new emails every 30 minutes, even with the app closed: the AI keeps the client queries (with their files) and makes draft quotations. Replies you approve go to your Outlook Drafts; nothing is sent by itself."}</T>
       {st?.last_error ? <T size={13} color={c.bad}>{st.last_error}</T> : null}
       {waiting ? <T size={13}>Finish the sign-in on Microsoft's page, then come back here. This card updates by itself.</T> : null}

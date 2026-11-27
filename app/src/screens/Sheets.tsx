@@ -32,7 +32,7 @@ export default function Sheets() {
   const [pid, setPid] = useState(""), [edit, setEdit] = useState<any | null>(null);
   const list = rows.filter((x) => !pid || x.project_id === pid);
   const owing = rows.filter((x) => x.kind !== "measure" && x.status === "final");
-  const ST: Record<string, [string, "plain" | "good" | "warn" | "acc"]> = { draft: [L("Draft", "مسودة", "ڈرافٹ"), "plain"], final: [L("Final", "نهائي", "فائنل"), "acc"], paid: [L("Invoice saved", "الفاتورة محفوظة", "بل محفوظ"), "good"] };
+  const ST: Record<string, [string, "plain" | "good" | "warn" | "acc"]> = { draft: [L("Draft", "مسودة", "ڈرافٹ"), "plain"], final: [L("Final", "نهائي", "فائنل"), "acc"], paid: [L("Done", "تم", "مکمل"), "good"] };
   return (
     <Screen>
       <H1>{L("Orders & measurements", "الطلبات والقياسات", "آرڈر اور پیمائش")}</H1>
@@ -54,11 +54,11 @@ export default function Sheets() {
                 <T bold>{KIND[x.kind as Kind][0]}{x.party ? " · " + x.party : ""}</T>
                 <T size={13} muted>{pname(d, x.project_id)} · {day(x.created_at)} · {(x.lines || []).length} {L("lines", "بنود", "لائن")}{x.kind !== "material" ? ` · ${money(x.total)} m²` : ""}</T>
               </View>
-              <Pill kind={(ST[x.status] || ST.draft)[1]} text={(ST[x.status] || ST.draft)[0]} />
+              <Pill kind={x.kind === "measure" && x.status === "final" ? "warn" : (ST[x.status] || ST.draft)[1]} text={x.kind === "measure" && x.status === "final" ? L("Waiting for approval", "بانتظار الاعتماد", "منظوری کا انتظار") : (ST[x.status] || ST.draft)[0]} />
             </Row>
           </Card>
         </Rise>)) : <Empty icon="doc" title={L("Nothing yet", "لا يوجد شيء بعد", "ابھی کچھ نہیں")} text={L("Choose one of the three buttons above and say what you need.", "اختر أحد الأزرار الثلاثة أعلاه وقل ما تحتاجه.", "اوپر تین بٹنوں میں سے ایک دبائیں اور بولیں کیا چاہیے۔")} />}
-      {edit ? <Editor key={edit.id || edit.kind} init={edit} onClose={() => setEdit(null)} L={L} title={KIND[edit.kind as Kind][0]} canReopen={role !== "engineer"} /> : null}
+      {edit ? <Editor key={edit.id || edit.kind} init={edit} onClose={() => setEdit(null)} L={L} title={KIND[edit.kind as Kind][0]} canReopen={role !== "supervisor"} /> : null}
     </Screen>
   );
 }
@@ -105,6 +105,12 @@ function Editor({ init, onClose, L, title, canReopen }: { init: any; onClose: ()
   const finish = async () => {
     if (!sure) { setSure(true); return; }
     setSure(false);
+    if (kind === "measure" && !canReopen) {
+      // A supervisor's measurement waits for Abu or the owner: the m² are added when one of them approves.
+      if (!String(f.party || "").trim()) { setMsg(L("Choose the subcontractor.", "اختر المقاول.", "ٹھیکیدار چنیں۔")); return; }
+      if (await save("final")) setMsg(L("Sent for approval. The m² are added when Abu or the owner approves.", "أُرسل للاعتماد. تضاف الأمتار بعد الموافقة.", "منظوری کے لیے بھیج دیا۔ منظوری کے بعد میٹر جڑیں گے۔"));
+      return;
+    }
     if (kind === "measure") {
       if (!String(f.party || "").trim()) { setMsg(L("Choose the subcontractor.", "اختر المقاول.", "ٹھیکیدار چنیں۔")); return; }
       if (!(total > 0)) { setMsg(L("The total is 0.", "المجموع صفر.", "کل میٹر صفر ہے۔")); return; }
@@ -113,7 +119,7 @@ function Editor({ init, onClose, L, title, canReopen }: { init: any; onClose: ()
       try { if (!added.current) await insert("progress", { project_id: f.project_id, sub_name: String(f.party).trim(), qty: total, unit: "sqm", work: `Measured, ${lines.length} places`, work_date: new Date().toISOString().slice(0, 10), heard: f.heard || null, flags: [] }); added.current = true; }
       catch (e: any) { setMsg(e.message); setBusy(""); return; }
     }
-    if (await save("final")) { if (f.heard) supabase.functions.invoke("site", { body: { action: "learn", kind, heard: f.heard, lines } }).catch(() => {}); setMsg(kind === "measure" ? L(`Saved: ${money(total)} m² added to ${f.party}.`, `تم الحفظ: ${money(total)} م² أضيفت إلى ${f.party}.`, `محفوظ: ${money(total)} میٹر ${f.party} کے کھاتے میں۔`) : L("Final. Send the PDF. When it is paid, add the invoice photo here.", "نهائي. أرسل الملف. عند الدفع أضف صورة الفاتورة هنا.", "فائنل۔ PDF بھیجیں۔ ادائیگی پر بل کی تصویر یہاں ڈالیں۔")); }
+    if (await save(kind === "measure" ? "paid" : "final")) { if (f.heard) supabase.functions.invoke("site", { body: { action: "learn", kind, heard: f.heard, lines } }).catch(() => {}); setMsg(kind === "measure" ? L(`Saved: ${money(total)} m² added to ${f.party}.`, `تم الحفظ: ${money(total)} م² أضيفت إلى ${f.party}.`, `محفوظ: ${money(total)} میٹر ${f.party} کے کھاتے میں۔`) : L("Final. Send the PDF. When it is paid, add the invoice photo here.", "نهائي. أرسل الملف. عند الدفع أضف صورة الفاتورة هنا.", "فائنل۔ PDF بھیجیں۔ ادائیگی پر بل کی تصویر یہاں ڈالیں۔")); }
   };
   const share = async () => {
     setBusy("pdf"); setMsg("");
@@ -176,8 +182,9 @@ function Editor({ init, onClose, L, title, canReopen }: { init: any; onClose: ()
       <Row wrap>
         {!locked ? <Btn title={L("Save draft", "حفظ مسودة", "ڈرافٹ محفوظ")} busy={busy === "draft"} onPress={() => save("draft")} /> : null}
         <Btn icon={<Icon name="share" size={16} />} title={L("PDF / share", "PDF / مشاركة", "PDF / شیئر")} busy={busy === "pdf"} disabled={!lines.length} onPress={share} />
-        {!locked ? <Btn kind="primary" title={sure ? L("Tap again: this is final", "اضغط مرة أخرى: نهائي", "دوبارہ دبائیں: یہ فائنل ہے") : kind === "measure" ? L("Final: add the m²", "نهائي: أضف الأمتار", "فائنل: میٹر ڈال دیں") : L("Final: order placed", "نهائي: تم الطلب", "فائنل: آرڈر ہو گیا")} busy={busy === "final"} onPress={finish} /> : null}
+        {!locked ? <Btn kind="primary" title={sure ? L("Tap again: this is final", "اضغط مرة أخرى: نهائي", "دوبارہ دبائیں: یہ فائنل ہے") : kind === "measure" ? (canReopen ? L("Final: add the m²", "نهائي: أضف الأمتار", "فائنل: میٹر ڈال دیں") : L("Final: send for approval", "نهائي: أرسل للاعتماد", "فائنل: منظوری کے لیے بھیجیں")) : L("Final: order placed", "نهائي: تم الطلب", "فائنل: آرڈر ہو گیا")} busy={busy === "final"} onPress={finish} /> : null}
         {f.status === "final" && kind !== "measure" ? <Btn kind="primary" icon={<Icon name="camera" size={16} color={c.accentInk} />} title={L("Paid: add the invoice photo", "تم الدفع: أضف صورة الفاتورة", "ادائیگی ہو گئی: بل کی تصویر")} onPress={() => { onClose(); flows("purchase", { voice: { supplier: f.party, project_id: f.project_id }, sheet_id: f.id }); }} /> : null}
+        {f.status === "final" && kind === "measure" && canReopen ? <Btn kind="primary" title={sure ? L("Tap again: add the m²", "اضغط مرة أخرى: أضف الأمتار", "دوبارہ دبائیں: میٹر ڈالیں") : L(`Approve: add ${money(total)} m²`, `اعتماد: أضف ${money(total)} م²`, `منظور: ${money(total)} میٹر ڈالیں`)} busy={busy === "paid" || busy === "final"} onPress={finish} /> : null}
         {f.status === "final" && kind !== "measure" && canReopen ? <Btn title={L("Change the order", "تعديل الطلب", "آرڈر بدلیں")} onPress={() => setF((x: any) => ({ ...x, status: "draft" }))} /> : null}
       </Row>
     </Sheet>

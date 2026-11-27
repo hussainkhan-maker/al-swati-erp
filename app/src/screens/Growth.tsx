@@ -55,15 +55,8 @@ function IndexLine({ url: raw, rows, onRows, label, onGbp }: { url: string; rows
     } catch (e: any) { setMsg(e.message); } finally { setBusy(false); }
   };
   // Telling Google about a page is the agents' own work: only the result is shown, and only once Google has the page.
-  if (st?.google_verdict !== "PASS" && !onGbp) return null;
-  return (
-    <View style={{ gap: 4 }}>
-      <Row wrap>
-        {label ? <T size={12} muted>{label}</T> : null}
-        {st?.google_verdict === "PASS" ? <Pill kind="good" text="On Google ✓" /> : null}
-        {onGbp ? <Btn kind="ghost" title="Copy for Google Business Profile" onPress={onGbp} /> : null}
-      </Row>
-    </View>);
+  if (st?.google_verdict !== "PASS") return null;
+  return <Row wrap>{label ? <T size={12} muted>{label}</T> : null}<Pill kind="good" text="On Google ✓" /></Row>;
 }
 
 // ───────── Google Maps (Business Profile) & reviews ─────────
@@ -695,7 +688,7 @@ function Blog() {
         <Card key={p.id} onPress={() => setEd(p)}>
           <Row>{p.image_url ? <Image source={{ uri: p.image_url }} accessibilityLabel={p.image_alt || p.title} style={{ width: 72, height: 41, borderRadius: 6 }} /> : null}
             <View style={{ flex: 1 }}><T bold>{p.title}</T><T size={12} muted>{p.lang === "ar" ? "العربية" : "English"} · {day(p.created_at)}{p.published_at ? ` · published ${day(p.published_at)}` : ""}{p.twin_id ? (p.lang === "ar" ? " · English version too" : " · Arabic version too") : ""}</T></View>
-            {p.source === "boost" ? <Pill kind="acc" text="Top-3 upgrade" /> : null}<Pill kind={p.status === "Published" ? "good" : p.status === "Draft" ? "warn" : "plain"} text={p.status} /></Row>
+            <Pill kind={p.status === "Published" ? "good" : p.status === "Draft" ? "warn" : "plain"} text={p.status} /></Row>
           {p.status === "Published" ? <IndexLine url={postUrl(p)} rows={ix.rows} onRows={ix.put} onGbp={() => setGbp(p)} /> : null}
         </Card>); }
 }
@@ -883,8 +876,8 @@ function DistrictPages() {
     <>
       <Card>
         <H2>Riyadh district pages</H2>
-        <T size={13} muted>Each district gets an English page ({SITE_URL}/stone-cladding-[district]-riyadh/) and a Saudi Arabic page (/ar/…) with your company facts, a section on Riyadh's 45°C heat and dust, your prices, local questions, and Google data (LocalBusiness and Service with the district's location). Both are drafts until you press Publish; then they go on the website and in sitemap.xml.</T>
-        <T size={13} muted>Give every district real photos of your work there and, if you can, a line about what you did. Google ranks pages that show real local work, and pushes down many near-identical area pages.</T>
+        <T size={13} muted>Choose the district, add 2 or 3 photos of your own work there, and press the button. An English and an Arabic page wait as drafts until you publish.</T>
+        
         <T bold size={14}>District</T>
         <Row wrap>{[...DISTRICTS, "Other"].map((x) => <Btn key={x} kind={district === x ? "primary" : "ghost"} title={x} onPress={() => setDistrict(x)} />)}</Row>
         {district === "Other" ? <Field label="District name (as on Google Maps)" value={other} onChange={setOther} placeholder="e.g. Al Rabie" /> : null}
@@ -904,7 +897,7 @@ function DistrictPages() {
         <Row wrap>
           <Btn kind="primary" icon={<Icon name="spark" color={c.accentInk} />} title="Generate Area Pages" busy={busy === "make"} disabled={!name || !!busy} onPress={generate} />
         </Row>
-        <T size={12} muted>Takes about a minute and a half. Making the pages again for the same district replaces its waiting drafts; a live page stays live until you publish the new one.</T>
+        <T size={12} muted>About a minute and a half.</T>
       </Card>
       <H2>District pages</H2>
       {!rows.length && <Empty text="No district pages yet." />}
@@ -1026,7 +1019,7 @@ function CaseStudies() {
     <>
       <Card>
         <H2>Project case studies</H2>
-        <T size={13} muted>Easiest: "Project add karein" below (photos and a few facts). Or from Projects → a project → "Publish as SEO Case Study". Each becomes an English and an Arabic page at {SITE_URL}/projects/… with your real data (district, building, stone, m², fixing system, year) and site photos, a card on the Projects page, Google data and a place in sitemap.xml.</T>
+        <T size={13} muted>Add a finished project with its photos and a few facts. It becomes an English and an Arabic page; both wait as drafts until you publish.</T>
       </Card>
       <NewWebsiteProject />
       {!rows.length && <Empty text="No case studies yet." />}

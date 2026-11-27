@@ -26,29 +26,9 @@ export default function Agents() {
   );
   return (
     <Screen>
-      <H1>AI agents</H1>
-      <T muted>AI reads and suggests. Code does every sum and blocks anything red. You approve.</T>
-      {role === "admin" && <WebsiteTeam />}
-      <A icon="inbox" name="Intake agent" job="Takes queries from Gmail and the website, saves files, drops repeats" s={inq.some((q: any) => q.status === "New") ? "warn" : "good"} status={`${inq.length} queries · ${inq.filter((q: any) => q.status === "New").length} not reviewed yet`} />
-      <A icon="spark" name="Reading agents (two)" job="Two different AI models read each BOQ separately; code compares them line by line" s="good" status={`${inq.filter((q: any) => q.reading).length} queries read twice`} />
-      <A icon="check" name="Checking agents (code)" job="Digits, sums, VAT 15%, splits = 100%, receipt photo, project, units, PDF re-read" s={flagged.length ? "warn" : "good"} status={`${flagged.length} saved entries carry a warning someone accepted`} />
-      <A icon="tag" name="Price agent" job="Suggests rates from invoices, Abu's rates and past quotations; flags old prices" s={blankQuotes.length || stale.length ? "warn" : "good"} status={`${blankQuotes.length} quotations with blank rates · ${stale.length} prices older than 30 days`} />
-      <A icon="truck" name="Supplier agent" job="Writes price requests in each supplier's language and follows up" s={waiting.length ? "warn" : "good"} status={`${reqs.filter((r: any) => r.status === "Sent").length} waiting · ${waiting.length} silent for 2+ days`} />
-      <A icon="folder" name="Query organizer" job="Sorts each query's files into BOQ, drawings, specs and letters; writes a one-line summary of each" s={inq.some((q: any) => q.reading && !(q.reading.a?.documents || []).length) ? "warn" : "good"} status={`${inq.filter((q: any) => (q.reading?.a?.documents || []).length).length} queries organized`} />
-      <A icon="ruler" name="Drawing takeoff agent" job="Measures floor areas from DXF drawings layer by layer and compares them with the BOQ (3% rule)" s={inq.some((q: any) => (q.reading?.a?.rfis || []).some((x: string) => /drawing|DXF|%/.test(x))) ? "warn" : "good"} status={`${inq.filter((q: any) => /DXF takeoff/.test(q.body || "")).length} drawings measured · DWG needs PDF or DXF`} />
-      <A icon="people" name="Supplier finder" job="Searches the web for Saudi suppliers with contacts and CR; waits for your approval" s={(d.suppliers || []).some((s: any) => s.approved === false) ? "warn" : "good"} status={`${(d.suppliers || []).filter((s: any) => s.approved === false).length} found, waiting for approval`} />
-      <A icon="spark" name="Advisor" job="Suggests a rate per line from your costs, your margins and which quotations won or lost" s="good" status={`Learning from ${(d.quotes || []).filter((q: any) => ["Approved", "Lost"].includes(q.status)).length} closed quotations · target ${pref(d, "margin", { target: 20 }).target}%`} />
-      <A icon="share" name="Quotation PDF agent" job="Builds the quotation PDF, re-reads the total, blocks lines below cost, then opens WhatsApp / email" s={blankQuotes.length ? "warn" : "good"} status={`${(d.quotes || []).filter((q: any) => q.status === "Sent to Client").length} sent to clients`} />
-      <A icon="ruler" name="Site agent" job="Turns spoken meters into project, subcontractor and engineer records" s={noRate.length ? "bad" : "good"} status={`${pr.length} progress entries · ${noRate.length} subcontractors without a rate`} />
-      <A icon="doc" name="Contract auditor" job="Reads Arabic muqawala contracts and client quotations; flags penalties, retention, hidden transport/crane costs and suggests counter-terms" s="good" status="Use “Contract check” below" />
-      <A icon="truck" name="Quotation comparer" job="Puts supplier quotations side by side (price, VAT, stock, delivery, credit days, hidden costs) and names the best value" s="good" status="Use “Compare supplier quotations” below" />
-      <A icon="spark" name="Memory agent" job="Turns your feedback into rules that the advisor and supplier agents follow" s="good" status={`${(pref(d, "rules", { list: [] }).list || []).length} rules learned`} />
+      <H1>Tools & settings</H1>
       {role === "admin" && <AiTools />}
       {role === "admin" && <Prefs />}
-      <Card>
-        <Row><Icon name="spark" color={c.accent} /><H2>Main agent · morning report</H2></Row>
-        {rep ? <><T size={16}>{rep.summary}</T><Checks list={(rep.items || []).slice(0, 20).map((i: any) => ({ s: i.level, text: i.text }))} /><T size={12} muted>{stamp(rep.created_at)}</T></> : <T muted>No report yet. It runs every day at 07:00 once the schedule is switched on (see the setup guide).</T>}
-      </Card>
     </Screen>
   );
 }
