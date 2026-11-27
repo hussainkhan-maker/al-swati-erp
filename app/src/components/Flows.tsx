@@ -36,7 +36,7 @@ export function FlowProvider({ children }: { children: React.ReactNode }) {
 
 const projOpts = (projects: any[]) => [{ value: "", label: "—" }, ...projects.filter((p) => p.status !== "closed").map((p) => ({ value: p.id, label: p.name }))];
 const subNames = (d: any) => d.sub_names || (d.subcontractors || []).map((s: any) => s.name);
-const METHODS = ["Cash", "Bank transfer", "Cheque", "STC Pay / card", "Other"];
+const METHODS = ["Cash", "Hawala", "Bank transfer", "Cheque", "STC Pay / card", "Other"];
 const today = () => new Date().toISOString().slice(0, 10);
 const LABEL: Record<string, [string, string, string]> = { income: ["Payment received", "دفعة مستلمة", "وصولی"], loan: ["Loan from company", "قرض من الشركة", "کمپنی سے قرض"], expense: ["Expense", "مصروف", "خرچہ"], subpay: ["Payment to subcontractor", "دفعة لمقاول", "سب کنٹریکٹر کو ادائیگی"], rate: ["Supplier rate", "سعر مورد", "سپلائر ریٹ"], progress: ["Work progress", "تقدم العمل", "کام کی پیشرفت"] };
 
