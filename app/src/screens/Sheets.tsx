@@ -31,7 +31,7 @@ export default function Sheets() {
     setSBusy(true); setSMsg("");
     try {
       const names = [...new Set([...(d.sub_names || (d.subcontractors || []).map((x: any) => x.name) || []).map((x: any) => (typeof x === "string" ? x : x?.name)), ...Object.keys(owed)])].filter(Boolean).slice(0, 80);
-      const { data, error } = await supabase.functions.invoke("site", { body: { action: "route", text, projects: (d.projects || []).map((p: any) => p.name), names } });
+      const { data, error } = await supabase.functions.invoke("site", { body: { action: "route", text, lang, projects: (d.projects || []).map((p: any) => p.name), names } });
       if (error || (data as any)?.error) throw new Error((data as any)?.error || error?.message);
       const r = data as any, k = r.kind as Kind;
       const proj = (d.projects || []).find((p: any) => r.project && String(p.name).toLowerCase() === String(r.project).toLowerCase())?.id || pid || (d.projects || [])[0]?.id || "";
@@ -40,7 +40,9 @@ export default function Sheets() {
       const total = k === "pay" ? 0 : (r.lines || []).reduce((t: number, l: any) => t + lineArea(k, l), 0);
       const back = k === "pay" ? L(`Payment to ${r.party}: ${r.amount} riyal. Check and save.`, `دفعة إلى ${r.party}: ${r.amount} ريال. راجع ثم احفظ.`, `${r.party} کو ادائیگی: ${r.amount} ریال۔ دیکھ کر محفوظ کریں۔`)
         : L(`${KIND[k][0]}: ${(r.lines || []).length} lines${total ? ", " + money(total) + " square metres" : ""}. Check and save.`, `${KIND[k][0]}: ${(r.lines || []).length} بنود${total ? "، " + money(total) + " متر مربع" : ""}. راجع ثم احفظ.`, `${KIND[k][0]}: ${(r.lines || []).length} لائن${total ? "، " + money(total) + " میٹر" : ""}۔ دیکھ کر محفوظ کریں۔`);
-      try { Speech.stop(); Speech.speak(back, { language: lang === "ur" ? "ur-PK" : lang === "ar" ? "ar-SA" : "en-US" }); } catch { /* no voice on this device */ }
+      const said = r.ask ? back + " " + r.ask : back;
+      try { Speech.stop(); Speech.speak(said, { language: lang === "ur" ? "ur-PK" : lang === "ar" ? "ar-SA" : "en-US" }); } catch { /* no voice on this device */ }
+      if (r.ask) setSMsg(String(r.ask));
       setSay("");
     } catch (e: any) { setSMsg(e.message); }
     setSBusy(false);
@@ -137,16 +139,25 @@ function Editor({ init, onClose, L, title, canReopen }: { init: any; onClose: ()
   const pieces = kind === "stone" ? lines.reduce((s, l) => s + n0(l.qty), 0) : 0;
   const setLine = (i: number, k: string, v: any) => setF((x: any) => ({ ...x, lines: x.lines.map((l: any, j: number) => (j === i ? { ...l, [k]: v } : l)) }));
 
+  /** What the reader returned goes into the sheet. It says aloud what it wrote and asks back when something is unclear. */
+  const take = (data: any, heard: string) => {
+    const got = (data.lines || []).map((l: any) => ({ ...blank(kind), ...l }));
+    if (!got.length) throw new Error(data.ask || L("Nothing understood. Say it again, one item at a time.", "لم أفهم. قلها مرة أخرى، بندًا بندًا.", "سمجھ نہیں آیا۔ دوبارہ بولیں، ایک ایک چیز۔"));
+    setF((x: any) => ({ ...x, party: x.party || data.party || "", heard: [x.heard, heard].filter(Boolean).join(" | "), lines: [...x.lines.filter((l: any) => filled(kind, l)), ...got] }));
+    const sum = r2(got.reduce((t: number, l: any) => t + lineArea(kind, l), 0));
+    const parts = [
+      kind === "material" ? L(`${got.length} items added.`, `أضيف ${got.length} بنود.`, `${got.length} چیزیں لکھ دیں۔`) : L(`${got.length} lines added, ${money(sum)} square metres.`, `أضيف ${got.length} بنود، ${money(sum)} متر مربع.`, `${got.length} لائنیں لکھ دیں، ${money(sum)} میٹر۔`),
+      data.ask ? String(data.ask) : "",
+    ].filter(Boolean);
+    setMsg(parts.join(" "));
+  };
   const understand = async () => {
     if (!text.trim()) return;
     setBusy("read"); setMsg("");
     try {
-      const { data, error } = await supabase.functions.invoke("site", { body: { kind, text, names: subs.slice(0, 60) } });
+      const { data, error } = await supabase.functions.invoke("site", { body: { kind, text, lang, names: subs.slice(0, 60) } });
       if (error || (data as any)?.error) throw new Error((data as any)?.error || error?.message);
-      const got = ((data as any).lines || []).map((l: any) => ({ ...blank(kind), ...l }));
-      if (!got.length) throw new Error(L("Nothing understood. Say it again, one item at a time.", "لم أفهم. قلها مرة أخرى، بندًا بندًا.", "سمجھ نہیں آیا۔ دوبارہ بولیں، ایک ایک چیز۔"));
-      setF((x: any) => ({ ...x, party: x.party || (data as any).party || "", heard: [x.heard, text].filter(Boolean).join(" | "), lines: [...x.lines.filter((l: any) => filled(kind, l)), ...got] }));
-      setText("");
+      take(data, text); setText("");
     } catch (e: any) { setMsg(e.message); }
     setBusy("");
   };
