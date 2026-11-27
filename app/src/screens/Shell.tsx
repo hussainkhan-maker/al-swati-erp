@@ -147,7 +147,7 @@ export default function Shell() {
   if (intro) return (
     <View style={{ flex: 1, backgroundColor: DEEP.bg, alignItems: "center", justifyContent: "center" }}>
       <Animated.View style={{ opacity: introV, transform: [{ scale: introV.interpolate({ inputRange: [0, 1], outputRange: [0.85, 1] }) }], alignItems: "center", gap: 8 }}>
-        <Wordmark size={54} sub="Marble, granite, stone and porcelain" />
+        <Wordmark size={54} />
       </Animated.View>
     </View>
   );

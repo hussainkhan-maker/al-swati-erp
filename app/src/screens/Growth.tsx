@@ -375,7 +375,7 @@ function Videos() {
     <>
       <Card>
         <H2>Videos for TikTok, YouTube Shorts and Reels</H2>
-        <T size={13} muted>Every Sunday, Tuesday, Thursday and Saturday morning Claude makes the next video by itself with Higgsfield (informative, in Saudi Arabic): each topic once realistic and once animated, to see which works better. It waits here under "To review" until you watch it. Approve: it goes to YouTube by itself, public at the next slot (Sunday, Tuesday, Thursday or Saturday, 7 pm). TikTok: you post it yourself with the download and caption here, or ask Claude in chat to post it.</T>
+        <T size={13} muted>New videos wait here for your yes. An approved video goes public on YouTube at the next slot; TikTok you post yourself.</T>
         <StatStrip items={[{ label: "To review", value: String(n("review")) }, { label: "Being made", value: String(n("generating", "rendering")) }, { label: "Scheduled", value: String(n("approved", "scheduled")) }, { label: "Posted", value: String(n("posted")) }]} />
         <Row wrap>
           {yt?.linked ? <Pill kind="good" text={"YouTube: " + (yt.channel || "connected")} /> : <Pill kind="warn" text="YouTube not connected" />}

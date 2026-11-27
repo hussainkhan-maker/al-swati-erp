@@ -43,7 +43,6 @@ export default function Agents() {
       <A icon="doc" name="Contract auditor" job="Reads Arabic muqawala contracts and client quotations; flags penalties, retention, hidden transport/crane costs and suggests counter-terms" s="good" status="Use “Contract check” below" />
       <A icon="truck" name="Quotation comparer" job="Puts supplier quotations side by side (price, VAT, stock, delivery, credit days, hidden costs) and names the best value" s="good" status="Use “Compare supplier quotations” below" />
       <A icon="spark" name="Memory agent" job="Turns your feedback into rules that the advisor and supplier agents follow" s="good" status={`${(pref(d, "rules", { list: [] }).list || []).length} rules learned`} />
-      {role === "admin" && <AiUsage />}
       {role === "admin" && <AiTools />}
       {role === "admin" && <Prefs />}
       <Card>

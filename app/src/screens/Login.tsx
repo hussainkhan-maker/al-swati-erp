@@ -33,7 +33,7 @@ function Slab({ tall }: { tall: boolean }) {
         <Marble o={1.4} />
       </Animated.View>
       <Animated.View style={{ opacity: show, transform: [{ translateY: show.interpolate({ inputRange: [0, 1], outputRange: [12, 0] }) }], gap: 14 }}>
-        <Wordmark size={tall ? 58 : 38} sub="Marble, granite, stone and porcelain · السواتي للمقاولات" />
+        <Wordmark size={tall ? 58 : 38} sub="السواتي للمقاولات" />
       </Animated.View>
       {tall && <Text style={{ color: DEEP.muted, fontSize: 13, opacity: 0.8 }}>Only people added by Super-Admin can sign in.</Text>}
     </View>
