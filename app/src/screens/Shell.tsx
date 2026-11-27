@@ -140,7 +140,7 @@ export default function Shell() {
     <SafeAreaView style={{ flex: 1, backgroundColor: c.bg, alignItems: "center", justifyContent: "center", gap: 16, padding: 24 }}>
       <Icon name="check" size={48} color={c.accent} />
       <Btn big kind="primary" title="Unlock / افتح / کھولیں" onPress={unlock} style={{ alignSelf: "stretch" }} />
-      <Btn kind="ghost" title="Sign out" onPress={() => supabase.auth.signOut()} />
+      <Btn kind="ghost" title={lang === "ar" ? "خروج" : lang === "ur" ? "سائن آؤٹ" : "Sign out"} onPress={() => supabase.auth.signOut()} />
     </SafeAreaView>
   );
 
@@ -174,7 +174,7 @@ export default function Shell() {
         <Text style={{ color: c.ink, fontSize: 14, fontWeight: "600" }}>{pageLabel}</Text>
       </View>
       <Text style={{ color: c.muted, fontSize: 13 }}>{new Date().toLocaleDateString("en", { weekday: "short", day: "numeric", month: "short" })}</Text>
-      <Btn icon={<Icon name="spark" size={16} color={c.accent} />} title="Ask AI" onPress={() => flows("ask", { page: pageLabel })} />
+      <Btn icon={<Icon name="spark" size={16} color={c.accent} />} title={lang === "ar" ? "اسأل المساعد" : lang === "ur" ? "مددگار سے پوچھیں" : "Ask AI"} onPress={() => flows("ask", { page: pageLabel })} />
     </View>
   );
   const sidebar = wide && (
@@ -205,7 +205,7 @@ export default function Shell() {
       <View style={{ borderTopWidth: 1, borderColor: "rgba(255,255,255,0.10)", paddingTop: 12, paddingHorizontal: 8, flexDirection: "row", alignItems: "center", gap: 10 }}>
         <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: DEEP.bg2, alignItems: "center", justifyContent: "center" }}><Text style={{ color: DEEP.glow, fontSize: 13, fontWeight: "600" }}>{initials}</Text></View>
         <View style={{ flex: 1 }}><Text numberOfLines={1} style={{ color: DEEP.ink, fontSize: 13, fontWeight: "600" }}>{profile?.name || "Signed in"}</Text>
-          <Pressable onPress={() => supabase.auth.signOut()} style={{ cursor: "pointer" } as any}><Text style={{ color: DEEP.muted, fontSize: 12 }}>Sign out</Text></Pressable></View>
+          <Pressable onPress={() => supabase.auth.signOut()} style={{ cursor: "pointer" } as any}><Text style={{ color: DEEP.muted, fontSize: 12 }}>{lang === "ar" ? "خروج" : lang === "ur" ? "سائن آؤٹ" : "Sign out"}</Text></Pressable></View>
       </View>
     </View>
   );

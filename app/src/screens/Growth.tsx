@@ -438,7 +438,7 @@ function VideoSheet({ v: first, ytLinked, onClose }: { v: any; ytLinked: boolean
   const player = Platform.OS === "web" && src ? React.createElement("video", { src, controls: true, playsInline: true, preload: "metadata", style: { width: "100%", maxWidth: 360, aspectRatio: "9 / 16", background: "#000", borderRadius: 12 } }) : null;
   return (
     <Sheet open onClose={onClose} title={v.title_en || v.title_ar || "Video"}>
-      <Row wrap><Pill kind={VSTATUS[v.status]?.[1] || "plain"} text={VSTATUS[v.status]?.[0] || v.status} /><Pill text={VKIND[v.kind] || v.kind} />{v.style ? <Pill kind="acc" text={VSTYLE[v.style] || v.style} /> : null}{v.keyword ? <Pill kind="acc" text={"Search: " + v.keyword} /> : null}{v.credits ? <Pill text={`${v.credits} Higgsfield credits`} /> : null}</Row>
+      <Row wrap><Pill kind={VSTATUS[v.status]?.[1] || "plain"} text={VSTATUS[v.status]?.[0] || v.status} /><Pill text={VKIND[v.kind] || v.kind} />{v.style ? <Pill kind="acc" text={VSTYLE[v.style] || v.style} /> : null}{v.keyword ? <Pill kind="acc" text={"Search: " + v.keyword} /> : null}</Row>
       {v.title_ar ? <T size={18} bold style={RTL}>{v.title_ar}</T> : null}
       {v.video_path ? <>
         <H2>The video</H2>

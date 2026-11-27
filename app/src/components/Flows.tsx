@@ -173,8 +173,8 @@ function SpeakSheet({ init, onClose, open }: { init?: any; onClose: () => void; 
             <Field label={t("qty")} value={r.qty} numeric onChange={(v) => setRow(i, "qty", v)} style={{ maxWidth: 110 }} />
             <Field label={t("unit")} value={r.unit} onChange={(v) => setRow(i, "unit", v)} style={{ maxWidth: 90 }} />
             <Field label={t("work")} value={r.work} onChange={(v) => setRow(i, "work", v)} />
-          </Row>)).concat([<Btn key="add" kind="ghost" icon={<Icon name="plus" />} title="Add another subcontractor line" onPress={() => set("rows", [...o.rows, { sub_name: "", qty: "", unit: "sqm", work: "" }])} />,
-            <T key="sum" bold>Total today: {money((form?.rows || []).reduce((s2: number, r: any) => s2 + (r.qty || 0), 0))} m²</T>]) : <>
+          </Row>)).concat([<Btn key="add" kind="ghost" icon={<Icon name="plus" />} title={t("addLine")} onPress={() => set("rows", [...o.rows, { sub_name: "", qty: "", unit: "sqm", work: "" }])} />,
+            <T key="sum" bold>{t("total")}: {money((form?.rows || []).reduce((s2: number, r: any) => s2 + (r.qty || 0), 0))} m²</T>]) : <>
           {o.intent === "loan" && <T muted size={13}>Money {P?.company || "the company"} gave us to run the work. It is paid back when they cut it from a later payment (enter that cut with the payment).</T>}
           <Field required label={o.intent === "income" ? "Full payment, with VAT, before any cut (SAR)" : o.intent === "loan" ? `Loan amount ${P?.company ? P.company + " gave" : "taken"} (SAR)` : t("amount")} value={o.amount} numeric onChange={(v) => set("amount", v)} />
           {o.intent === "income" && (() => { // Which of the company's invoices this payment is for (part payments add up per invoice).
@@ -397,14 +397,14 @@ function AskSheet({ init, onClose }: { init?: any; onClose: () => void }) {
     if (d.supplier_requests && about(/supplier|مورد|سپلائر/)) data.supplier_requests = d.supplier_requests.slice(0, 40).map((x: any) => ({ supplier: (d.suppliers || []).find((s: any) => s.id === x.supplier_id)?.name, status: x.status, sent: x.sent_at }));
     const question = page ? `[The person is on the "${page}" page of the app. Explain how to use that page, point out entries that look wrong (missing project, wrong amount, VAT, duplicate, unknown subcontractor) and say exactly how to correct them.] ${qq}` : qq;
     try { const r = await ai("ask", { question, data }); setA(r.text); if (role !== "admin") Speech.speak(r.text, { language: speechLang(lang) }); }
-    catch (e: any) { setA(/401|ANTHROPIC|api key/i.test(e.message) ? W("The AI is not switched on yet. Super-Admin adds the ANTHROPIC_API_KEY in Supabase → Edge Functions → Secrets.", "الذكاء الاصطناعي غير مفعّل بعد. يضيف المدير مفتاح ANTHROPIC_API_KEY في Supabase.", "AI ابھی چالو نہیں۔ Super-Admin کو Supabase → Edge Functions → Secrets میں ANTHROPIC_API_KEY ڈالنی ہے۔") : e.message); } finally { setBusy(false); }
+    catch (e: any) { setA(/401|ANTHROPIC|api key/i.test(e.message) ? W("The assistant is not available right now. Please tell the owner.", "المساعد غير متاح الآن. أخبر المالك.", "مددگار ابھی دستیاب نہیں۔ مالک کو بتائیں۔") : e.message); } finally { setBusy(false); }
   };
   return (
     <Sheet open onClose={() => { Speech.stop(); onClose(); }} title={(lang === "ar" ? "مساعدك" : lang === "ur" ? "آپ کا مددگار" : "Your assistant") + (page ? " · " + page : "")}>
       {quick.length ? <View style={{ gap: 8 }}>{quick.map((x) => <Btn key={x} title={x} onPress={() => ask(x)} disabled={busy} />)}</View> : null}
       <Voice value={q} onChange={setQ} placeholder={lang === "en" ? "How much has Uzair done on Malqa, and what do we owe him?" : ""} />
       <Btn big kind="primary" icon={<Icon name="spark" color={c.accentInk} />} title={lang === "ar" ? "اسأل" : lang === "ur" ? "پوچھیں" : "Ask"} onPress={() => ask()} busy={busy} disabled={!q.trim()} />
-      {a ? <Card style={{ backgroundColor: c.accentSoft, borderColor: c.accentSoft }}><T size={17}>{a}</T>{free ? <T size={12} muted>{lang === "ar" ? "من أرقامك مباشرة — بدون ذكاء اصطناعي" : lang === "ur" ? "سیدھا آپ کے حساب سے — AI استعمال نہیں ہوا" : "Straight from your numbers — no AI used"}</T> : null}</Card> : null}
+      {a ? <Card style={{ backgroundColor: c.accentSoft, borderColor: c.accentSoft }}><T size={17}>{a}</T></Card> : null}
     </Sheet>
   );
 }
