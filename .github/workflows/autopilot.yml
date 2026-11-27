@@ -31,6 +31,11 @@ jobs:
           URL=$(grep -oE 'https://[a-z0-9]+\.supabase\.co' app/src/config.ts | head -1)
           KEY=$(grep -oE 'SUPABASE_ANON_KEY = "[^"]+"' app/src/config.ts | cut -d'"' -f2)
           curl -sS -m 200 -X POST "$URL/functions/v1/ai" -H "Authorization: Bearer $KEY" -H "apikey: $KEY" -H "content-type: application/json" -d '{"task":"autopilot"}'
+      - name: Main agent and growth agents (one job per run, only when one is due)
+        run: |
+          URL=$(grep -oE 'https://[a-z0-9]+\.supabase\.co' app/src/config.ts | head -1)
+          KEY=$(grep -oE 'SUPABASE_ANON_KEY = "[^"]+"' app/src/config.ts | cut -d'"' -f2)
+          curl -sS -m 200 -X POST "$URL/functions/v1/brain" -H "Authorization: Bearer $KEY" -H "apikey: $KEY" -H "content-type: application/json" -d '{"action":"tick"}' || true
       - name: Videos (scheduled → posted, and start the renderer when a plan waits)
         env: { GH_TOKEN: "${{ github.token }}" }
         run: |

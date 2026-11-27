@@ -18,6 +18,7 @@ import Agents from "./Agents";
 import * as Eng from "./Engineer";
 import Prices from "./Prices";
 import Growth from "./Growth";
+import Inbox from "./Inbox";
 import Queries from "./Queries";
 import RFIs from "./RFIs";
 import Quotes from "./Quotes";
@@ -32,7 +33,7 @@ function MoreAdmin({ go }: { go: (k: string) => void }) {
       {([["Site", [["folder", "Projects", "Company, fee, sites, subcontractors", "projects"], ["pin", "Team on site", "Live 06:00–18:00", "team"]]],
          ["Sales", [["inbox", "RFIs", "Questions to consultants, follow-ups", "rfis"], ["spark", "Growth", "Blog for Google, videos, outreach", "growth"]]],
          ["Buying", [["truck", "Suppliers", "Directory and price requests", "suppliers"], ["tag", "Materials & prices", "Invoices, Abu's rates, AI estimates", "prices"]]],
-         ["Company", [["spark", "AI agents", "What each agent checked", "agents"], ["people", "People", "Add Abu, engineers, supervisors", "people"], ["log", "Audit log", "Every change, by whom", "audit"]]]] as [string, string[][]][]).map(([g, items], gi) => (
+         ["Company", [["check", "Approvals & Claude", "Say yes or no, and tell Claude what to do", "inbox"], ["spark", "AI agents", "What each agent checked", "agents"], ["people", "People", "Add Abu, engineers, supervisors", "people"], ["log", "Audit log", "Every change, by whom", "audit"]]]] as [string, string[][]][]).map(([g, items], gi) => (
         <Rise key={g} i={gi} style={{ gap: 8 }}>
           <T size={13} bold muted>{g}</T>
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12 }}>
@@ -68,9 +69,9 @@ const TABS: Record<string, TabDef[]> = {
     { key: "report", label: "رپورٹ", icon: "doc", C: Sup.Report },
   ],
 };
-const SUB_LABEL: Record<string, string> = { rfis: "RFIs", growth: "Growth", projects: "Projects", suppliers: "Suppliers", prices: "Prices", agents: "AI agents", people: "People", team: "Team on site", audit: "Audit log" };
-const SUB_ICON: Record<string, string> = { rfis: "inbox", growth: "spark", projects: "folder", suppliers: "truck", prices: "tag", agents: "spark", people: "people", team: "pin", audit: "log" };
-const SUBS: Record<string, React.ComponentType<any>> = { rfis: RFIs, growth: Growth, projects: Admin.Projects, suppliers: Suppliers, prices: Prices, agents: Agents, people: Admin.People, team: Admin.Team, audit: Admin.Audit };
+const SUB_LABEL: Record<string, string> = { inbox: "Approvals & Claude", rfis: "RFIs", growth: "Growth", projects: "Projects", suppliers: "Suppliers", prices: "Prices", agents: "AI agents", people: "People", team: "Team on site", audit: "Audit log" };
+const SUB_ICON: Record<string, string> = { inbox: "check", rfis: "inbox", growth: "spark", projects: "folder", suppliers: "truck", prices: "tag", agents: "spark", people: "people", team: "pin", audit: "log" };
+const SUBS: Record<string, React.ComponentType<any>> = { inbox: Inbox, rfis: RFIs, growth: Growth, projects: Admin.Projects, suppliers: Suppliers, prices: Prices, agents: Agents, people: Admin.People, team: Admin.Team, audit: Admin.Audit };
 
 export default function Shell() {
   const { role, online, pending, failed, dropFailed, t } = useData(); const c = useColors(); const { row } = useDir();
@@ -157,7 +158,7 @@ export default function Shell() {
   // Admin sidebar order: what is used most first; the list of all entries near the end.
   // Admin sidebar in groups, in the order the work happens: sales → site → money → company.
   const groups: [string, any[]][] = role === "admin"
-    ? [["", [T_("home")]], ["Sales", [T_("queries"), T_("quotes"), S_("rfis"), S_("growth")]], ["Site", [S_("projects"), S_("team")]],
+    ? [["", [T_("home"), S_("inbox")]], ["Sales", [T_("queries"), T_("quotes"), S_("rfis"), S_("growth")]], ["Site", [S_("projects"), S_("team")]],
        ["Buying", [S_("suppliers"), S_("prices")]], ["Money", [T_("money")]], ["Company", [S_("people"), S_("agents"), S_("audit")]]]
     : [["", tabs.map((x) => ({ key: x.key, label: x.label, icon: x.icon, isSub: false }))]];
   const initials = String(profile?.name || "AS").split(/\s+/).map((w: string) => w[0]).join("").slice(0, 2).toUpperCase();

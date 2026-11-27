@@ -8,6 +8,7 @@ import { pricesFor } from "../lib/match";
 import { invoicesOf, STATE_LABEL, waitText } from "../lib/invoices";
 import { ai, supabase } from "../lib/supabase";
 import { CaseStudyButton } from "./Growth";
+import { WHO } from "./Inbox";
 import { Bars, Btn, Card, Checks, CountUp, DEEP, ELEV, Empty, Fold, Marble, notify, SectionHead, Segmented, StatStrip, Field, H1, H2, Icon, Kpi, MonthCal, Photo, Pill, Rise, Row, Screen, Select, Sheet, T, Table, Tile, useColors, useWide } from "../ui";
 
 const sum = (a: any[], k: string) => a.reduce((s, x) => s + (Number(x[k]) || 0), 0);
@@ -90,7 +91,12 @@ export function Dashboard({ go }: { go?: (k: string) => void } = {}) {
   const [brief, setBrief] = useState(""), riyadhDay = (t: any) => new Date(new Date(t).getTime() + 3 * 3600e3).toISOString().slice(0, 10);
   const makeBrief = async (force = false) => {
     setBrief("busy");
-    try { const r = await ai("briefing", { force }); if (!r.skipped) await reload(["agent_reports"]); setBrief(r.skipped && force ? "Made less than 30 minutes ago." : ""); }
+    try {
+      const r = await ai("briefing", { force });
+      // The main agent (the strongest model) then reads what the others found and decides.
+      if (!r.skipped) { await supabase.functions.invoke("brain", { body: { action: "run", agent: "main", force } }).catch(() => {}); await reload(["agent_reports", "preferences"]); }
+      setBrief(r.skipped && force ? "Made less than 30 minutes ago." : "");
+    }
     catch (e: any) { setBrief(e.message); }
   };
   useEffect(() => { if (d.agent_reports && (!rep || riyadhDay(rep.created_at) !== riyadhDay(Date.now()))) makeBrief(); }, [!!d.agent_reports]);
@@ -220,6 +226,8 @@ export function Dashboard({ go }: { go?: (k: string) => void } = {}) {
     { k: "company", icon: "people", title: "Company", n: (d.profiles || []).length, unit: "people in the app",
       line: noRate ? `${plural(noRate, "subcontractor", "subcontractors")} without a rate` : "Every subcontractor has a rate", to: "people" },
   ];
+  const inboxWait = ((d.agent_inbox || []) as any[]).filter((x) => x.kind !== "request" && x.status === "waiting");
+  const brainState = ((d.preferences || []).find((p: any) => p.key === "brain_state")?.value || {}) as any;
   // Everything an agent has prepared and only the owner can release, in one list.
   const approvals = ([
     { n: waitLock, text: waitLock === 1 ? "Quotation ready for Approve & Lock" : "Quotations ready for Approve & Lock", from: "Price agent and advisor", to: "quotes", go: "Quotations" },
@@ -228,6 +236,7 @@ export function Dashboard({ go }: { go?: (k: string) => void } = {}) {
     { n: (d.suppliers || []).filter((x: any) => x.approved === false).length, text: "Suppliers found on the web, to approve", from: "Supplier finder", to: "suppliers", go: "Suppliers" },
     { n: (d.blog_posts || []).filter((x: any) => x.status === "Draft" && !x.area).length, text: "Blog drafts to read and publish", from: "Website (SEO) agent", to: "growth", go: "Growth" },
     { n: (d.blog_posts || []).filter((x: any) => x.status === "Draft" && x.area).length, text: "District page drafts to read and publish", from: "Website (SEO) agent · Growth, District pages", to: "growth", go: "Growth" },
+    { n: inboxWait.length, text: inboxWait.length === 1 ? "Proposal from the growth agents or Claude" : "Proposals from the growth agents and Claude", from: [...new Set(inboxWait.map((x: any) => WHO[x.source] || x.source))].join(", "), to: "inbox", go: "Open" },
     { n: vidWait, text: vidWait === 1 ? "Video to review before it is posted" : "Videos to review before they are posted", from: "Video agent", to: "growth", go: "Growth" },
   ] as { n: number; text: string; from: string; to: string; go: string }[]).filter((a) => a.n > 0);
   const nextStep = String(rep?.summary || "").split("\n").map((x) => x.trim()).find((x) => /^Agla kaam\s*:/i.test(x))?.replace(/^Agla kaam\s*:\s*/i, "") || "";
@@ -238,8 +247,9 @@ export function Dashboard({ go }: { go?: (k: string) => void } = {}) {
   useEffect(() => {
     if (loading) return;
     approvals.forEach((a) => notify({ key: a.text + "|" + a.n, agent: a.from.split(" · ")[0], title: `${a.n} ${a.text.charAt(0).toLowerCase()}${a.text.slice(1)}` }));
+    inboxWait.slice(0, 3).forEach((x: any) => notify({ key: "inbox|" + x.id, agent: WHO[x.source] || "Agent", title: x.title }));
     lateInv.slice(0, 2).forEach((v: any) => notify({ key: "late|" + v.id, agent: "Money agent", title: `Invoice ${v.invoice_no} is ${v.age} days late`, sub: `${money(v.left)} SAR still to come, ${pname(d, v.project_id)}` }));
-  }, [loading, apN, lateInv.length]);
+  }, [loading, apN, lateInv.length, inboxWait.length]);
   const numTile = (label: string, n: number, unit: string, note: React.ReactNode, onPress: (() => void) | undefined, big = false) => (
     <Pressable disabled={!onPress} onPress={onPress} style={({ hovered, pressed }: any) => [{ flex: 1, minWidth: 150, backgroundColor: c.surface, borderRadius: 22, padding: big ? 22 : 18, gap: 6, justifyContent: "space-between", minHeight: big ? 150 : 124 }, ELEV,
       { transitionProperty: "transform, box-shadow", transitionDuration: "200ms", cursor: onPress ? "pointer" : "default" } as any, hovered ? { transform: [{ translateY: -3 }] } : null, pressed ? { transform: [{ scale: 0.98 }] } : null]}>
@@ -316,6 +326,17 @@ export function Dashboard({ go }: { go?: (k: string) => void } = {}) {
       </View>
     </View>
   );
+  const decisions = (brainState.decisions || []) as any[];
+  const decided = decisions.length && brainState.decided_at && riyadhDay(brainState.decided_at) === riyadhDay(Date.now()) ? (
+    <Card style={{ gap: 4 }}>
+      <SectionHead title="Decisions for today" sub="From the main agent, most important first" />
+      {decisions.map((x, i) => (
+        <Pressable key={i} onPress={() => go?.(({ sales: "queries", site: "projects", money: "money", buying: "suppliers", website: "growth", company: "people" } as any)[x.area] || "inbox")}
+          style={({ hovered }: any) => [{ flexDirection: "row", gap: 12, alignItems: "flex-start", paddingVertical: 10, borderTopWidth: i ? 1 : 0, borderColor: c.line, cursor: "pointer", transitionProperty: "transform", transitionDuration: "160ms" } as any, hovered ? { transform: [{ translateX: 4 }] } : null]}>
+          <View style={{ width: 28, height: 28, borderRadius: 9, backgroundColor: DEEP.bg, alignItems: "center", justifyContent: "center" }}><T size={13} bold color={DEEP.glow}>{i + 1}</T></View>
+          <View style={{ flex: 1 }}><T size={15} bold>{x.title}</T><T size={13} muted>{x.why}</T></View>
+        </Pressable>))}
+    </Card>) : null;
   const side = <>
     <Rise i={2}><Card><MonthCal marks={marks} /><T size={12} muted>A dot marks a day with a payment or work entry.</T></Card></Rise>
     <Rise i={3}><Fold title="Notes from the main agent" sub={rep ? stamp(rep.created_at) : undefined}>
@@ -361,10 +382,10 @@ export function Dashboard({ go }: { go?: (k: string) => void } = {}) {
       <Sheet open={!!kd} onClose={() => setKd(null)} title={kd ? KD[kd][0] : ""}>{kd ? KD[kd][1]() : null}</Sheet>
       {wide ? (
         <View style={{ flexDirection: "row", gap: 18, alignItems: "flex-start" }}>
-          <View style={{ flex: 2.2, gap: 16 }}><Rise i={0}>{hero}</Rise><Rise i={1}>{bento}</Rise>{board}<Rise i={2}>{kpis}</Rise><View style={{ flexDirection: "row", flexWrap: "wrap", gap: 16, alignItems: "flex-start" }}><View style={{ flex: 1.3, minWidth: 280 }}>{chartCard}</View><View style={{ flex: 1, minWidth: 280 }}>{recentCard}</View></View>{table}</View>
+          <View style={{ flex: 2.2, gap: 16 }}><Rise i={0}>{hero}</Rise><Rise i={1}>{bento}</Rise>{decided}{board}<Rise i={2}>{kpis}</Rise><View style={{ flexDirection: "row", flexWrap: "wrap", gap: 16, alignItems: "flex-start" }}><View style={{ flex: 1.3, minWidth: 280 }}>{chartCard}</View><View style={{ flex: 1, minWidth: 280 }}>{recentCard}</View></View>{table}</View>
           <View style={{ flex: 1, gap: 16, minWidth: 300 }}>{side}</View>
         </View>
-      ) : <><Rise i={0}>{hero}</Rise><Rise i={1}>{bento}</Rise>{board}<Rise i={2}>{kpis}</Rise>{chartCard}{side}{recentCard}{table}</>}
+      ) : <><Rise i={0}>{hero}</Rise><Rise i={1}>{bento}</Rise>{decided}{board}<Rise i={2}>{kpis}</Rise>{chartCard}{side}{recentCard}{table}</>}
     </Screen>
   );
 }
