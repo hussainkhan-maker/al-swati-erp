@@ -1154,11 +1154,11 @@ function WriteMail({ o, kind, profile, signature, onClose }: { o: any; kind: str
 export default function Growth() {
   // Back from "Connect YouTube" (state "y.…"): open Videos, where that link is finished.
   const [tab, setTab] = useState<"blog" | "areas" | "cases" | "maps" | "videos" | "outreach">(() => (Platform.OS === "web" && (new URLSearchParams(globalThis.location?.search || "").get("state") || "").startsWith("y.") ? "videos" : "blog"));
-  const { d: gd } = useData(); const drafts = (gd.blog_posts || []).filter((x: any) => x.status === "Draft").length;
+  const { d: gd } = useData(); const drafts = (gd.blog_posts || []).filter((x: any) => x.status === "Draft" && !x.area).length, areaDrafts = (gd.blog_posts || []).filter((x: any) => x.status === "Draft" && x.area).length;
   return (
     <Screen>
       <View style={{ gap: 2 }}><H1>Growth</H1><T size={14} muted>What brings new clients: the website on Google, Maps, videos and direct outreach.</T></View>
-      <Tabs value={tab} onChange={(k) => setTab(k as any)} items={[{ key: "blog", label: "Website & blog", n: drafts }, { key: "areas", label: "District pages" }, { key: "cases", label: "Case studies" }, { key: "maps", label: "Google Maps" }, { key: "videos", label: "Videos" }, { key: "outreach", label: "Outreach" }]} />
+      <Tabs value={tab} onChange={(k) => setTab(k as any)} items={[{ key: "blog", label: "Website & blog", n: drafts }, { key: "areas", label: "District pages", n: areaDrafts }, { key: "cases", label: "Case studies" }, { key: "maps", label: "Google Maps" }, { key: "videos", label: "Videos" }, { key: "outreach", label: "Outreach" }]} />
       {tab === "blog" ? <Blog /> : tab === "areas" ? <DistrictPages /> : tab === "cases" ? <CaseStudies /> : tab === "maps" ? <MapsBooster /> : tab === "videos" ? <Videos /> : <Outreach />}
       <Fold title="Company facts the AI writes from" sub="Every agent uses only these. Edit them once."><CompanyProfile /></Fold>
     </Screen>

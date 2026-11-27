@@ -202,7 +202,7 @@ export function Dashboard({ go }: { go?: (k: string) => void } = {}) {
   const owesN = (d.projects || []).reduce((s2: number, p: any) => s2 + clientAccount(d, p.id).owes, 0);
   const waitSum = waiting.reduce((s2: number, v: any) => s2 + v.left, 0);
   const reqWait = (d.supplier_requests || []).filter((r: any) => r.status === "Sent").length;
-  const blogDrafts = (d.blog_posts || []).filter((x: any) => /draft/i.test(String(x.status || ""))).length;
+  const blogDrafts = (d.blog_posts || []).filter((x: any) => x.status === "Draft").length;
   const noRate = (d.subcontractors || []).filter((x: any) => !(Number(x.rate) > 0)).length;
   const teams = new Set(pr.filter((x: any) => dkey(x) >= days[5]).map((x: any) => x.sub_name)).size;
   const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
@@ -215,7 +215,7 @@ export function Dashboard({ go }: { go?: (k: string) => void } = {}) {
       line: waiting.length ? `${plural(waiting.length, "invoice", "invoices")} waiting, ${money(waitSum)} SAR` : "No invoice is waiting for payment", to: "money" },
     { k: "buying", icon: "truck", title: "Buying", n: reqWait, unit: reqWait === 1 ? "price request waiting" : "price requests waiting",
       line: rises.length ? `${plural(rises.length, "price rise", "price rises")} in the last 30 days` : "No price rise in the last 30 days", to: "suppliers" },
-    { k: "website", icon: "spark", title: "Website", n: blogDrafts, unit: blogDrafts === 1 ? "blog draft to review" : "blog drafts to review",
+    { k: "website", icon: "spark", title: "Website", n: blogDrafts, unit: blogDrafts === 1 ? "website draft to review" : "website drafts to review",
       line: `${plural(flagged.filter((i) => i.area === "website").length, "note", "notes")} from the website agent`, to: "growth" },
     { k: "company", icon: "people", title: "Company", n: (d.profiles || []).length, unit: "people in the app",
       line: noRate ? `${plural(noRate, "subcontractor", "subcontractors")} without a rate` : "Every subcontractor has a rate", to: "people" },
@@ -226,7 +226,8 @@ export function Dashboard({ go }: { go?: (k: string) => void } = {}) {
     { n: newQ, text: newQ === 1 ? "New client query to review" : "New client queries to review", from: "Intake and reading agents", to: "queries", go: "Queries" },
     { n: (d.rfis || []).filter((r: any) => r.status === "Draft").length, text: "RFI written, not sent", from: "Query organizer", to: "rfis", go: "RFIs" },
     { n: (d.suppliers || []).filter((x: any) => x.approved === false).length, text: "Suppliers found on the web, to approve", from: "Supplier finder", to: "suppliers", go: "Suppliers" },
-    { n: (d.blog_posts || []).filter((x: any) => x.status === "Draft").length, text: "Blog drafts to read and publish", from: "Website (SEO) agent", to: "growth", go: "Growth" },
+    { n: (d.blog_posts || []).filter((x: any) => x.status === "Draft" && !x.area).length, text: "Blog drafts to read and publish", from: "Website (SEO) agent", to: "growth", go: "Growth" },
+    { n: (d.blog_posts || []).filter((x: any) => x.status === "Draft" && x.area).length, text: "District page drafts to read and publish", from: "Website (SEO) agent · Growth, District pages", to: "growth", go: "Growth" },
     { n: vidWait, text: vidWait === 1 ? "Video to review before it is posted" : "Videos to review before they are posted", from: "Video agent", to: "growth", go: "Growth" },
   ] as { n: number; text: string; from: string; to: string; go: string }[]).filter((a) => a.n > 0);
   const nextStep = String(rep?.summary || "").split("\n").map((x) => x.trim()).find((x) => /^Agla kaam\s*:/i.test(x))?.replace(/^Agla kaam\s*:\s*/i, "") || "";
