@@ -74,9 +74,12 @@ async function mail(action: string, extra: Record<string, unknown> = {}) {
   if (data?.error) throw new Error(data.error);
   return data;
 }
+/** The last known Outlook link, kept while the app is open, so the card shows the right state at once. */
+let OUTLOOK_LAST: any = null;
 export function OutlookLink({ onLinked }: { onLinked?: (linked: boolean) => void } = {}) {
   const { reload } = useData(); const c = useColors();
-  const [st, setSt] = useState<any>(null), [waiting, setWaiting] = useState(false), [msg, setMsg] = useState(""), [busy, setBusy] = useState("");
+  const [st, setSt0] = useState<any>(OUTLOOK_LAST), [waiting, setWaiting] = useState(false), [msg, setMsg] = useState(""), [busy, setBusy] = useState("");
+  const setSt = (x: any) => { OUTLOOK_LAST = x; setSt0(x); };
   const load = () => mail("outlook_status").then((x) => { setSt(x); onLinked?.(!!x?.linked); return x; }).catch((e) => { setMsg(e.message); return null; });
   // Back from Microsoft's sign-in page (…?code=…&state=…): hand the one-time code to the server, then look at the inbox.
   useEffect(() => {
@@ -109,7 +112,7 @@ export function OutlookLink({ onLinked }: { onLinked?: (linked: boolean) => void
   };
   const mins = st?.last_pull ? Math.round((Date.now() - Date.parse(st.last_pull)) / 60000) : null;
   return (
-    <Card>
+    st == null ? null : <Card>
       <Row><T bold style={{ flex: 1 }}>Outlook email</T>
         {st == null ? null : st.linked ? <Pill kind={st.last_error ? "bad" : "good"} text={st.last_error ? "needs attention" : mins == null ? `connected · ${st.account}` : `connected · checked ${mins} min ago`} /> : <Pill kind="warn" text="not connected" />}
       </Row>

@@ -13,7 +13,7 @@ import { Doc, docHTML, makeAndShare } from "../lib/pdf";
 import { supabase } from "../lib/supabase";
 import { Btn, Card, Empty, Field, H1, Icon, Photo, Pill, Rise, Row, Screen, Select, Sheet, T, Tile, useColors } from "../ui";
 
-type Kind = "material" | "stone" | "measure";
+type Kind = "material" | "stone" | "measure" | "pay";
 const n0 = (v: any) => { const x = num(v); return Number.isFinite(x) ? x : 0; };
 /** m² of one line: stone = length cm × width cm × pieces; measure = length m × width m − deduction. */
 export const lineArea = (kind: Kind, l: any) => kind === "stone" ? r2((n0(l.l) * n0(l.w) * n0(l.qty)) / 10000) : kind === "measure" ? r2(Math.max(0, n0(l.l) * n0(l.w) - n0(l.deduct))) : 0;
@@ -36,13 +36,18 @@ export default function Sheets() {
   const KIND: Record<Kind, [string, string, string]> = {
     material: [L("Order materials", "طلب مواد", "سامان کا آرڈر"), L("Angles, glue, bolts, any accessory", "زوايا، غراء، مسامير، أي إكسسوار", "زاویہ، گلو، بولٹ، کوئی بھی سامان"), "truck"],
     stone: [L("Stone sizes", "مقاسات الحجر", "پتھر کے سائز"), L("30×60, 20 pieces, for which place", "30×60، 20 حبة، لأي مكان", "30×60، 20 پتھر، کس جگہ کے لیے"), "tag"],
+    pay: [L("Pay a stone supplier", "دفع لمورد الحجر", "پتھر والے کو ادائیگی"), L("Cash or hawala, no invoice needed", "نقدًا أو حوالة، بدون فاتورة", "نقد یا حوالہ، بل کے بغیر"), "cash"],
     measure: [L("Measure a contractor's work", "قياس أعمال المقاول", "ٹھیکیدار کی پیمائش"), L("Length × width per place, deduction, total m²", "الطول × العرض لكل مكان، الخصم، المجموع", "ہر جگہ کا طول × عرض، خصم، کل میٹر"), "ruler"],
   };
   const rows = ((d.site_sheets || []) as any[]).filter((x) => x.status !== "cancelled");
   const [pid, setPid] = useState(""), [edit, setEdit] = useState<any | null>(null);
   const list = rows.filter((x) => !pid || x.project_id === pid);
-  const owing = rows.filter((x) => x.kind !== "measure" && x.status === "final");
-  const ST: Record<string, [string, "plain" | "good" | "warn" | "acc"]> = { draft: [L("Draft", "مسودة", "ڈرافٹ"), "plain"], final: [L("Final", "نهائي", "فائنل"), "acc"], paid: [L("Done", "تم", "مکمل"), "good"] };
+  const owing = rows.filter((x) => x.kind === "material" && x.status === "final");
+  // Stone on credit: what arrived (m² × rate) is owed to each supplier, less what was paid to him.
+  const owed: Record<string, number> = {};
+  rows.forEach((x) => { const k = String(x.party || "").trim(); if (!k) return; if (x.kind === "stone" && ["received", "paid"].includes(x.status)) owed[k] = (owed[k] || 0) + (Number(x.amount) || 0); if (x.kind === "pay") owed[k] = (owed[k] || 0) - (Number(x.amount) || 0); });
+  const owedList = Object.entries(owed).filter(([, v]) => Math.abs(v) > 0.5).sort((a, b) => b[1] - a[1]);
+  const ST: Record<string, [string, "plain" | "good" | "warn" | "acc"]> = { draft: [L("Draft", "مسودة", "ڈرافٹ"), "plain"], final: [L("Final", "نهائي", "فائنل"), "acc"], paid: [L("Done", "تم", "مکمل"), "good"], received: [L("On the supplier's account", "على حساب المورد", "سپلائر کے کھاتے میں"), "acc"] };
   return (
     <Screen>
       <H1>{L("Orders & measurements", "الطلبات والقياسات", "آرڈر اور پیمائش")}</H1>
@@ -54,6 +59,14 @@ export default function Sheets() {
           <T bold color={c.warn}>{L(`${owing.length} order(s) placed: the invoice photo is still missing`, `${owing.length} طلب: صورة الفاتورة غير موجودة`, `${owing.length} آرڈر: بل کی تصویر ابھی نہیں آئی`)}</T>
           {owing.slice(0, 5).map((x) => <Pressable key={x.id} onPress={() => setEdit(x)} style={{ paddingVertical: 4, cursor: "pointer" } as any}><T size={14}>{pname(d, x.project_id)} · {KIND[x.kind as Kind][0]}{x.party ? " · " + x.party : ""} · {day(x.final_at || x.created_at)}</T></Pressable>)}
         </Card>) : null}
+      {owedList.length ? (
+        <Card style={{ gap: 4 }}>
+          <T bold>{L("Stone suppliers: still to pay", "موردو الحجر: المتبقي", "پتھر والے: باقی رقم")}</T>
+          {owedList.map(([name, v], i) => (
+            <Pressable key={name} onPress={() => setEdit({ kind: "pay", project_id: pid || (d.projects || [])[0]?.id || "", party: name, lines: [], status: "draft" })} style={{ flexDirection: "row", alignItems: "center", paddingVertical: 8, borderTopWidth: i ? 1 : 0, borderColor: c.line, cursor: "pointer" } as any}>
+              <T style={{ flex: 1 }}>{name}</T><T bold color={v > 0 ? c.warn : c.good}>{money(v)} SAR</T>
+            </Pressable>))}
+        </Card>) : null}
       {(d.projects || []).length > 1 ? <Select label={L("Project", "المشروع", "پراجیکٹ")} value={pid} onChange={setPid} options={[{ value: "", label: L("All projects", "كل المشاريع", "تمام پراجیکٹ") }, ...(d.projects || []).map((p: any) => ({ value: p.id, label: p.name }))]} /> : null}
       {list.length ? list.map((x, i) => (
         <Rise key={x.id} i={i}>
@@ -62,7 +75,7 @@ export default function Sheets() {
               <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: c.accentSoft, alignItems: "center", justifyContent: "center" }}><Icon name={KIND[x.kind as Kind][2]} size={20} color={c.accent} /></View>
               <View style={{ flex: 1 }}>
                 <T bold>{KIND[x.kind as Kind][0]}{x.party ? " · " + x.party : ""}</T>
-                <T size={13} muted>{pname(d, x.project_id)} · {day(x.created_at)} · {(x.lines || []).length} {L("lines", "بنود", "لائن")}{x.kind !== "material" ? ` · ${money(x.total)} m²` : ""}</T>
+                <T size={13} muted>{pname(d, x.project_id)} · {day(x.created_at)} · {x.kind === "pay" ? `${money(x.amount)} SAR` : `${(x.lines || []).length} ${L("lines", "بنود", "لائن")}${x.kind !== "material" ? ` · ${money(x.total)} m²` : ""}${x.kind === "stone" && Number(x.amount) > 0 ? ` · ${money(x.amount)} SAR` : ""}`}</T>
               </View>
               <Pill kind={x.kind === "measure" && x.status === "final" ? "warn" : (ST[x.status] || ST.draft)[1]} text={x.kind === "measure" && x.status === "final" ? L("Waiting for approval", "بانتظار الاعتماد", "منظوری کا انتظار") : (ST[x.status] || ST.draft)[0]} />
             </Row>
@@ -76,7 +89,8 @@ export default function Sheets() {
           {wMsg ? <T size={13} color={c.accent}>{wMsg}</T> : null}
           {mine.map((x) => <View key={x.id} style={{ borderTopWidth: 1, borderColor: c.line, paddingTop: 8, gap: 2 }}><T size={14}>{x.body}</T><T size={12} muted>{x.status === "done" ? (x.result || L("Done", "تم", "ہو گیا")) : L("With the owner", "عند المالك", "مالک کے پاس ہے")}</T></View>)}
         </Card>) : null}
-      {edit ? <Editor key={edit.id || edit.kind} init={edit} onClose={() => setEdit(null)} L={L} title={KIND[edit.kind as Kind][0]} canReopen={role !== "supervisor"} /> : null}
+      {edit && edit.kind === "pay" ? <PayEditor key={edit.id || "pay" + edit.party} init={edit} onClose={() => setEdit(null)} L={L} title={KIND.pay[0]} suppliers={Object.keys(owed)} /> : null}
+      {edit && edit.kind !== "pay" ? <Editor key={edit.id || edit.kind} init={edit} onClose={() => setEdit(null)} L={L} title={KIND[edit.kind as Kind][0]} canReopen={role !== "supervisor"} /> : null}
     </Screen>
   );
 }
@@ -106,7 +120,8 @@ function Editor({ init, onClose, L, title, canReopen }: { init: any; onClose: ()
     } catch (e: any) { setMsg(e.message); }
     setBusy("");
   };
-  const row = (status: string) => ({ project_id: f.project_id, kind, party: String(f.party || "").trim(), lines, total, status, heard: f.heard || null, updated_at: new Date().toISOString(), ...(status === "final" && !f.final_at ? { final_at: new Date().toISOString() } : {}) });
+  const rate = kind === "stone" ? n0(f.rate) : 0, amount = kind === "stone" && rate > 0 ? r2(total * rate) : null;
+  const row = (status: string) => ({ project_id: f.project_id, kind, party: String(f.party || "").trim(), lines, total, status, ...(kind === "stone" ? { rate: rate || null, amount } : {}), heard: f.heard || null, updated_at: new Date().toISOString(), ...(status === "final" && !f.final_at ? { final_at: new Date().toISOString() } : {}) });
   const save = async (status: string) => {
     if (!f.project_id) { setMsg(L("Choose the project.", "اختر المشروع.", "پراجیکٹ چنیں۔")); return null; }
     if (!lines.length) { setMsg(L("Add at least one line.", "أضف بندًا واحدًا على الأقل.", "کم از کم ایک لائن ڈالیں۔")); return null; }
@@ -138,6 +153,22 @@ function Editor({ init, onClose, L, title, canReopen }: { init: any; onClose: ()
       catch (e: any) { setMsg(e.message); setBusy(""); return; }
     }
     if (await save(kind === "measure" ? "paid" : "final")) { if (f.heard) supabase.functions.invoke("site", { body: { action: "learn", kind, heard: f.heard, lines } }).catch(() => {}); setMsg(kind === "measure" ? L(`Saved: ${money(total)} m² added to ${f.party}.`, `تم الحفظ: ${money(total)} م² أضيفت إلى ${f.party}.`, `محفوظ: ${money(total)} میٹر ${f.party} کے کھاتے میں۔`) : L("Final. Send the PDF. When it is paid, add the invoice photo here.", "نهائي. أرسل الملف. عند الدفع أضف صورة الفاتورة هنا.", "فائنل۔ PDF بھیجیں۔ ادائیگی پر بل کی تصویر یہاں ڈالیں۔")); }
+  };
+  // The stone has arrived: its value goes to the project's costs and onto the supplier's account (no invoice needed).
+  const arrived = async () => {
+    if (!sure) { setSure(true); return; }
+    setSure(false);
+    if (!String(f.party || "").trim()) { setMsg(L("Write the supplier's name.", "اكتب اسم المورد.", "سپلائر کا نام لکھیں۔")); return; }
+    if (!(rate > 0)) { setMsg(L("Write the supplier's rate per m².", "اكتب سعر المورد للمتر المربع.", "سپلائر کا ریٹ فی میٹر لکھیں۔")); return; }
+    setBusy("arr"); setMsg("");
+    try {
+      let tid = f.txn_id || null;
+      if (!added.current) { const r = await insert("txns", { type: "expense", project_id: f.project_id, split: [{ project_id: f.project_id, pct: 100 }], amount, description: `Stone on credit · ${String(f.party).trim()} · ${money(total)} m² × ${money(rate)}`, paid_on: new Date().toISOString().slice(0, 10), method: "Other", heard: f.heard || null, flags: [] }); added.current = true; tid = r.data?.id ?? null; }
+      await update("site_sheets", f.id, { ...row("received"), txn_id: tid });
+      setF((x: any) => ({ ...x, status: "received", txn_id: tid })); await reload(["site_sheets"]);
+      setMsg(L(`${money(amount)} SAR is now on ${f.party}'s account and in the project's costs.`, `${money(amount)} ريال على حساب ${f.party} وفي تكاليف المشروع.`, `${money(amount)} ریال ${f.party} کے کھاتے اور پراجیکٹ کے خرچے میں۔`));
+    } catch (e: any) { setMsg(e.message); }
+    setBusy("");
   };
   const share = async () => {
     setBusy("pdf"); setMsg("");
@@ -171,7 +202,9 @@ function Editor({ init, onClose, L, title, canReopen }: { init: any; onClose: ()
           {locked ? <View style={{ flex: 1 }}><T size={12} muted>{kind === "measure" ? L("Subcontractor", "المقاول", "ٹھیکیدار") : L("Supplier", "المورد", "سپلائر")}</T><T bold>{f.party || "—"}</T></View>
             : kind === "measure" && subs.length ? <Select label={L("Subcontractor", "المقاول", "ٹھیکیدار")} value={f.party} onChange={(v) => setF((x: any) => ({ ...x, party: v }))} options={[{ value: "", label: "—" }, ...subs.map((s) => ({ value: s, label: s }))]} />
               : <Field label={kind === "measure" ? L("Subcontractor", "المقاول", "ٹھیکیدار") : L("Supplier (if known)", "المورد (إن وجد)", "سپلائر (اگر معلوم ہو)")} value={f.party} onChange={(v) => setF((x: any) => ({ ...x, party: v }))} />}
+          {kind === "stone" && ["draft", "final"].includes(f.status) ? <Field label={L("Supplier's rate, SAR per m²", "سعر المورد، ريال للمتر", "سپلائر کا ریٹ، ریال فی میٹر")} numeric value={f.rate ?? ""} onChange={(v) => setF((x: any) => ({ ...x, rate: v }))} style={{ maxWidth: 220 }} /> : null}
         </Row>
+        {kind === "stone" && amount ? <T size={14}>{money(total)} m² × {money(rate)} = <T bold size={14}>{money(amount)} SAR</T></T> : null}
       </Card>
       {!locked ? <Card>
         <Voice value={text} onChange={setText} hints={subs} placeholder={kind === "material" ? "زاوية 5×5 مئة حبة، غراء أبو جمال 10 كرتون، مسمار 10×100 مئتين"
@@ -201,10 +234,42 @@ function Editor({ init, onClose, L, title, canReopen }: { init: any; onClose: ()
         {!locked ? <Btn title={L("Save draft", "حفظ مسودة", "ڈرافٹ محفوظ")} busy={busy === "draft"} onPress={() => save("draft")} /> : null}
         <Btn icon={<Icon name="share" size={16} />} title={L("PDF / share", "PDF / مشاركة", "PDF / شیئر")} busy={busy === "pdf"} disabled={!lines.length} onPress={share} />
         {!locked ? <Btn kind="primary" title={sure ? L("Tap again: this is final", "اضغط مرة أخرى: نهائي", "دوبارہ دبائیں: یہ فائنل ہے") : kind === "measure" ? (canReopen ? L("Final: add the m²", "نهائي: أضف الأمتار", "فائنل: میٹر ڈال دیں") : L("Final: send for approval", "نهائي: أرسل للاعتماد", "فائنل: منظوری کے لیے بھیجیں")) : L("Final: order placed", "نهائي: تم الطلب", "فائنل: آرڈر ہو گیا")} busy={busy === "final"} onPress={finish} /> : null}
-        {f.status === "final" && kind !== "measure" ? <Btn kind="primary" icon={<Icon name="camera" size={16} color={c.accentInk} />} title={L("Paid: add the invoice photo", "تم الدفع: أضف صورة الفاتورة", "ادائیگی ہو گئی: بل کی تصویر")} onPress={() => { onClose(); flows("purchase", { voice: { supplier: f.party, project_id: f.project_id }, sheet_id: f.id }); }} /> : null}
+        {f.status === "final" && kind === "stone" && f.id ? <Btn kind="primary" title={sure ? L("Tap again: the stone has arrived", "اضغط مرة أخرى: وصل الحجر", "دوبارہ دبائیں: پتھر آ گیا") : L("Stone arrived: put it on the supplier's account", "وصل الحجر: سجله على حساب المورد", "پتھر آ گیا: سپلائر کے کھاتے میں ڈالیں")} busy={busy === "arr"} onPress={arrived} /> : null}
+        {f.status === "final" && kind === "material" ? <Btn kind="primary" icon={<Icon name="camera" size={16} color={c.accentInk} />} title={L("Paid: add the invoice photo", "تم الدفع: أضف صورة الفاتورة", "ادائیگی ہو گئی: بل کی تصویر")} onPress={() => { onClose(); flows("purchase", { voice: { supplier: f.party, project_id: f.project_id }, sheet_id: f.id }); }} /> : null}
         {f.status === "final" && kind === "measure" && canReopen ? <Btn kind="primary" title={sure ? L("Tap again: add the m²", "اضغط مرة أخرى: أضف الأمتار", "دوبارہ دبائیں: میٹر ڈالیں") : L(`Approve: add ${money(total)} m²`, `اعتماد: أضف ${money(total)} م²`, `منظور: ${money(total)} میٹر ڈالیں`)} busy={busy === "paid" || busy === "final"} onPress={finish} /> : null}
         {f.status === "final" && kind !== "measure" && canReopen ? <Btn title={L("Change the order", "تعديل الطلب", "آرڈر بدلیں")} onPress={() => setF((x: any) => ({ ...x, status: "draft" }))} /> : null}
       </Row>
+    </Sheet>
+  );
+}
+
+/** One payment to a stone supplier (cash, hawala…): it comes off what he is owed. No invoice. */
+function PayEditor({ init, onClose, L, title, suppliers }: { init: any; onClose: () => void; L: (en: string, ar: string, ur: string) => string; title: string; suppliers: string[] }) {
+  const { d, insert, reload } = useData(); const c = useColors();
+  const [f, setF] = useState<any>({ project_id: init.project_id, party: init.party || "", amount: init.amount ?? "", method: init.lines?.[0]?.method || "Cash", note: init.lines?.[0]?.note || "" });
+  const [busy, setBusy] = useState(false), [msg, setMsg] = useState("");
+  const done = !!init.id;
+  const save = async () => {
+    const amt = n0(f.amount);
+    if (!String(f.party || "").trim() || !(amt > 0) || !f.project_id) { setMsg(L("Supplier, amount and project are needed.", "المورد والمبلغ والمشروع مطلوبة.", "سپلائر، رقم اور پراجیکٹ ضروری ہیں۔")); return; }
+    setBusy(true); setMsg("");
+    try { await insert("site_sheets", { project_id: f.project_id, kind: "pay", party: String(f.party).trim(), lines: [{ method: f.method, note: f.note }], total: 0, amount: r2(amt), status: "paid", final_at: new Date().toISOString() }); await reload(["site_sheets"]); onClose(); }
+    catch (e: any) { setMsg(e.message); setBusy(false); }
+  };
+  return (
+    <Sheet open onClose={onClose} title={title}>
+      <Card>
+        {suppliers.length && !done ? <Select label={L("Supplier", "المورد", "سپلائر")} value={suppliers.includes(f.party) ? f.party : ""} onChange={(v) => setF((x: any) => ({ ...x, party: v }))} options={[{ value: "", label: "—" }, ...suppliers.map((s2) => ({ value: s2, label: s2 }))]} /> : null}
+        <Field label={L("Supplier's name", "اسم المورد", "سپلائر کا نام")} value={f.party} onChange={(v) => setF((x: any) => ({ ...x, party: v }))} />
+        <Row wrap>
+          <Field label={L("Amount paid, SAR", "المبلغ المدفوع، ريال", "دی گئی رقم، ریال")} numeric value={f.amount} onChange={(v) => setF((x: any) => ({ ...x, amount: v }))} />
+          <Select label={L("How", "الطريقة", "کیسے")} value={f.method} onChange={(v) => setF((x: any) => ({ ...x, method: v }))} options={["Cash", "Hawala", "Bank transfer", "Other"].map((m) => ({ value: m, label: m }))} />
+        </Row>
+        <Select label={L("Project", "المشروع", "پراجیکٹ")} value={f.project_id} onChange={(v) => setF((x: any) => ({ ...x, project_id: v }))} options={(d.projects || []).map((p: any) => ({ value: p.id, label: p.name }))} />
+        <Field label={L("Note", "ملاحظات", "نوٹ")} value={f.note} onChange={(v) => setF((x: any) => ({ ...x, note: v }))} />
+      </Card>
+      {msg ? <T color={c.warn}>{msg}</T> : null}
+      {!done ? <Btn big kind="primary" title={L("Save the payment", "احفظ الدفعة", "ادائیگی محفوظ کریں")} busy={busy} onPress={save} /> : <T muted>{L("Saved.", "تم الحفظ.", "محفوظ ہے۔")}</T>}
     </Sheet>
   );
 }

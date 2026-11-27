@@ -227,7 +227,7 @@ export function Dashboard({ go }: { go?: (k: string) => void } = {}) {
       line: noRate ? `${plural(noRate, "subcontractor", "subcontractors")} without a rate` : "Every subcontractor has a rate", to: "people" },
   ];
   const measWait = ((d.site_sheets || []) as any[]).filter((x) => x.kind === "measure" && x.status === "final").length;
-  const openOrders = ((d.site_sheets || []) as any[]).filter((x) => x.kind !== "measure" && x.status === "final").length;
+  const openOrders = ((d.site_sheets || []) as any[]).filter((x) => x.kind === "material" && x.status === "final").length;
   const inboxWait = ((d.agent_inbox || []) as any[]).filter((x) => x.kind !== "request" && x.status === "waiting");
   const brainState = ((d.preferences || []).find((p: any) => p.key === "brain_state")?.value || {}) as any;
   // Everything an agent has prepared and only the owner can release, in one list.
@@ -547,7 +547,7 @@ export function Projects() {
   const saveProject = async () => {
     setBusy(true); setErr("");
     try {
-      const row = { name: p.name.trim(), client: p.client, company: p.company, fee_pct: num(p.fee_pct || 0) };
+      const row = { name: p.name.trim(), client: p.client, company: p.company, fee_pct: num(p.fee_pct || 0), owner: p.owner === "abu" ? "abu" : "admin" };
       if (!row.name || !(row.fee_pct >= 0 && row.fee_pct <= 20)) throw new Error("Name is required and the fee must be 0–20%.");
       let id = p.id;
       if (id) await update("projects", id, row); else id = (await insert("projects", row)).data?.id;
@@ -587,7 +587,8 @@ export function Projects() {
   };
   const openProject = (x: any) => setP({ ...x, members: membersOf(x.id), subs: subsOf(x.id).map((q: any) => q.id), ret: termsOf(d, x.id).retention ?? "", rate: termsOf(d, x.id).rate ?? "", ...(contacts.project?.[x.id] || {}) });
   const wide = useWide();
-  const projects = d.projects || [];
+  const [own, setOwn] = useState("all");
+  const projects = (d.projects || []).filter((x: any) => own === "all" || (own === "abu") === (x.owner === "abu"));
   const [sel, setSel] = useState<string | null>(null);
   const cur = projects.find((x: any) => x.id === sel) || (wide ? projects[0] : null);
   const [hf, setHf] = useState(""); // history filter: "" = everything, or a subcontractor name
@@ -595,11 +596,11 @@ export function Projects() {
 
   const list = (
     <View style={{ gap: 10 }}>
-      <Row><View style={{ flex: 1 }}><H1>Projects</H1></View><Btn kind="primary" icon={<Icon name="plus" color="#fff" />} title="New" onPress={() => setP({ name: "", client: "", company: "", fee_pct: "", members: [], subs: [], ret: "", rate: "" })} /></Row>
+      <Row wrap><View style={{ flex: 1 }}><H1>Projects</H1></View>{(d.projects || []).some((x: any) => x.owner === "abu") ? <Segmented value={own} options={[["all", "All"], ["mine", "Mine"], ["abu", "Abu's"]]} onChange={setOwn} /> : null}<Btn kind="primary" icon={<Icon name="plus" color="#fff" />} title="New" onPress={() => setP({ name: "", client: "", company: "", fee_pct: "", members: [], subs: [], ret: "", rate: "" })} /></Row>
       {projects.length ? <View style={{ backgroundColor: c.surface, borderWidth: 1, borderColor: c.line, borderRadius: 10, overflow: "hidden" }}>
         {projects.map((x: any, i: number) => { const a = clientAccount(d, x.id), on = cur?.id === x.id && wide; return (
           <Pressable key={x.id} onPress={() => { setSel(x.id); setHf(""); }} style={({ hovered }: any) => ({ flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 12, paddingHorizontal: 14, borderTopWidth: i ? 1 : 0, borderColor: c.line, borderLeftWidth: 3, borderLeftColor: on ? c.accent : "transparent", backgroundColor: on ? c.accentSoft : hovered ? c.sunk : c.surface, cursor: "pointer" } as any)}>
-            <View style={{ flex: 1 }}><T bold>{x.name}</T><T muted size={13}>{[x.client, x.company].filter(Boolean).join(", ") || "No client set"}</T></View>
+            <View style={{ flex: 1 }}><T bold>{x.name}</T><T muted size={13}>{[x.owner === "abu" ? "Abu's project" : "", x.client, x.company].filter(Boolean).join(", ") || "No client set"}</T></View>
             <View style={{ alignItems: "flex-end" }}><T bold size={14}>{money(a.m2)} m²</T><T muted size={12}>owes {money(a.owes)}</T></View>
           </Pressable>); })}
       </View> : <Empty text="No projects yet. Press New to add the first one." />}
@@ -715,8 +716,8 @@ export function Projects() {
           <SectionHead title="Orders & measurements" sub="Material orders, stone sizes and measured work entered on site for this project" />
           {siteRows.length ? siteRows.map((sh: any, i: number) => (
             <Row key={sh.id} style={{ paddingVertical: 9, borderTopWidth: i ? 1 : 0, borderColor: c.line }}>
-              <View style={{ flex: 1 }}><T bold size={14}>{sh.kind === "material" ? "Material order" : sh.kind === "stone" ? "Stone sizes" : "Measurement"}{sh.party ? " · " + sh.party : ""}</T><T size={12} muted>{dkey(sh)} · {(sh.lines || []).length} lines{sh.kind !== "material" ? ` · ${money(sh.total)} m²` : ""}</T></View>
-              <Pill kind={sh.status === "paid" ? "good" : sh.status === "final" ? "warn" : "plain"} text={sh.status === "paid" ? (sh.kind === "measure" ? "Added to m²" : "Invoice saved") : sh.status === "final" ? (sh.kind === "measure" ? "Waiting for approval" : "Invoice photo missing") : "Draft"} />
+              <View style={{ flex: 1 }}><T bold size={14}>{sh.kind === "material" ? "Material order" : sh.kind === "stone" ? "Stone" : sh.kind === "pay" ? `Paid to stone supplier, ${money(sh.amount)} SAR` : "Measurement"}{sh.party ? " · " + sh.party : ""}</T><T size={12} muted>{dkey(sh)} · {(sh.lines || []).length} lines{sh.kind !== "material" ? ` · ${money(sh.total)} m²` : ""}</T></View>
+              <Pill kind={sh.status === "paid" || sh.status === "received" ? "good" : sh.status === "final" ? "warn" : "plain"} text={sh.status === "received" ? `On supplier's account, ${money(sh.amount)} SAR` : sh.status === "paid" ? (sh.kind === "measure" ? "Added to m²" : sh.kind === "pay" ? "Paid" : "Invoice saved") : sh.status === "final" ? (sh.kind === "measure" ? "Waiting for approval" : sh.kind === "stone" ? "Ordered" : "Invoice photo missing") : "Draft"} />
             </Row>)) : <T muted>Nothing yet. Supervisors add these in Orders & measurements.</T>}
         </Card> : null}
 
@@ -798,6 +799,7 @@ export function Projects() {
           <Field required label="Project name" value={p.name} onChange={(v) => setP({ ...p, name: v })} />
           <Field label="Client" value={p.client} onChange={(v) => setP({ ...p, client: v })} />
           <Field label="Company the project is under" value={p.company} onChange={(v) => setP({ ...p, company: v })} />
+          <Select label="Whose project" value={p.owner === "abu" ? "abu" : "admin"} onChange={(v) => setP({ ...p, owner: v })} options={[{ value: "admin", label: "Mine" }, { value: "abu", label: "Abu's (he sees it in his account)" }]} />
           <Field required label="Service fee % (charged on the amount after VAT)" value={p.fee_pct} numeric onChange={(v) => setP({ ...p, fee_pct: v })} />
           <Row wrap>
             <Field label="Retention % kept by the client (usually 10–20)" value={p.ret} numeric onChange={(v) => setP({ ...p, ret: v })} />

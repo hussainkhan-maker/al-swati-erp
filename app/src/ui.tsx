@@ -467,13 +467,14 @@ export function Toasts() {
   useEffect(() => {
     // One at a time, a moment apart, never more than three on screen.
     const pump = () => setShown((cur) => { if (!noteQueue.length || cur.length >= (wideRef.current ? 3 : 1)) return cur; const [next, ...rest] = noteQueue; noteQueue = rest; return [...cur, next]; });
-    noteListen = pump; const iv = setInterval(pump, 1400); pump();
-    return () => { noteListen = null; clearInterval(iv); };
+    // No timer while idle (battery): the next notice is pulled when one arrives or when one leaves the screen.
+    noteListen = pump; pump();
+    return () => { noteListen = null; };
   }, []);
   if (!shown.length) return null;
   return (
     <View pointerEvents="none" style={[{ position: "absolute", gap: 10, zIndex: 50 }, wide ? { right: 28, bottom: 28, width: 360 } : { left: 12, right: 12, bottom: 84 }]}>
-      {shown.map((n) => <Toast key={n.key} n={n} compact={!wide} onDone={() => setShown((cur) => cur.filter((x) => x.key !== n.key))} />)}
+      {shown.map((n) => <Toast key={n.key} n={n} compact={!wide} onDone={() => { setShown((cur) => cur.filter((x) => x.key !== n.key)); setTimeout(() => noteListen?.(), 250); }} />)}
     </View>
   );
 }

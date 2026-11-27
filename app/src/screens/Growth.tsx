@@ -40,6 +40,8 @@ function useIndexStatus(urls: string[]) {
 }
 /** Coming from an approval on Home: open the right part of Growth, and the first waiting draft itself. */
 let START = "", OPEN_FIRST = false;
+/** The last known YouTube link, kept while the app is open. */
+let YT_LAST: any = null;
 export const openGrowthAt = (tab: string) => { START = tab; OPEN_FIRST = true; };
 /** Under a published page: "Indexed Ping Sent ✓" once IndexNow has the address, Google's own status, and "Re-ping Google". */
 function IndexLine({ url: raw, rows, onRows, label, onGbp }: { url: string; rows: Record<string, any>; onRows: (rows: any[]) => void; label?: string; onGbp?: () => void }) {
@@ -58,8 +60,7 @@ function IndexLine({ url: raw, rows, onRows, label, onGbp }: { url: string; rows
     } catch (e: any) { setMsg(e.message); } finally { setBusy(false); }
   };
   // Telling Google about a page is the agents' own work: only the result is shown, and only once Google has the page.
-  if (st?.google_verdict !== "PASS") return null;
-  return <Row wrap>{label ? <T size={12} muted>{label}</T> : null}<Pill kind="good" text="On Google ✓" /></Row>;
+  return null; // whether Google has the page is the agents' business, not shown
 }
 
 // ───────── Google Maps (Business Profile) & reviews ─────────
@@ -337,7 +338,7 @@ async function videoFn(action: string, body: any = {}) {
 function Videos() {
   const c = useColors();
   const [rows, setRows] = useState<any[]>([]), [open, setOpen] = useState<any>(null), [busy, setBusy] = useState(""), [msg, setMsg] = useState(""), [show, setShow] = useState("open");
-  const [yt, setYt] = useState<any>(null);
+  const [yt, setYt0] = useState<any>(YT_LAST); const setYt = (x: any) => { YT_LAST = x; setYt0(x); };
   const load = async () => { const { data } = await supabase.from("video_ideas").select("*").order("created_at", { ascending: false }).limit(300); setRows(data || []); };
   const ytLoad = () => videoFn("yt_status").then(setYt).catch((e) => setMsg(e.message));
   useEffect(() => { load(); const i = setInterval(load, 60000); return () => clearInterval(i); }, []);
@@ -374,15 +375,15 @@ function Videos() {
         <T size={13} muted>New videos wait here for your yes. An approved video goes public on YouTube at the next slot; TikTok you post yourself.</T>
         <StatStrip items={[{ label: "To review", value: String(n("review")) }, { label: "Being made", value: String(n("generating", "rendering")) }, { label: "Scheduled", value: String(n("approved", "scheduled")) }, { label: "Posted", value: String(n("posted")) }]} />
         <Row wrap>
-          {yt?.linked ? <Pill kind="good" text={"YouTube: " + (yt.channel || "connected")} /> : <Pill kind="warn" text="YouTube not connected" />}
-          {yt?.linked ? <Btn kind="ghost" title="Disconnect YouTube" busy={busy === "yt"} disabled={!!busy} onPress={ytStop} />
+          {yt == null ? null : yt.linked ? <Pill kind="good" text={"YouTube: " + (yt.channel || "connected")} /> : <Pill kind="warn" text="YouTube not connected" />}
+          {yt == null ? null : yt.linked ? <Btn kind="ghost" title="Disconnect YouTube" busy={busy === "yt"} disabled={!!busy} onPress={ytStop} />
             : <Btn kind="primary" title="Connect YouTube" busy={busy === "yt"} disabled={!!busy} onPress={ytStart} />}
           <Btn kind="ghost" icon={<Icon name="spark" color={c.accent} />} title="Write 3 new ideas" busy={busy === "ideas"} disabled={!!busy} onPress={more} />
           <Btn kind="ghost" title="Open TikTok Studio" onPress={() => Linking.openURL(TIKTOK_UPLOAD)} />
           <Btn kind="ghost" title="Open YouTube Studio" onPress={() => Linking.openURL(YT_STUDIO)} />
         </Row>
         {yt?.error ? <T size={12} color={c.bad}>{yt.error}</T> : null}
-        {!yt?.linked ? <T size={12} muted>Connect YouTube once: Google asks you to choose the AL-Swati channel and allow uploads. Until then approved videos wait here.</T> : null}
+        {yt != null && !yt.linked ? <T size={12} muted>Connect YouTube once: Google asks you to choose the AL-Swati channel and allow uploads. Until then approved videos wait here.</T> : null}
         {msg ? <T size={13} muted>{msg}</T> : null}
       </Card>
       <Row wrap>{([["open", `To make and post (${rows.filter((r) => OPEN.includes(r.status)).length})`], ["posted", `Posted (${n("posted")})`], ["all", "All"]] as const).map(([k, l]) => <Btn key={k} kind={show === k ? "primary" : "ghost"} title={l} onPress={() => setShow(k)} />)}</Row>

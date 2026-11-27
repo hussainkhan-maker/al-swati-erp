@@ -74,6 +74,7 @@ export const useData = () => useContext(C)!;
 
 const isNetErr = (e: any) => /network|fetch|timed? ?out|offline/i.test(String(e?.message ?? e));
 
+const SNAP = "al-swati:snap:", SNAP_SKIP = ["audit_log", "locations", "blog_posts", "documents", "email_outbox", "outreach_contacts", "inquiries"];
 export function DataProvider({ profile, children }: { profile: Profile; children: React.ReactNode }) {
   const [d, setD] = useState<Record<string, any[]>>({});
   const [online, setOnline] = useState(true);
@@ -86,11 +87,19 @@ export function DataProvider({ profile, children }: { profile: Profile; children
   const reload = useCallback(async (keys?: string[]) => {
     const qs = keys ? reads.filter((q) => keys.includes(q.key)) : reads;
     const res = await Promise.all(qs.map(async (q) => { const { data, error } = await q.run(); return [q.key, error ? null : data] as const; }));
-    setD((prev) => { const n = { ...prev }; res.forEach(([k, v]) => { if (v) n[k] = k === "sub_names" ? (v as any[]).map((x: any) => (typeof x === "string" ? x : x.sub_names)) : (v as any[]); }); return n; });
+    setD((prev) => {
+      const n = { ...prev }; res.forEach(([k, v]) => { if (v) n[k] = k === "sub_names" ? (v as any[]).map((x: any) => (typeof x === "string" ? x : x.sub_names)) : (v as any[]); });
+      // After a full load the light tables are kept on the device, so the next opening shows the screens at once
+      // (the fresh numbers replace them a moment later). Removed again on sign-out.
+      if (!keys) { try { const snap: Record<string, any[]> = {}; Object.keys(n).forEach((k) => { if (!SNAP_SKIP.includes(k)) snap[k] = n[k]; }); const js = JSON.stringify(snap); if (js.length < 1500000) AsyncStorage.setItem(SNAP + profile.id, js).catch(() => {}); } catch { /* too big or storage full: skip */ } }
+      return n;
+    });
   }, [profile.role]);
 
   // live updates
   useEffect(() => {
+    AsyncStorage.getItem(SNAP + profile.id).then((js) => { if (js) { try { const snap = JSON.parse(js); setD((prev) => ({ ...snap, ...prev })); } catch { /* ignore a broken copy */ } } }).catch(() => {});
+    const auth = supabase.auth.onAuthStateChange((e) => { if (e === "SIGNED_OUT") AsyncStorage.removeItem(SNAP + profile.id).catch(() => {}); });
     reload();
     const tables = [...new Set(reads.map((q) => (q.key === "sub_names" ? "subcontractors" : q.key)))].filter((k) => !["project_ledger", "vat_by_company", "sub_ledger", "audit_log", "locations", "profiles"].includes(k));
     const ch = supabase.channel("db-" + profile.id);
@@ -101,7 +110,7 @@ export function DataProvider({ profile, children }: { profile: Profile; children
       timer.current = setTimeout(() => { const ks = [...dirty.current]; dirty.current.clear(); reload(ks); }, 600);
     }));
     ch.subscribe();
-    return () => { supabase.removeChannel(ch); };
+    return () => { supabase.removeChannel(ch); auth.data.subscription.unsubscribe(); };
   }, [profile.id]);
 
   // offline queue
