@@ -54,19 +54,15 @@ function IndexLine({ url: raw, rows, onRows, label, onGbp }: { url: string; rows
       setMsg(`IndexNow ${took(data.sent?.indexnow) ? "received it" : "answered " + (data.sent?.indexnow || "nothing")}. Google: ${took(sm.code) || sm.code === 204 ? "sitemap resubmitted" : sm.why || "sitemap not resubmitted"}.`);
     } catch (e: any) { setMsg(e.message); } finally { setBusy(false); }
   };
+  // Telling Google about a page is the agents' own work: only the result is shown, and only once Google has the page.
+  if (st?.google_verdict !== "PASS" && !onGbp && !label) return null;
   return (
     <View style={{ gap: 4 }}>
       <Row wrap>
         {label ? <T size={12} muted>{label}</T> : null}
-        {took(st?.indexnow_code) ? <Pill kind="good" text={`Indexed Ping Sent ✓ ${riyadhTime(st.indexnow_at)}`} />
-          : st?.indexnow_at ? <Pill kind="bad" text={`IndexNow answered ${st.indexnow_code || "nothing"}`} /> : <Pill text="Not pinged yet" />}
-        {st?.google_verdict === "PASS" ? <Pill kind="good" text="Google: indexed ✓" />
-          : st?.google_state ? <Pill kind="warn" text={"Google: " + st.google_state} />
-          : st?.google_error ? <Pill text="Google: status not read" /> : null}
-        <Btn kind="ghost" title="Re-ping Google" busy={busy} disabled={busy} onPress={reping} />
+        {st?.google_verdict === "PASS" ? <Pill kind="good" text="On Google ✓" /> : null}
         {onGbp ? <Btn kind="ghost" title="Copy for Google Business Profile" onPress={onGbp} /> : null}
       </Row>
-      {msg ? <T size={12} muted>{msg}</T> : null}
     </View>);
 }
 
@@ -393,8 +389,6 @@ function Videos() {
         {!yt?.linked ? <T size={12} muted>Connect YouTube once: Google asks you to choose the AL-Swati channel and allow uploads. Until then approved videos wait here.</T> : null}
         {msg ? <T size={13} muted>{msg}</T> : null}
       </Card>
-      <StyleTest rows={rows} />
-      <HashtagBank />
       <Row wrap>{([["open", `To make and post (${rows.filter((r) => OPEN.includes(r.status)).length})`], ["posted", `Posted (${n("posted")})`], ["all", "All"]] as const).map(([k, l]) => <Btn key={k} kind={show === k ? "primary" : "ghost"} title={l} onPress={() => setShow(k)} />)}</Row>
       {!list.length && <Empty text={show === "posted" ? "No videos posted yet." : "No ideas waiting. Press \"Write 3 new ideas\"."} />}
       {list.map((v) => (

@@ -85,7 +85,7 @@ function Pulse({ w, h }: { w: number; h: number }) {
 }
 
 export function Dashboard({ go }: { go?: (k: string) => void } = {}) {
-  const { d, profile, reload } = useData(); const flows = useFlows(); const c = useColors(); const wide = useWide();
+  const { d, profile, reload, update } = useData(); const flows = useFlows(); const c = useColors(); const wide = useWide();
   const L = d.project_ledger || [], rep = (d.agent_reports || [])[0];
   // Morning briefing: made the first time Super-Admin opens the app each day (no schedule or secret key needed).
   const [brief, setBrief] = useState(""), riyadhDay = (t: any) => new Date(new Date(t).getTime() + 3 * 3600e3).toISOString().slice(0, 10);
@@ -237,13 +237,18 @@ export function Dashboard({ go }: { go?: (k: string) => void } = {}) {
     { n: (d.suppliers || []).filter((x: any) => x.approved === false).length, text: "Suppliers found on the web, to approve", from: "Supplier finder", to: "suppliers", go: "Suppliers" },
     { n: (d.blog_posts || []).filter((x: any) => x.status === "Draft" && !x.area).length, text: "Blog drafts to read and publish", from: "Website (SEO) agent", to: "growth", go: "Growth" },
     { n: (d.blog_posts || []).filter((x: any) => x.status === "Draft" && x.area).length, text: "District page drafts to read and publish", from: "Website (SEO) agent · Growth, District pages", to: "growth", go: "Growth" },
-    { n: inboxWait.length, text: inboxWait.length === 1 ? "Proposal from the growth agents or Claude" : "Proposals from the growth agents and Claude", from: [...new Set(inboxWait.map((x: any) => WHO[x.source] || x.source))].join(", "), to: "inbox", go: "Open" },
     { n: openOrders, text: openOrders === 1 ? "Order placed, invoice photo still missing" : "Orders placed, invoice photo still missing", from: "Site supervisors", to: "sheets", go: "Open" },
     { n: vidWait, text: vidWait === 1 ? "Video to review before it is posted" : "Videos to review before they are posted", from: "Video agent", to: "growth", go: "Growth" },
   ] as { n: number; text: string; from: string; to: string; go: string }[]).filter((a) => a.n > 0);
   const nextStep = String(rep?.summary || "").split("\n").map((x) => x.trim()).find((x) => /^Agla kaam\s*:/i.test(x))?.replace(/^Agla kaam\s*:\s*/i, "") || "";
   const lateInv = waiting.filter((v: any) => v.state === "late" || v.state === "missed");
-  const apN = approvals.reduce((s2, a) => s2 + a.n, 0);
+  const apN = approvals.reduce((s2, a) => s2 + a.n, 0) + inboxWait.length;
+  const [deciding, setDeciding] = useState("");
+  const decideInbox = async (x: any, yes: boolean) => {
+    setDeciding(x.id);
+    try { await update("agent_inbox", x.id, { status: yes ? "approved" : "rejected", decided_at: new Date().toISOString() }); if (yes) await supabase.functions.invoke("brain", { body: { action: "apply", id: x.id } }).catch(() => {}); await reload(["agent_inbox"]); } catch {}
+    setDeciding("");
+  };
   const wk = sum(pr.filter((x: any) => dkey(x) >= days[0]), "qty"), wkBefore = sum(pr.filter((x: any) => { const k = dkey(x); return k < days[0] && k >= new Date(Date.now() - 13 * 864e5).toISOString().slice(0, 10); }), "qty");
   // The agents say what is ready, once, in the corner: only results, never how the work was done.
   useEffect(() => {
@@ -278,6 +283,15 @@ export function Dashboard({ go }: { go?: (k: string) => void } = {}) {
               <View style={{ backgroundColor: DEEP.glow, borderRadius: 999, paddingVertical: 8, paddingHorizontal: 15 }}><T size={13} bold color="#13202E">{a.go}</T></View>
             </Pressable>
           </Rise>))}
+        {[...inboxWait].sort((p1: any, p2: any) => (Number(p2.data?.score) || 0) - (Number(p1.data?.score) || 0)).slice(0, 3).map((x: any, i: number) => (
+          <Rise key={x.id} i={approvals.length + i + 2}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 12, borderTopWidth: approvals.length || i ? 1 : 0, borderColor: "rgba(255,255,255,0.14)" }}>
+              <Pressable onPress={() => go?.("inbox")} style={{ flex: 1, cursor: "pointer" } as any}><T size={15} bold color="#FFFFFF" numberOfLines={2}>{x.title}</T><T size={12} color={DEEP.muted} numberOfLines={2}>{x.data?.benefit || WHO[x.source] || ""}</T></Pressable>
+              <Pressable accessibilityRole="button" disabled={deciding === x.id} onPress={() => decideInbox(x, false)} style={({ hovered }: any) => ({ borderRadius: 999, paddingVertical: 8, paddingHorizontal: 12, borderWidth: 1, borderColor: "rgba(255,255,255,0.3)", opacity: hovered ? 0.7 : 1, cursor: "pointer" } as any)}><T size={13} bold color="#FFFFFF">Reject</T></Pressable>
+              <Pressable accessibilityRole="button" disabled={deciding === x.id} onPress={() => decideInbox(x, true)} style={({ hovered, pressed }: any) => ({ backgroundColor: DEEP.glow, borderRadius: 999, paddingVertical: 8, paddingHorizontal: 15, opacity: deciding === x.id ? 0.5 : 1, transform: [{ scale: pressed ? 0.96 : hovered ? 1.04 : 1 }], transitionProperty: "transform", transitionDuration: "140ms", cursor: "pointer" } as any)}><T size={13} bold color="#13202E">Approve</T></Pressable>
+            </View>
+          </Rise>))}
+        {inboxWait.length > 3 ? <Pressable onPress={() => go?.("inbox")} style={{ paddingTop: 8, cursor: "pointer" } as any}><T size={13} bold color={DEEP.glow}>{inboxWait.length - 3} more in Approvals</T></Pressable> : null}
         <View style={{ flex: 1 }} />
         {nextStep ? <T size={13} color={DEEP.muted} style={{ marginTop: 10 }}><T size={13} bold color={DEEP.glow}>Next step: </T>{nextStep}</T> : null}
       </View>
