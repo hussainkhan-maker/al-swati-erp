@@ -33,7 +33,7 @@ function MoreAdmin({ go }: { go: (k: string) => void }) {
       {([["Site", [["folder", "Projects", "Company, fee, sites, subcontractors", "projects"], ["pin", "Team on site", "Live 06:00–18:00", "team"]]],
          ["Sales", [["inbox", "RFIs", "Questions to consultants, follow-ups", "rfis"], ["spark", "Growth", "Blog for Google, videos, outreach", "growth"]]],
          ["Buying", [["truck", "Suppliers", "Directory and price requests", "suppliers"], ["tag", "Materials & prices", "Invoices, Abu's rates, AI estimates", "prices"]]],
-         ["Company", [["check", "Approvals & Claude", "Say yes or no, and tell Claude what to do", "inbox"], ["spark", "AI agents", "What each agent checked", "agents"], ["people", "People", "Add Abu, engineers, supervisors", "people"], ["log", "Audit log", "Every change, by whom", "audit"]]]] as [string, string[][]][]).map(([g, items], gi) => (
+         ["Company", [["cash", "Entries", "Payments, purchases and work entries", "money"], ["spark", "AI agents", "What each agent checked", "agents"], ["people", "People", "Add Abu, engineers, supervisors", "people"], ["log", "Audit log", "Every change, by whom", "audit"]]]] as [string, string[][]][]).map(([g, items], gi) => (
         <Rise key={g} i={gi} style={{ gap: 8 }}>
           <T size={13} bold muted>{g}</T>
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12 }}>
@@ -47,9 +47,9 @@ function MoreAdmin({ go }: { go: (k: string) => void }) {
 const TABS: Record<string, TabDef[]> = {
   admin: [
     { key: "home", label: "Home", icon: "home", C: Admin.Dashboard },
+    { key: "inbox", label: "Approvals", icon: "check", C: Inbox },
     { key: "queries", label: "Queries", icon: "inbox", C: Queries },
     { key: "quotes", label: "Quotations", icon: "doc", C: Quotes },
-    { key: "money", label: "Entries", icon: "cash", C: Admin.Money },
     { key: "more", label: "More", icon: "log", C: MoreAdmin },
   ],
   abu: [
@@ -69,13 +69,14 @@ const TABS: Record<string, TabDef[]> = {
     { key: "report", label: "رپورٹ", icon: "doc", C: Sup.Report },
   ],
 };
-const SUB_LABEL: Record<string, string> = { inbox: "Approvals & Claude", rfis: "RFIs", growth: "Growth", projects: "Projects", suppliers: "Suppliers", prices: "Prices", agents: "AI agents", people: "People", team: "Team on site", audit: "Audit log" };
-const SUB_ICON: Record<string, string> = { inbox: "check", rfis: "inbox", growth: "spark", projects: "folder", suppliers: "truck", prices: "tag", agents: "spark", people: "people", team: "pin", audit: "log" };
-const SUBS: Record<string, React.ComponentType<any>> = { inbox: Inbox, rfis: RFIs, growth: Growth, projects: Admin.Projects, suppliers: Suppliers, prices: Prices, agents: Agents, people: Admin.People, team: Admin.Team, audit: Admin.Audit };
+const SUB_LABEL: Record<string, string> = { money: "Entries", rfis: "RFIs", growth: "Growth", projects: "Projects", suppliers: "Suppliers", prices: "Prices", agents: "AI agents", people: "People", team: "Team on site", audit: "Audit log" };
+const SUB_ICON: Record<string, string> = { money: "cash", rfis: "inbox", growth: "spark", projects: "folder", suppliers: "truck", prices: "tag", agents: "spark", people: "people", team: "pin", audit: "log" };
+const SUBS: Record<string, React.ComponentType<any>> = { money: Admin.Money, rfis: RFIs, growth: Growth, projects: Admin.Projects, suppliers: Suppliers, prices: Prices, agents: Agents, people: Admin.People, team: Admin.Team, audit: Admin.Audit };
 
 export default function Shell() {
   const { role, online, pending, failed, dropFailed, t } = useData(); const c = useColors(); const { row } = useDir();
-  const { lang, profile } = useData();
+  const { lang, profile, d } = useData();
+  const inboxN = role === "admin" ? ((d.agent_inbox || []) as any[]).filter((x) => x.kind !== "request" && x.status === "waiting").length : 0;
   useAutopilot(priceHint); // reads new client queries and drafts their quotations by itself
   const ABU_LABELS: Record<string, [string, string, string]> = { home: ["الرئيسية", "ہوم", "Home"], money: ["الحسابات", "حسابات", "Accounts"], vat: ["الضريبة", "VAT", "VAT"], suppliers: ["الموردون", "سپلائرز", "Suppliers"], quotes: ["العروض", "کوٹیشن", "Quotes"] };
   const tabs = role === "abu" ? TABS.abu.map((x) => ({ ...x, label: ABU_LABELS[x.key][lang === "ur" ? 1 : lang === "en" ? 2 : 0] })) : TABS[role];
@@ -158,8 +159,8 @@ export default function Shell() {
   // Admin sidebar order: what is used most first; the list of all entries near the end.
   // Admin sidebar in groups, in the order the work happens: sales → site → money → company.
   const groups: [string, any[]][] = role === "admin"
-    ? [["", [T_("home"), S_("inbox")]], ["Sales", [T_("queries"), T_("quotes"), S_("rfis"), S_("growth")]], ["Site", [S_("projects"), S_("team")]],
-       ["Buying", [S_("suppliers"), S_("prices")]], ["Money", [T_("money")]], ["Company", [S_("people"), S_("agents"), S_("audit")]]]
+    ? [["", [T_("home"), T_("inbox")]], ["Sales", [T_("queries"), T_("quotes"), S_("rfis"), S_("growth")]], ["Site", [S_("projects"), S_("team")]],
+       ["Buying", [S_("suppliers"), S_("prices")]], ["Money", [S_("money")]], ["Company", [S_("people"), S_("agents"), S_("audit")]]]
     : [["", tabs.map((x) => ({ key: x.key, label: x.label, icon: x.icon, isSub: false }))]];
   const initials = String(profile?.name || "AS").split(/\s+/).map((w: string) => w[0]).join("").slice(0, 2).toUpperCase();
   const pageLabel = sub ? SUB_LABEL[sub] || sub : cur.label;
@@ -192,7 +193,8 @@ export default function Shell() {
                 <Pressable key={x.key} onPress={() => { if (x.isSub) setSub(x.key); else { setSub(null); setTab(x.key); } }}
                   style={({ hovered }: any) => ({ flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 8, paddingHorizontal: 10, borderRadius: 6, backgroundColor: on ? "rgba(255,255,255,0.10)" : hovered ? "rgba(255,255,255,0.05)" : "transparent", borderLeftWidth: 3, borderLeftColor: on ? DEEP.glow : "transparent", cursor: "pointer", transitionProperty: "background-color, border-color, transform", transitionDuration: "180ms", transform: [{ translateX: hovered && !on ? 3 : 0 }] } as any)}>
                   <Icon name={x.icon} size={17} color={on ? DEEP.ink : DEEP.muted} />
-                  <Text style={{ color: on ? "#FFFFFF" : DEEP.ink, opacity: on ? 1 : 0.86, fontSize: 14, fontWeight: on ? "600" : "400" }}>{x.label}</Text>
+                  <Text style={{ flex: 1, color: on ? "#FFFFFF" : DEEP.ink, opacity: on ? 1 : 0.86, fontSize: 14, fontWeight: on ? "600" : "400" }}>{x.label}</Text>
+                  {x.key === "inbox" && inboxN ? <View style={{ minWidth: 20, height: 20, borderRadius: 10, paddingHorizontal: 6, backgroundColor: DEEP.glow, alignItems: "center", justifyContent: "center" }}><Text style={{ fontSize: 11, fontWeight: "700", color: "#13202E" }}>{inboxN}</Text></View> : null}
                 </Pressable>
               );
             })}
@@ -240,6 +242,7 @@ export default function Shell() {
               <Pressable key={x.key} accessibilityRole="tab" accessibilityState={{ selected: on }} onPress={() => { setSub(null); setTab(x.key); }}
                 style={{ alignItems: "center", gap: 2, paddingVertical: 6, paddingHorizontal: 10, borderRadius: 12, backgroundColor: on ? c.accentSoft : "transparent", minWidth: 64 }}>
                 <Icon name={x.icon} size={24} color={on ? c.accent : c.muted} />
+                {x.key === "inbox" && inboxN ? <View style={{ position: "absolute", top: 2, right: 12, minWidth: 18, height: 18, borderRadius: 9, paddingHorizontal: 5, backgroundColor: DEEP.glow, alignItems: "center", justifyContent: "center" }}><Text style={{ fontSize: 11, fontWeight: "700", color: "#13202E" }}>{inboxN}</Text></View> : null}
                 <Text style={{ fontSize: 12, color: on ? c.accent : c.muted, fontWeight: on ? "700" : "500" }}>{x.label}</Text>
               </Pressable>
             );

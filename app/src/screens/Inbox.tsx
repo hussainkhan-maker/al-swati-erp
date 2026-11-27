@@ -14,7 +14,7 @@ export default function Inbox() {
   const { d, reload, update, insert } = useData(); const c = useColors(); const wide = useWide();
   const rows = (d.agent_inbox || []) as any[];
   const state = ((d.preferences || []).find((p: any) => p.key === "brain_state")?.value || {}) as any;
-  const waiting = rows.filter((x) => x.kind !== "request" && x.status === "waiting");
+  const waiting = rows.filter((x) => x.kind !== "request" && x.status === "waiting").sort((a, b) => (Number(b.data?.score) || 0) - (Number(a.data?.score) || 0));
   const withClaude = rows.filter((x) => (x.kind === "request" && ["waiting", "working"].includes(x.status)) || (x.kind !== "request" && ["approved", "working"].includes(x.status)));
   const done = rows.filter((x) => ["done", "rejected"].includes(x.status)).slice(0, 30);
   const [tab, setTab] = useState("waiting"), [busy, setBusy] = useState(""), [msg, setMsg] = useState(""), [ask, setAsk] = useState(""), [open, setOpen] = useState<string | null>(null);
@@ -55,6 +55,7 @@ export default function Inbox() {
             </View>
             {!actions ? <Pill kind={x.status === "done" ? "good" : x.status === "rejected" ? "plain" : "warn"} text={x.status === "done" ? "Done" : x.status === "rejected" ? "Not now" : x.status === "working" ? "Claude is on it" : x.kind === "request" ? "Waiting for Claude" : "Approved, with Claude"} /> : null}
           </Row>
+          {x.data?.benefit ? <View style={{ backgroundColor: c.accentSoft, borderRadius: 12, paddingVertical: 8, paddingHorizontal: 12 }}><T size={14}><T size={14} bold>Fayda: </T>{x.data.benefit}</T></View> : null}
           {x.body && x.body !== x.title ? <Pressable disabled={!long} onPress={() => setOpen(isOpen ? null : x.id)} style={{ cursor: long ? "pointer" : "default" } as any}>
             <T size={14} numberOfLines={isOpen || !long ? undefined : 4}>{x.body}</T>
             {long ? <T size={13} bold color={c.accent}>{isOpen ? "Show less" : "Read all"}</T> : null}
@@ -73,7 +74,7 @@ export default function Inbox() {
     <Screen>
       <View style={{ gap: 4 }}>
         <H1>Approvals & Claude</H1>
-        <T muted>What the agents and Claude prepared waits for your yes. Write below what you want done.</T>
+        <T muted>The main agent sends you only what is worth your yes, best first. Write below what you want done.</T>
       </View>
       <Card style={{ gap: 10 }}>
         <T size={15} bold>Tell Claude what to do</T>

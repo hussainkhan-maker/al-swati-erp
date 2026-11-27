@@ -462,16 +462,16 @@ function Toast({ n, onDone }: { n: Note; onDone: () => void }) {
   );
 }
 export function Toasts() {
-  const wide = useWide(); const [shown, setShown] = useState<Note[]>([]);
+  const wide = useWide(); const [shown, setShown] = useState<Note[]>([]); const wideRef = useRef(wide); wideRef.current = wide;
   useEffect(() => {
     // One at a time, a moment apart, never more than three on screen.
-    const pump = () => setShown((cur) => { if (!noteQueue.length || cur.length >= 3) return cur; const [next, ...rest] = noteQueue; noteQueue = rest; return [...cur, next]; });
+    const pump = () => setShown((cur) => { if (!noteQueue.length || cur.length >= (wideRef.current ? 3 : 1)) return cur; const [next, ...rest] = noteQueue; noteQueue = rest; return [...cur, next]; });
     noteListen = pump; const iv = setInterval(pump, 1400); pump();
     return () => { noteListen = null; clearInterval(iv); };
   }, []);
   if (!shown.length) return null;
   return (
-    <View pointerEvents="none" style={[{ position: "absolute", gap: 10, zIndex: 50 }, wide ? { right: 28, bottom: 28, width: 360 } : { left: 12, right: 12, top: 54 }]}>
+    <View pointerEvents="none" style={[{ position: "absolute", gap: 10, zIndex: 50 }, wide ? { right: 28, bottom: 28, width: 360 } : { left: 12, right: 12, bottom: 84 }]}>
       {shown.map((n) => <Toast key={n.key} n={n} onDone={() => setShown((cur) => cur.filter((x) => x.key !== n.key))} />)}
     </View>
   );

@@ -4,7 +4,9 @@
 //  • ranking agent – weekly: keywords close to page 1 in Google Search Console → one concrete page change each.
 //  • ideas agent   – daily: 3 new ideas (post, district page, video, Google Maps post).
 //  • competitor agent – weekly: who shows up for our keywords on the web, and what they have that we do not.
-// Everything an agent proposes goes to the table agent_inbox and waits for the owner's yes. Nothing is published from here.
+// Everything an agent proposes goes to the table agent_inbox as "review". The main agent then sorts it: at most 5 things
+// reach the owner (status "waiting", best first, each with its benefit), a blog idea may go straight to the writing queue,
+// weak ones are dropped with the reason. Nothing is published from here.
 // Actions: "tick" (scheduler, every 30 min: does at most one job that is due), "run" (Super-Admin: {agent, force}),
 //          "apply" (Super-Admin: {id} after Approve – a blog idea goes to the SEO agent's writing queue).
 import { createClient } from "npm:@supabase/supabase-js@2.45.4";
@@ -77,7 +79,7 @@ async function waitingRows(source?: string) {
   return data || [];
 }
 async function propose(source: string, area: string, rows: { title: string; body: string; data?: any }[]) {
-  const clean_ = rows.filter((r) => r.title && r.body).map((r) => ({ source, kind: "approval", area, title: clean(r.title, 160), body: clean(r.body, 4000), data: r.data || {}, created_by: null }));
+  const clean_ = rows.filter((r) => r.title && r.body).map((r) => ({ source, kind: "approval", status: "review", area, title: clean(r.title, 160), body: clean(r.body, 4000), data: r.data || {}, created_by: null }));
   if (!clean_.length) return 0;
   const { error } = await db.from("agent_inbox").insert(clean_);
   if (error) throw new Error("inbox: " + error.message);
@@ -171,7 +173,40 @@ At most 6 competitors (real companies you saw in the results, no directories) an
   return `competitors: ${s.competitors.length}, proposals: ${n}`;
 }
 
-const JOBS: Record<string, (s: any, force: boolean) => Promise<string>> = { main: decide, ranking, ideas, competitor };
+// ───────── Main agent again: which proposals are worth the owner's yes ─────────
+async function triage(_s: any) {
+  const { data: rows } = await db.from("agent_inbox").select("id, source, title, body, data").eq("status", "review").order("created_at").limit(20);
+  if (!rows?.length) return "nothing to review";
+  const { data: wait } = await db.from("agent_inbox").select("title").eq("status", "waiting").neq("kind", "request").limit(20);
+  const room = Math.max(0, 5 - (wait || []).length);
+  const seo = await pref("seo_state");
+  const used: Usage = { model: "" };
+  const out = await ask([MAIN, ...MAIN_FALLBACK], `You are the main agent: the one who decides. The growth agents prepared the proposals below. The owner, Hussain, wants to see only what is worth his yes; you handle the rest. For each proposal choose:
+"owner" = worth his approval because it changes something the public sees (a page, a post, a video) and should bring client queries.
+"auto"  = only for a blog post idea (type "post"): it goes to the writing queue now; he still approves the finished draft before it is published.
+"drop"  = weak, a repeat of something already waiting, not honest for a cladding contractor, or little benefit for the work it needs.
+At most ${room} may be "owner": the ones with the highest expected benefit in client queries for the least work. Everything else is "auto" (if allowed) or "drop".
+Return ONLY JSON: {"items":[{"n":<number>,"action":"owner|auto|drop","score":<1-10>,"benefit":"<simple Roman Urdu, one line: what the company gains and the number behind it; no invented numbers>","reason":"<for drop: why, one short line in Roman Urdu>"}]}
+PROPOSALS: ${JSON.stringify(rows.map((r: any, i: number) => ({ n: i + 1, from: r.source, type: r.data?.type, title: r.title, text: String(r.body || "").slice(0, 600) })))}
+ALREADY WAITING FOR HIM: ${JSON.stringify((wait || []).map((w: any) => w.title))}
+WEBSITE, last 28 days: ${JSON.stringify({ totals: seo.summary?.totals, visitors: seo.summary?.web?.week })}`, 2500, used);
+  let owner = 0, auto = 0, drop = 0;
+  for (const it of (out.items || []) as any[]) {
+    const row: any = rows[Number(it.n) - 1];
+    if (!row) continue;
+    const data = { ...(row.data || {}), benefit: clean(it.benefit, 300), score: Math.max(1, Math.min(10, Number(it.score) || 5)) };
+    const canAuto = row.source === "ideas" && row.data?.type === "post";
+    if (it.action === "drop" || (it.action !== "auto" && owner >= room) || (it.action === "auto" && !canAuto && owner >= room)) {
+      await db.from("agent_inbox").update({ status: "rejected", decided_at: new Date().toISOString(), result: "Main agent: " + (clean(it.reason, 240) || "kam fayda, is hafte nahi"), data }).eq("id", row.id); drop++;
+    } else if (it.action === "auto" && canAuto) {
+      await db.from("agent_inbox").update({ status: "approved", decided_at: new Date().toISOString(), data }).eq("id", row.id);
+      await apply(row.id); auto++;
+    } else { await db.from("agent_inbox").update({ status: "waiting", data }).eq("id", row.id); owner++; }
+  }
+  return `sorted with ${used.model}: ${owner} for the owner, ${auto} done by itself, ${drop} dropped`;
+}
+
+const JOBS: Record<string, (s: any, force: boolean) => Promise<string>> = { main: decide, ranking, ideas, competitor, triage };
 /** Scheduler: at most one job per call, the one that is most overdue. */
 async function tick() {
   const s = await pref("brain_state");
@@ -180,6 +215,7 @@ async function tick() {
   let job = "";
   const { data: reps } = await db.from("agent_reports").select("id, created_at").eq("for_role", "admin").order("created_at", { ascending: false }).limit(1);
   if (reps?.[0] && riyadhDay(reps[0].created_at) === riyadhDay() && s.decided_report !== reps[0].id) job = "main";
+  else if (((await db.from("agent_inbox").select("id", { count: "exact", head: true }).eq("status", "review")).count || 0) > 0) job = "triage";
   else if (hour >= 6 && hour <= 21 && due(s.last_ideas, 22 * H)) job = "ideas";
   else if (due(s.last_rank, 6.5 * D)) job = "ranking";
   else if (due(s.last_comp, 6.5 * D)) job = "competitor";
@@ -189,8 +225,11 @@ async function tick() {
 async function run(job: string, force: boolean, s0?: any) {
   const s = s0 || await pref("brain_state");
   let did = "";
-  try { did = await JOBS[job](s, force); s.error = null; }
-  catch (e) { did = "failed"; s.error = `${job}: ${String((e as Error).message || e).slice(0, 300)}`; }
+  try {
+    did = await JOBS[job](s, force); s.error = null;
+    // What a growth agent just prepared is sorted by the main agent straight away.
+    if (["ranking", "ideas", "competitor"].includes(job)) did += "; " + await triage(s);
+  } catch (e) { did = did || "failed"; s.error = `${job}: ${String((e as Error).message || e).slice(0, 300)}`; }
   s.last = { job, did, at: new Date().toISOString() };
   await savePref("brain_state", s);
   return { ok: !s.error, job, did, error: s.error };
