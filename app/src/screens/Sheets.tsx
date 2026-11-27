@@ -21,7 +21,17 @@ const blank = (kind: Kind) => kind === "material" ? { name: "", size: "", qty: "
 const filled = (kind: Kind, l: any) => kind === "material" ? String(l.name || "").trim() : n0(l.l) > 0 && n0(l.w) > 0;
 
 export default function Sheets() {
-  const { d, lang, role } = useData(); const c = useColors();
+  const { d, lang, role, profile, reload } = useData(); const c = useColors();
+  const [want, setWant] = useState(""), [wBusy, setWBusy] = useState(false), [wMsg, setWMsg] = useState("");
+  const mine = role === "admin" ? [] : ((d.agent_inbox || []) as any[]).filter((x) => x.source === "staff").slice(0, 5);
+  const sendWant = async () => {
+    const text = want.trim(); if (!text) return;
+    setWBusy(true); setWMsg("");
+    const { error } = await supabase.from("agent_inbox").insert({ source: "staff", kind: "request", area: "site", status: "waiting", title: `${profile.name}: ${text.split("\n")[0].slice(0, 90)}`, body: text, data: { from: profile.name, role } });
+    setWBusy(false);
+    if (error) { setWMsg(error.message); return; }
+    setWant(""); setWMsg(L("Saved. The owner will see it and answer here.", "تم الحفظ. سيراه المالك ويرد هنا.", "محفوظ۔ مالک دیکھ کر یہیں جواب دے گا۔")); reload(["agent_inbox"]);
+  };
   const L = (en: string, ar: string, ur: string) => (lang === "ar" ? ar : lang === "ur" ? ur : en);
   const KIND: Record<Kind, [string, string, string]> = {
     material: [L("Order materials", "طلب مواد", "سامان کا آرڈر"), L("Angles, glue, bolts, any accessory", "زوايا، غراء، مسامير، أي إكسسوار", "زاویہ، گلو، بولٹ، کوئی بھی سامان"), "truck"],
@@ -58,6 +68,14 @@ export default function Sheets() {
             </Row>
           </Card>
         </Rise>)) : <Empty icon="doc" title={L("Nothing yet", "لا يوجد شيء بعد", "ابھی کچھ نہیں")} text={L("Choose one of the three buttons above and say what you need.", "اختر أحد الأزرار الثلاثة أعلاه وقل ما تحتاجه.", "اوپر تین بٹنوں میں سے ایک دبائیں اور بولیں کیا چاہیے۔")} />}
+      {role !== "admin" ? (
+        <Card style={{ gap: 10 }}>
+          <T bold>{L("Need something this app does not do yet?", "تحتاج شيئًا غير موجود في التطبيق؟", "کوئی ایسا کام جو ایپ میں نہیں؟")}</T>
+          <Voice value={want} onChange={setWant} placeholder={L("Say or type what you need.", "قل أو اكتب ما تحتاجه.", "بولیں یا لکھیں کیا چاہیے۔")} />
+          <Btn kind="primary" title={L("Send to the owner", "أرسل إلى المالك", "مالک کو بھیجیں")} busy={wBusy} disabled={!want.trim()} onPress={sendWant} />
+          {wMsg ? <T size={13} color={c.accent}>{wMsg}</T> : null}
+          {mine.map((x) => <View key={x.id} style={{ borderTopWidth: 1, borderColor: c.line, paddingTop: 8, gap: 2 }}><T size={14}>{x.body}</T><T size={12} muted>{x.status === "done" ? (x.result || L("Done", "تم", "ہو گیا")) : L("With the owner", "عند المالك", "مالک کے پاس ہے")}</T></View>)}
+        </Card>) : null}
       {edit ? <Editor key={edit.id || edit.kind} init={edit} onClose={() => setEdit(null)} L={L} title={KIND[edit.kind as Kind][0]} canReopen={role !== "supervisor"} /> : null}
     </Screen>
   );

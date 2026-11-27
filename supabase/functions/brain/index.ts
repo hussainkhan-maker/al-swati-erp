@@ -92,24 +92,26 @@ async function decide(s: any, force: boolean) {
   const rep = reps?.[0];
   if (!rep || riyadhDay(rep.created_at) !== riyadhDay()) return "no report today yet";
   if (!force && s.decided_report === rep.id) return "already decided";
-  const [{ data: ledger }, seo, inbox] = await Promise.all([db.from("project_ledger").select("name, installed, net, cost, profit, sub_due"), pref("seo_state"), waitingRows()]);
+  const [{ data: ledger }, { data: subs }, seo, inbox] = await Promise.all([db.from("project_ledger").select("*"), db.from("sub_ledger").select("*").limit(40), pref("seo_state"), waitingRows()]);
   const used: Usage = { model: "" };
   const out = (await ask([MAIN, ...MAIN_FALLBACK], `You are the main agent of the company's ERP: the one who decides. The other agents only collect and prepare. Read everything below and decide for the owner, Hussain. He reads simple Roman Urdu (Urdu in Latin letters); numbers as digits.
 
 Return ONLY this JSON:
 {"summary":"exactly these 6 lines, one per line:\\nProjects: ...\\nAlerts: ...\\nProcurement: ...\\nPaisa: ...\\nWebsite: ...\\nAgla kaam: <the one approval or button he should do first>",
- "decisions":[{"title":"<what to do, max 12 words>","why":"<the fact and number behind it, one sentence>","area":"sales|site|money|buying|website|company"}],
+ "decisions":[{"title":"<the finding, or the one thing only he can do, max 12 words>","why":"<the fact and number behind it, one sentence>","detail":"<what you worked out yourself: the breakdown, the list or the plan, 3 to 6 short lines separated by \\n, every number from the data>","area":"sales|site|money|buying|website|company"}],
  "orders":[{"agent":"ranking|ideas|competitor","focus":"<what that growth agent should work on this week, one sentence>"}]}
-At most 4 decisions, most important first: money at risk and deadlines before everything else. At most 3 orders. If there is nothing to decide, return empty lists and say so in the summary. Use only the data below.
+Do the checking yourself. Never tell him to check, review, find out, look into or make a plan: work it out from the data and give him the result in "detail" (for money owed to subcontractors: who is owed how much, from SUBCONTRACTORS; for a loss: which numbers make it). A decision is only something he alone can do: approve, pay, call someone, or give a number that is missing; if the data cannot explain something, name exactly the number that is missing. In PROJECTS, profit = net + loan_deducted - cost - sub_work (work done x subcontractor rate), so a "loss" with a low cost usually means subcontract work that is done but not yet paid: show that sum instead of calling it a mismatch.
+At most 3 decisions, most important first: money at risk and deadlines before everything else. At most 3 orders. If there is nothing only he can do, return empty lists and say so in the summary. Use only the data below.
 
 WHAT THE AGENTS FOUND TODAY: ${JSON.stringify((rep.items || []).slice(0, 80))}
 PROJECTS (SAR, m²): ${JSON.stringify(ledger || [])}
+SUBCONTRACTORS (m² done, earned, paid): ${JSON.stringify(subs || [])}
 WEBSITE, last 28 days: ${JSON.stringify({ totals: seo.summary?.totals, close_to_page_1: (seo.summary?.striking || []).slice(0, 6), falling: seo.summary?.down || [], visitors: seo.summary?.web?.week })}
-ALREADY WAITING FOR HIS YES: ${JSON.stringify(inbox.filter((x: any) => x.status === "waiting").map((x: any) => x.source + ": " + x.title).slice(0, 20))}`, 2500, used));
+ALREADY WAITING FOR HIS YES: ${JSON.stringify(inbox.filter((x: any) => x.status === "waiting").map((x: any) => x.source + ": " + x.title).slice(0, 20))}`, 3500, used));
   const summary = clean(out.summary, 1600);
   if (summary.split("\n").length >= 4) await db.from("agent_reports").update({ summary }).eq("id", rep.id);
   s.decided_report = rep.id; s.decided_at = new Date().toISOString(); s.model = used.model;
-  s.decisions = (out.decisions || []).slice(0, 4).map((x: any) => ({ title: clean(x.title, 140), why: clean(x.why, 300), area: clean(x.area, 20) }));
+  s.decisions = (out.decisions || []).slice(0, 3).map((x: any) => ({ title: clean(x.title, 140), why: clean(x.why, 300), detail: String(x.detail ?? "").trim().slice(0, 900), area: clean(x.area, 20) }));
   s.orders = (out.orders || []).slice(0, 3).map((x: any) => ({ agent: clean(x.agent, 20), focus: clean(x.focus, 240) }));
   return `decided with ${used.model}: ${s.decisions.length} decisions`;
 }

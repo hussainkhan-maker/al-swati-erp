@@ -244,6 +244,7 @@ export function Dashboard({ go }: { go?: (k: string) => void } = {}) {
   ] as { n: number; text: string; from: string; to: string; go: string; tab?: string }[]).filter((a) => a.n > 0);
   const nextStep = String(rep?.summary || "").split("\n").map((x) => x.trim()).find((x) => /^Agla kaam\s*:/i.test(x))?.replace(/^Agla kaam\s*:\s*/i, "") || "";
   const lateInv = waiting.filter((v: any) => v.state === "late" || v.state === "missed");
+  const retAll = (d.projects || []).reduce((s2: number, p: any) => s2 + clientAccount(d, p.id).retHeld, 0);
   const apN = approvals.reduce((s2, a) => s2 + a.n, 0) + inboxWait.length;
   const [deciding, setDeciding] = useState("");
   const decideInbox = async (x: any, yes: boolean) => {
@@ -298,9 +299,9 @@ export function Dashboard({ go }: { go?: (k: string) => void } = {}) {
         {nextStep ? <T size={13} color={DEEP.muted} style={{ marginTop: 10 }}><T size={13} bold color={DEEP.glow}>Next step: </T>{nextStep}</T> : null}
       </View>
       <View style={{ flex: 1, gap: 14 }}>
-        {numTile("Clients still owe", owesN, "SAR", <T size={13} color={lateInv.length ? c.bad : c.good}>{lateInv.length ? `${plural(lateInv.length, "invoice", "invoices")} late, longest ${lateInv[0].age} days` : waiting.length ? `${plural(waiting.length, "invoice", "invoices")} waiting, none late` : "No invoice is waiting"}</T>, () => setKd("owes"), true)}
+        {numTile("Clients still owe", owesN, "SAR", <><T size={13} muted>{`Unpaid work ${money(owesN - retAll)} + retention they keep ${money(retAll)}`}</T><T size={13} color={lateInv.length ? c.bad : c.good}>{lateInv.length ? `${plural(lateInv.length, "invoice", "invoices")} late, longest ${lateInv[0].age} days` : waiting.length ? `${plural(waiting.length, "invoice", "invoices")} waiting, none late` : "No invoice is waiting"}</T></>, () => setKd("owes"), true)}
         <View style={{ flexDirection: "row", gap: 14, flex: 1 }}>
-          {numTile("Cash in hand", sum(L, "net"), "SAR", null, () => setKd("net"))}
+          {numTile("Received and kept", sum(L, "net"), "SAR", <T size={12} muted>What clients paid, after VAT, service fee and loan cuts</T>, () => setKd("net"))}
           {numTile("Installed, last 7 days", wk, "m²", wkBefore > 0 ? <T size={13} color={wk >= wkBefore ? c.good : c.warn}>{Math.abs(Math.round((wk / wkBefore - 1) * 100))}% {wk >= wkBefore ? "more" : "less"} than the 7 days before</T> : null, go ? () => go("projects") : undefined)}
         </View>
       </View>
@@ -345,14 +346,18 @@ export function Dashboard({ go }: { go?: (k: string) => void } = {}) {
     </View>
   );
   const decisions = (brainState.decisions || []) as any[];
+  const [openDec, setOpenDec] = useState(0);
   const decided = decisions.length && brainState.decided_at && riyadhDay(brainState.decided_at) === riyadhDay(Date.now()) ? (
     <Card style={{ gap: 4 }}>
       <SectionHead title="Decisions for today" sub="Most important first" />
       {decisions.map((x, i) => (
-        <Pressable key={i} onPress={() => go?.(({ sales: "queries", site: "projects", money: "money", buying: "suppliers", website: "growth", company: "people" } as any)[x.area] || "inbox")}
-          style={({ hovered }: any) => [{ flexDirection: "row", gap: 12, alignItems: "flex-start", paddingVertical: 10, borderTopWidth: i ? 1 : 0, borderColor: c.line, cursor: "pointer", transitionProperty: "transform", transitionDuration: "160ms" } as any, hovered ? { transform: [{ translateX: 4 }] } : null]}>
+        <Pressable key={i} onPress={() => setOpenDec(openDec === i ? -1 : i)}
+          style={({ hovered }: any) => [{ flexDirection: "row", gap: 12, alignItems: "flex-start", paddingVertical: 10, borderTopWidth: i ? 1 : 0, borderColor: c.line, cursor: "pointer", transitionProperty: "background-color", transitionDuration: "160ms" } as any, hovered ? { backgroundColor: c.sunk } : null]}>
           <View style={{ width: 28, height: 28, borderRadius: 9, backgroundColor: DEEP.bg, alignItems: "center", justifyContent: "center" }}><T size={13} bold color={DEEP.glow}>{i + 1}</T></View>
-          <View style={{ flex: 1 }}><T size={15} bold>{x.title}</T><T size={13} muted>{x.why}</T></View>
+          <View style={{ flex: 1, gap: 4 }}><T size={15} bold>{x.title}</T><T size={13} muted>{x.why}</T>
+            {openDec === i && x.detail ? <View style={{ backgroundColor: c.sunk, borderRadius: 12, padding: 12, gap: 2, marginTop: 4 }}>{String(x.detail).split("\n").filter(Boolean).map((l: string, k: number) => <T key={k} size={14}>{l}</T>)}</View> : null}
+            {x.detail && openDec !== i ? <T size={12} bold color={c.accent}>Show the working</T> : null}
+          </View>
         </Pressable>))}
     </Card>) : null;
   const side = <>
@@ -383,7 +388,7 @@ export function Dashboard({ go }: { go?: (k: string) => void } = {}) {
   </Rise>;
   // Details behind each money box (opens on click).
   const KD: Record<string, [string, () => React.ReactNode]> = {
-    net: ["Cash in hand, by project", () => <Table cols={["Project", "Received (gross)", "VAT", "Fee", "Loan cut", "In hand"]} numeric={[1, 2, 3, 4, 5]} rows={L.map((l: any) => [l.name, money(l.gross), money(l.vat), money(l.fee), money(l.loan_deducted), money(l.net)])} />],
+    net: ["Received and kept, by project", () => <Table cols={["Project", "Received (gross)", "VAT", "Fee", "Loan cut", "In hand"]} numeric={[1, 2, 3, 4, 5]} rows={L.map((l: any) => [l.name, money(l.gross), money(l.vat), money(l.fee), money(l.loan_deducted), money(l.net)])} />],
     owes: ["What each client still owes (before VAT)", () => <Table cols={["Project", "m² done", "Work value", "Received", "Retention kept", "Still owes"]} numeric={[1, 2, 3, 4, 5]} rows={(d.projects || []).map((p: any) => { const a = clientAccount(d, p.id); return [p.name, money(a.m2), a.rate ? money(a.workValue) : "rate not set", money(a.received), money(a.retHeld), money(a.owes)]; })} />],
     cost: ["Costs by project (ex VAT)", () => <Table cols={["Project", "Costs"]} numeric={[1]} rows={L.map((l: any) => [l.name, money(l.cost)])} />],
     sub_work: ["Subcontractors: work, paid, balance", () => <Table cols={["Subcontractor", "m²", "Earned", "Paid", "Balance"]} numeric={[1, 2, 3, 4]} rows={(d.sub_ledger || []).map((x: any) => [x.name, money(x.qty), money(x.earned), money(x.paid), money(Number(x.earned) - Number(x.paid))])} />],
