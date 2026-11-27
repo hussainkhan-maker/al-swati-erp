@@ -8,7 +8,7 @@ import { pricesFor } from "../lib/match";
 import { invoicesOf, STATE_LABEL, waitText } from "../lib/invoices";
 import { ai, supabase } from "../lib/supabase";
 import { CaseStudyButton } from "./Growth";
-import { Bars, Btn, Card, Checks, CountUp, DEEP, ELEV, Empty, Marble, SectionHead, Segmented, StatStrip, Field, H1, H2, Icon, Kpi, MonthCal, Photo, Pill, Rise, Row, Screen, Select, Sheet, T, Table, Tile, useColors, useWide } from "../ui";
+import { Bars, Btn, Card, Checks, CountUp, DEEP, ELEV, Empty, Fold, Marble, notify, SectionHead, Segmented, StatStrip, Field, H1, H2, Icon, Kpi, MonthCal, Photo, Pill, Rise, Row, Screen, Select, Sheet, T, Table, Tile, useColors, useWide } from "../ui";
 
 const sum = (a: any[], k: string) => a.reduce((s, x) => s + (Number(x[k]) || 0), 0);
 const TYPE: Record<string, string> = { income: "Income", loan: "Loan", purchase: "Purchase", expense: "Expense", subpay: "Sub payment" };
@@ -134,12 +134,12 @@ export function Dashboard({ go }: { go?: (k: string) => void } = {}) {
     </View>
   );
   // Money at a glance: four main figures in one strip, three smaller ones under it. Each opens its breakdown.
-  const main: [string, string, string][] = [["net", "Cash in hand from clients", SAR(sum(L, "net"))], ["owes", "Clients still owe (ex VAT)", SAR((d.projects || []).reduce((s2: number, p: any) => s2 + clientAccount(d, p.id).owes, 0))],
-    ["cost", "Costs (ex VAT)", SAR(sum(L, "cost"))], ["profit", "Profit estimate", SAR(sum(L, "profit"))]];
-  const minor: [string, string, string][] = [["sub_work", "Subcontract work", SAR(sum(L, "sub_work"))], ["loan_balance", "Company loans open", SAR(sum(L, "loan_balance"))], ["vat", "Purchase VAT to recover", SAR(vat)]];
+  const main: [string, string, string][] = [["cost", "Costs (ex VAT)", SAR(sum(L, "cost"))], ["profit", "Profit estimate", SAR(sum(L, "profit"))],
+    ["sub_work", "Subcontract work", SAR(sum(L, "sub_work"))], ["loan_balance", "Company loans open", SAR(sum(L, "loan_balance"))]];
+  const minor: [string, string, string][] = [["vat", "Purchase VAT to recover", SAR(vat)]];
   // The one dark element of the page: the money position on a verde-marble slab. Each figure opens its breakdown.
   const kpis = (
-    <View style={[{ backgroundColor: DEEP.bg, borderRadius: 14, overflow: "hidden" }, ELEV]}>
+    <View style={[{ backgroundColor: DEEP.bg, borderRadius: 22, overflow: "hidden" }, ELEV]}>
       <Marble />
       <View style={{ flexDirection: wide ? "row" : "column", flexWrap: "wrap", paddingVertical: wide ? 22 : 8, paddingHorizontal: wide ? 8 : 0 }}>
         {main.map(([k, l, v], i) => (
@@ -231,30 +231,57 @@ export function Dashboard({ go }: { go?: (k: string) => void } = {}) {
     { n: vidWait, text: vidWait === 1 ? "Video to review before it is posted" : "Videos to review before they are posted", from: "Video agent", to: "growth", go: "Growth" },
   ] as { n: number; text: string; from: string; to: string; go: string }[]).filter((a) => a.n > 0);
   const nextStep = String(rep?.summary || "").split("\n").map((x) => x.trim()).find((x) => /^Agla kaam\s*:/i.test(x))?.replace(/^Agla kaam\s*:\s*/i, "") || "";
+  const lateInv = waiting.filter((v: any) => v.state === "late" || v.state === "missed");
+  const apN = approvals.reduce((s2, a) => s2 + a.n, 0);
+  const wk = sum(pr.filter((x: any) => dkey(x) >= days[0]), "qty"), wkBefore = sum(pr.filter((x: any) => { const k = dkey(x); return k < days[0] && k >= new Date(Date.now() - 13 * 864e5).toISOString().slice(0, 10); }), "qty");
+  // The agents say what is ready, once, in the corner: only results, never how the work was done.
+  useEffect(() => {
+    if (loading) return;
+    approvals.forEach((a) => notify({ key: a.text + "|" + a.n, agent: a.from.split(" · ")[0], title: `${a.n} ${a.text.charAt(0).toLowerCase()}${a.text.slice(1)}` }));
+    lateInv.slice(0, 2).forEach((v: any) => notify({ key: "late|" + v.id, agent: "Money agent", title: `Invoice ${v.invoice_no} is ${v.age} days late`, sub: `${money(v.left)} SAR still to come, ${pname(d, v.project_id)}` }));
+  }, [loading, apN, lateInv.length]);
+  const numTile = (label: string, n: number, unit: string, note: React.ReactNode, onPress: (() => void) | undefined, big = false) => (
+    <Pressable disabled={!onPress} onPress={onPress} style={({ hovered, pressed }: any) => [{ flex: 1, minWidth: 150, backgroundColor: c.surface, borderRadius: 22, padding: big ? 22 : 18, gap: 6, justifyContent: "space-between", minHeight: big ? 150 : 124 }, ELEV,
+      { transitionProperty: "transform, box-shadow", transitionDuration: "200ms", cursor: onPress ? "pointer" : "default" } as any, hovered ? { transform: [{ translateY: -3 }] } : null, pressed ? { transform: [{ scale: 0.98 }] } : null]}>
+      <T size={13} muted>{label}</T>
+      <View style={{ gap: 2 }}>
+        <View style={{ flexDirection: "row", alignItems: "baseline", gap: 6 }}>{loading ? <Pulse w={120} h={big ? 40 : 30} /> : <CountUp value={n} size={big ? 44 : 30} color={c.ink} style={{ letterSpacing: big ? -1.6 : -1, fontWeight: "700" }} />}<T size={13} muted>{unit}</T></View>
+        {note}
+      </View>
+    </Pressable>
+  );
+  const bento = (
+    <View style={{ flexDirection: wide ? "row" : "column", gap: 14, alignItems: "stretch" }}>
+      <View style={[{ flex: 1.35, backgroundColor: DEEP.bg, borderRadius: 22, padding: wide ? 24 : 18, gap: 4, overflow: "hidden", minHeight: wide ? 288 : undefined }, ELEV]}>
+        <Marble o={0.6} />
+        <T size={wide ? 28 : 22} bold color="#FFFFFF" style={{ letterSpacing: -0.8, lineHeight: wide ? 34 : 28, fontWeight: "700", marginBottom: 8 }}>
+          {loading ? "Checking what needs you…" : apN ? `${apN} ${apN === 1 ? "approval" : "approvals"} ` : "All clear. "}{loading ? null : <T size={wide ? 28 : 22} bold color={DEEP.muted} style={{ letterSpacing: -0.8, fontWeight: "700" }}>{apN ? "waiting for you." : "Nothing needs you."}</T>}
+        </T>
+        {approvals.map((a, i) => (
+          <Rise key={a.text} i={i + 2}>
+            <Pressable accessibilityRole="button" onPress={() => go?.(a.to)}
+              style={({ hovered, pressed }: any) => [{ flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 12, borderTopWidth: i ? 1 : 0, borderColor: "rgba(255,255,255,0.14)", cursor: "pointer", transitionProperty: "opacity, transform", transitionDuration: "160ms" } as any, hovered ? { transform: [{ translateX: 4 }] } : null, pressed ? { opacity: 0.8 } : null]}>
+              <View style={{ minWidth: 36, height: 36, borderRadius: 11, paddingHorizontal: 8, backgroundColor: "rgba(255,255,255,0.12)", alignItems: "center", justifyContent: "center" }}><T size={14} bold color="#FFFFFF">{a.n}</T></View>
+              <View style={{ flex: 1 }}><T size={15} bold color="#FFFFFF">{a.text}</T><T size={12} color={DEEP.muted}>{a.from}</T></View>
+              <View style={{ backgroundColor: DEEP.glow, borderRadius: 999, paddingVertical: 8, paddingHorizontal: 15 }}><T size={13} bold color="#13202E">{a.go}</T></View>
+            </Pressable>
+          </Rise>))}
+        <View style={{ flex: 1 }} />
+        {nextStep ? <T size={13} color={DEEP.muted} style={{ marginTop: 10 }}><T size={13} bold color={DEEP.glow}>Next step: </T>{nextStep}</T> : null}
+      </View>
+      <View style={{ flex: 1, gap: 14 }}>
+        {numTile("Clients still owe", owesN, "SAR", <T size={13} color={lateInv.length ? c.bad : c.good}>{lateInv.length ? `${plural(lateInv.length, "invoice", "invoices")} late, longest ${lateInv[0].age} days` : waiting.length ? `${plural(waiting.length, "invoice", "invoices")} waiting, none late` : "No invoice is waiting"}</T>, () => setKd("owes"), true)}
+        <View style={{ flexDirection: "row", gap: 14, flex: 1 }}>
+          {numTile("Cash in hand", sum(L, "net"), "SAR", null, () => setKd("net"))}
+          {numTile("Installed, last 7 days", wk, "m²", wkBefore > 0 ? <T size={13} color={wk >= wkBefore ? c.good : c.warn}>{Math.abs(Math.round((wk / wkBefore - 1) * 100))}% {wk >= wkBefore ? "more" : "less"} than the 7 days before</T> : null, go ? () => go("projects") : undefined)}
+        </View>
+      </View>
+    </View>
+  );
   const board = (
     <View style={{ gap: 12 }}>
-      <SectionHead title="Today, by department" sub={rep ? `Main agent checked everything ${stamp(rep.created_at)}` : brief === "busy" ? "The main agent is checking everything…" : "Live figures"}
+      <SectionHead title="By department" sub={rep ? `Checked ${stamp(rep.created_at)}` : "Live figures"}
         right={<Btn kind="ghost" icon={<Icon name="spark" size={16} color={c.accent} />} title={brief === "busy" ? "Checking…" : "Check again"} busy={brief === "busy"} onPress={() => makeBrief(true)} />} />
-      {nextStep ? (
-        <View style={[{ flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: c.accentSoft, borderRadius: 12, paddingVertical: 12, paddingHorizontal: 16, borderWidth: 1, borderColor: c.line }]}>
-          <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: c.accent, alignItems: "center", justifyContent: "center" }}><Icon name="spark" size={16} color={c.accentInk} /></View>
-          <View style={{ flex: 1 }}><T size={12} muted>Next step</T><T size={15} bold>{nextStep}</T></View>
-        </View>) : null}
-      {!loading ? (
-        <View style={[{ backgroundColor: c.surface, borderRadius: 14, borderWidth: 1, borderColor: c.line, overflow: "hidden" }, ELEV]}>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 12, paddingHorizontal: 16 }}>
-            <Icon name="check" size={18} color={approvals.length ? c.warn : c.good} />
-            <T size={15} bold style={{ flex: 1 }}>Waiting for your approval</T>
-            <Pill kind={approvals.length ? "warn" : "good"} text={approvals.length ? String(approvals.reduce((s2, a) => s2 + a.n, 0)) : "Nothing waiting"} />
-          </View>
-          {approvals.map((a) => (
-            <Pressable key={a.text} accessibilityRole="button" onPress={() => go?.(a.to)}
-              style={({ hovered, pressed }: any) => [{ flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 11, paddingHorizontal: 16, borderTopWidth: 1, borderColor: c.line, cursor: "pointer", transitionProperty: "background-color", transitionDuration: "140ms" } as any, (hovered || pressed) && { backgroundColor: c.sunk }]}>
-              <View style={{ minWidth: 28, height: 28, borderRadius: 14, paddingHorizontal: 8, backgroundColor: c.warnSoft, alignItems: "center", justifyContent: "center" }}><T size={13} bold color={c.warn}>{a.n}</T></View>
-              <View style={{ flex: 1 }}><T size={14} bold>{a.text}</T><T size={12} muted>{a.from}</T></View>
-              <T size={13} bold color={c.accent}>{a.go} ›</T>
-            </Pressable>))}
-        </View>) : null}
       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12 }}>
         {depts.map((x, i) => {
           const its = flagged.filter((f) => f.area === x.k), state = its.some((f) => f.level === "bad") ? "bad" : its.length ? "warn" : "good";
@@ -262,7 +289,7 @@ export function Dashboard({ go }: { go?: (k: string) => void } = {}) {
           return (
             <Rise key={x.k} i={i + 1} style={{ flexGrow: 1, flexBasis: wide ? "31%" : "100%", minWidth: wide ? 250 : 0 }}>
               <Pressable accessibilityRole="button" onPress={() => go?.(x.to)}
-                style={({ hovered, pressed }: any) => [{ flex: 1, backgroundColor: c.surface, borderRadius: 14, borderWidth: 1, borderColor: hovered ? fg : c.line, padding: 16, gap: 10, overflow: "hidden" }, ELEV,
+                style={({ hovered, pressed }: any) => [{ flex: 1, backgroundColor: c.surface, borderRadius: 20, borderWidth: 1, borderColor: hovered ? fg : c.line, padding: 18, gap: 10, overflow: "hidden" }, ELEV,
                   { transitionProperty: "transform, border-color, box-shadow", transitionDuration: "180ms", cursor: "pointer" } as any,
                   hovered ? { transform: [{ translateY: -3 }] } : null, pressed ? { transform: [{ scale: 0.98 }], backgroundColor: c.sunk } : null]}>
                 <View style={{ position: "absolute", top: 0, left: 0, right: 0, height: 3, backgroundColor: fg, opacity: state === "good" ? 0.35 : 1 }} />
@@ -291,15 +318,14 @@ export function Dashboard({ go }: { go?: (k: string) => void } = {}) {
   );
   const side = <>
     <Rise i={2}><Card><MonthCal marks={marks} /><T size={12} muted>A dot marks a day with a payment or work entry.</T></Card></Rise>
-    <Rise i={3}><Card>
-      <SectionHead title="The main agent says" sub={rep ? stamp(rep.created_at) : undefined} />
+    <Rise i={3}><Fold title="Notes from the main agent" sub={rep ? stamp(rep.created_at) : undefined}>
       {rep ? String(rep.summary || "").split("\n").map((x) => x.trim()).filter(Boolean).map((line, i) => { const m = line.match(/^([^:]{2,22}):\s*(.*)$/); return (
         <View key={i} style={{ paddingVertical: 8, borderTopWidth: i ? 1 : 0, borderColor: c.line, gap: 2 }}>
           {m ? <><T size={12} bold color={c.accent}>{m[1]}</T><T size={14}>{m[2]}</T></> : <T size={14}>{line}</T>}
         </View>); }) : <T muted>{brief === "busy" ? "The main agent is checking everything…" : "No report yet."}</T>}
       {brief && brief !== "busy" ? <T size={12} muted>{brief}</T> : null}
       {rises.map((r, i) => <T key={i} size={13} color={c.bad}>▲ {r}</T>)}
-    </Card></Rise>
+    </Fold></Rise>
     {waiting.length ? <Rise i={4}><Card style={{ gap: 6 }}>
       <SectionHead title="Waiting for payment" sub={`${money(waiting.reduce((s2: number, v: any) => s2 + v.left, 0))} SAR on ${waiting.length} invoice${waiting.length === 1 ? "" : "s"}, longest wait first`} />
       {waiting.slice(0, 6).map((v: any) => (
@@ -335,10 +361,10 @@ export function Dashboard({ go }: { go?: (k: string) => void } = {}) {
       <Sheet open={!!kd} onClose={() => setKd(null)} title={kd ? KD[kd][0] : ""}>{kd ? KD[kd][1]() : null}</Sheet>
       {wide ? (
         <View style={{ flexDirection: "row", gap: 18, alignItems: "flex-start" }}>
-          <View style={{ flex: 2.2, gap: 16 }}><Rise i={0}>{hero}</Rise>{board}<Rise i={1}>{kpis}</Rise><View style={{ flexDirection: "row", flexWrap: "wrap", gap: 16, alignItems: "flex-start" }}><View style={{ flex: 1.3, minWidth: 280 }}>{chartCard}</View><View style={{ flex: 1, minWidth: 280 }}>{recentCard}</View></View>{table}</View>
+          <View style={{ flex: 2.2, gap: 16 }}><Rise i={0}>{hero}</Rise><Rise i={1}>{bento}</Rise>{board}<Rise i={2}>{kpis}</Rise><View style={{ flexDirection: "row", flexWrap: "wrap", gap: 16, alignItems: "flex-start" }}><View style={{ flex: 1.3, minWidth: 280 }}>{chartCard}</View><View style={{ flex: 1, minWidth: 280 }}>{recentCard}</View></View>{table}</View>
           <View style={{ flex: 1, gap: 16, minWidth: 300 }}>{side}</View>
         </View>
-      ) : <><Rise i={0}>{hero}</Rise>{board}<Rise i={1}>{kpis}</Rise>{chartCard}{side}{recentCard}{table}</>}
+      ) : <><Rise i={0}>{hero}</Rise><Rise i={1}>{bento}</Rise>{board}<Rise i={2}>{kpis}</Rise>{chartCard}{side}{recentCard}{table}</>}
     </Screen>
   );
 }

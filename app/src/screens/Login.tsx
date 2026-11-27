@@ -85,9 +85,9 @@ function MainBtn({ label, onPress, disabled, busy, i }: { label: string; onPress
   return (
     <Rise i={i}>
       <Pressable accessibilityRole="button" accessibilityState={{ disabled: !!off }} disabled={off} onPress={onPress}
-        style={({ pressed, hovered }: any) => ({ minHeight: 52, borderRadius: 10, backgroundColor: pressed ? "#124A3F" : c.accent, alignItems: "center", justifyContent: "center", opacity: off ? 0.5 : 1, cursor: off ? "default" : "pointer",
+        style={({ pressed, hovered }: any) => ({ minHeight: 52, borderRadius: 10, backgroundColor: pressed ? "#143A63" : c.accent, alignItems: "center", justifyContent: "center", opacity: off ? 0.5 : 1, cursor: off ? "default" : "pointer",
           transform: [{ scale: pressed && !off ? 0.985 : 1 }, { translateY: hovered && !off && !pressed ? -1 : 0 }],
-          ...(web ? { boxShadow: hovered && !off ? "0 6px 16px rgba(23,89,76,0.28)" : "0 1px 2px rgba(17,38,31,0.25)", transition: "transform .14s ease, box-shadow .18s ease, background-color .18s ease" } : {}) } as any)}>
+          ...(web ? { boxShadow: hovered && !off ? "0 6px 16px rgba(11,42,74,0.28)" : "0 1px 2px rgba(11,42,74,0.25)", transition: "transform .14s ease, box-shadow .18s ease, background-color .18s ease" } : {}) } as any)}>
         <Text style={{ color: c.accentInk, fontSize: 17, fontWeight: "600" }}>{busy ? "Checking…" : label}</Text>
       </Pressable>
     </Rise>
@@ -178,7 +178,7 @@ export function SetPassword({ onDone }: { onDone: () => void }) {
     try { await ai("set_password", { password: a }); setBusy(false); await supabase.auth.refreshSession(); onDone(); }
     catch (e: any) { setBusy(false); setMsg(e.message); }
   };
-  const bar = ["#B23A2E", "#C77A1F", "#9A5E10", "#2C7350", "#17594C"];
+  const bar = ["#B23A2E", "#C77A1F", "#9A5E10", "#2C7350", "#0B2A4A"];
   return (
     <Frame>
       <Rise i={0}><View style={{ gap: 4 }}>

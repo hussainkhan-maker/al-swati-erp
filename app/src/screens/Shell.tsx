@@ -11,7 +11,7 @@ import { supabase } from "../lib/supabase";
 import { useAutopilot } from "../lib/pipeline";
 import { priceHint } from "./Quotes";
 import Svg, { Path } from "react-native-svg";
-import { Btn, Card, DEEP, H2, Icon, Rise, Screen, T, Tile, useColors, useDir, useWide } from "../ui";
+import { Btn, Card, DEEP, H2, Icon, Rise, Screen, T, Tile, Toasts, useColors, useDir, useWide } from "../ui";
 import * as Abu from "./Abu";
 import * as Admin from "./Admin";
 import Agents from "./Agents";
@@ -189,7 +189,7 @@ export default function Shell() {
               const on = x.isSub ? sub === x.key : !sub && cur.key === x.key;
               return (
                 <Pressable key={x.key} onPress={() => { if (x.isSub) setSub(x.key); else { setSub(null); setTab(x.key); } }}
-                  style={({ hovered }: any) => ({ flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 8, paddingHorizontal: 10, borderRadius: 6, backgroundColor: on ? "rgba(255,255,255,0.10)" : hovered ? "rgba(255,255,255,0.05)" : "transparent", borderLeftWidth: 3, borderLeftColor: on ? DEEP.glow : "transparent", cursor: "pointer" } as any)}>
+                  style={({ hovered }: any) => ({ flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 8, paddingHorizontal: 10, borderRadius: 6, backgroundColor: on ? "rgba(255,255,255,0.10)" : hovered ? "rgba(255,255,255,0.05)" : "transparent", borderLeftWidth: 3, borderLeftColor: on ? DEEP.glow : "transparent", cursor: "pointer", transitionProperty: "background-color, border-color, transform", transitionDuration: "180ms", transform: [{ translateX: hovered && !on ? 3 : 0 }] } as any)}>
                   <Icon name={x.icon} size={17} color={on ? DEEP.ink : DEEP.muted} />
                   <Text style={{ color: on ? "#FFFFFF" : DEEP.ink, opacity: on ? 1 : 0.86, fontSize: 14, fontWeight: on ? "600" : "400" }}>{x.label}</Text>
                 </Pressable>
@@ -226,10 +226,11 @@ export default function Shell() {
         <Rise key={sub || tab} style={{ flex: 1 }}><Body go={(k: string) => (SUBS[k] ? setSub(k) : setTab(k))} /></Rise>
         {/* AI helper on every page (phone): knows the page, suggests the next step and what to correct. On the laptop it sits in the top bar. */}
         {!wide && <Pressable accessibilityRole="button" accessibilityLabel="AI helper" onPress={() => flows("ask", { page: sub ? (SUB_LABEL[sub] || sub) : cur.label })}
-          style={{ position: "absolute", bottom: 20, [row === "row-reverse" ? "left" : "right"]: 20, height: 44, paddingHorizontal: 16, borderRadius: 22, flexDirection: "row", gap: 8, backgroundColor: c.accent, alignItems: "center", justifyContent: "center", elevation: 4, shadowColor: "#11261F", shadowOpacity: 0.22, shadowRadius: 8, shadowOffset: { width: 0, height: 3 } }}>
+          style={{ position: "absolute", bottom: 20, [row === "row-reverse" ? "left" : "right"]: 20, height: 44, paddingHorizontal: 16, borderRadius: 22, flexDirection: "row", gap: 8, backgroundColor: c.accent, alignItems: "center", justifyContent: "center", elevation: 4, shadowColor: "#0B2A4A", shadowOpacity: 0.22, shadowRadius: 8, shadowOffset: { width: 0, height: 3 } }}>
           <Icon name="spark" size={18} color={c.accentInk} />
         </Pressable>}
       </View>
+      <Toasts />
       {!wide && <SafeAreaView edges={["bottom"]} style={{ backgroundColor: c.surface, borderTopWidth: 1, borderColor: c.line }}>
         <View style={{ flexDirection: row, justifyContent: "space-around", paddingVertical: 6 }}>
           {tabs.map((x) => {
