@@ -174,7 +174,7 @@ function FindSuppliers({ onClose }: { onClose: () => void }) {
       <Field label="Material (e.g. Crema Marfil marble 2 cm, porcelain 60×120)" value={m} onChange={setM} />
       <Field label="City" value={city} onChange={setCity} />
       <Btn big kind="primary" icon={<Icon name="spark" color={c.accentInk} />} title="Search the web" busy={busy} disabled={m.trim().length < 3} onPress={search} />
-      {busy && <T muted>The AI is searching company sites and directories. About a minute.</T>}
+      {busy && <T muted>Searching company sites and directories. About a minute.</T>}
       {err ? <T color={c.bad}>{err}</T> : null}
       {res.map((s, i) => (
         <Card key={i}>

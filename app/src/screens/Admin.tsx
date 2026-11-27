@@ -345,7 +345,7 @@ export function Dashboard({ go }: { go?: (k: string) => void } = {}) {
   const decisions = (brainState.decisions || []) as any[];
   const decided = decisions.length && brainState.decided_at && riyadhDay(brainState.decided_at) === riyadhDay(Date.now()) ? (
     <Card style={{ gap: 4 }}>
-      <SectionHead title="Decisions for today" sub="From the main agent, most important first" />
+      <SectionHead title="Decisions for today" sub="Most important first" />
       {decisions.map((x, i) => (
         <Pressable key={i} onPress={() => go?.(({ sales: "queries", site: "projects", money: "money", buying: "suppliers", website: "growth", company: "people" } as any)[x.area] || "inbox")}
           style={({ hovered }: any) => [{ flexDirection: "row", gap: 12, alignItems: "flex-start", paddingVertical: 10, borderTopWidth: i ? 1 : 0, borderColor: c.line, cursor: "pointer", transitionProperty: "transform", transitionDuration: "160ms" } as any, hovered ? { transform: [{ translateX: 4 }] } : null]}>
@@ -355,7 +355,7 @@ export function Dashboard({ go }: { go?: (k: string) => void } = {}) {
     </Card>) : null;
   const side = <>
     <Rise i={2}><Card><MonthCal marks={marks} /><T size={12} muted>A dot marks a day with a payment or work entry.</T></Card></Rise>
-    <Rise i={3}><Fold title="Notes from the main agent" sub={rep ? stamp(rep.created_at) : undefined}>
+    <Rise i={3}><Fold title="Today's notes" sub={rep ? stamp(rep.created_at) : undefined}>
       {rep ? String(rep.summary || "").split("\n").map((x) => x.trim()).filter(Boolean).map((line, i) => { const m = line.match(/^([^:]{2,22}):\s*(.*)$/); return (
         <View key={i} style={{ paddingVertical: 8, borderTopWidth: i ? 1 : 0, borderColor: c.line, gap: 2 }}>
           {m ? <><T size={12} bold color={c.accent}>{m[1]}</T><T size={14}>{m[2]}</T></> : <T size={14}>{line}</T>}

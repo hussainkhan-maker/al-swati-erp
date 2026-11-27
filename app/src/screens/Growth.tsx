@@ -55,7 +55,7 @@ function IndexLine({ url: raw, rows, onRows, label, onGbp }: { url: string; rows
     } catch (e: any) { setMsg(e.message); } finally { setBusy(false); }
   };
   // Telling Google about a page is the agents' own work: only the result is shown, and only once Google has the page.
-  if (st?.google_verdict !== "PASS" && !onGbp && !label) return null;
+  if (st?.google_verdict !== "PASS" && !onGbp) return null;
   return (
     <View style={{ gap: 4 }}>
       <Row wrap>
@@ -523,7 +523,7 @@ function CompanyProfile() {
   if (!f) return (
     <Card>
       <Row><H2>Company profile</H2><View style={{ flex: 1 }} /><Btn kind="ghost" title="Edit" onPress={() => setF(cur)} /></Row>
-      <T size={13} muted>The AI writes only these facts about the company — never invented projects, clients or numbers.</T>
+      <T size={13} muted>Only these facts about the company are used: never invented projects, clients or numbers.</T>
       <T size={14}>{cur.name} · {cur.services} · {cur.cities}{cur.phone ? ` · ${cur.phone}` : ""}{cur.email ? ` · ${cur.email}` : ""}{cur.google_reviews ? " · Google reviews linked" : ""}</T>
       {!cur.phone && !cur.email ? <T color={c.warn}>Add a phone or email so readers can contact you.</T> : null}
       {!String(cur.price_table || "").trim() ? <T color={c.warn}>Add your price ranges (Edit): "Boost to Top 3" puts them in its price table. Until then the table has blanks to fill in.</T> : null}
@@ -610,14 +610,10 @@ function SeoAutopilot({ onDraft }: { onDraft?: (p: any) => void }) {
   };
   return (<>
     <Card>
-      <Row wrap><H2>SEO autopilot</H2><View style={{ flex: 1 }} />
-        {s?.google?.linked ? <Pill kind="good" text="Google linked" /> : <Pill kind="warn" text="Google Search Console not linked yet" />}</Row>
-      {g && !g.linked ? <Row wrap><T size={14}>Link Google Search Console once, with the Google account that has al-swaticontracting.com. The ERP reads Google's numbers and resubmits your sitemap after each Publish.</T>
+      <Row wrap><H2>Website numbers</H2><View style={{ flex: 1 }} />
+        {s?.google?.linked ? null : <Pill kind="warn" text="Google Search Console not linked yet" />}</Row>
+      {g && !g.linked ? <Row wrap><T size={14}>Link Google Search Console once, with the Google account that has al-swaticontracting.com. Then the Google numbers show here.</T>
         <Btn kind="primary" title="Sign in with Google" busy={busy === "google"} disabled={!!busy} onPress={gStart} /></Row> : null}
-      {g?.linked && g.write === false ? <Row wrap><T size={13} color={c.warn}>Google is linked for reading only. Sign in once more so the ERP can also resubmit your sitemap to Google after each Publish and from "Re-ping Google".</T>
-        <Btn kind="primary" title="Allow sitemap resubmit" busy={busy === "google"} disabled={!!busy} onPress={gStart} /></Row> : null}
-      {g?.linked && g.account ? <Row wrap><T size={13} muted>Google: {g.account}{g.error ? ` · last problem: ${g.error}` : ""}</T><View style={{ flex: 1 }} /><Btn kind="ghost" title="Disconnect Google" disabled={!!busy} onPress={gStop} /></Row> : null}
-      <T size={13} muted>Reads Google every morning and drafts 2 posts a week. You read and press Publish.{s?.last_tick ? ` Last run ${stamp(s.last_tick)}.` : ""}</T>
       {(s?.summary || ev) && <StatStrip items={[
         { label: "Google clicks · 28 days", value: `${t.clicks ?? 0}${ch(t.clicks || 0, t.clicks_before || 0)}` },
         { label: "Seen in Google · 28 days", value: `${t.impressions ?? 0}${ch(t.impressions || 0, t.impressions_before || 0)}` },
@@ -626,18 +622,12 @@ function SeoAutopilot({ onDraft }: { onDraft?: (p: any) => void }) {
         { label: "WhatsApp / call clicks · 7 days", value: `${web.whatsapp || 0} / ${web.call || 0}` },
         { label: "Cost calculator used · 7 days", value: String(web.estimate || 0) },
       ]} />}
-      <T size={12} muted>{last ? `Latest on the website: ${kindName[last.kind] || last.kind} on ${last.page || "/"} (from ${from(last.ref)}), ${stamp(last.at)}. ` : ev ? "No quote forms, WhatsApp or call taps on the website in the last 7 days. " : ""}</T>
-      {(s?.queue || []).length > 0 && <T size={13} muted>Next drafts: {s.queue.map((q: any) => `${q.title} (${q.lang === "ar" ? "AR" : "EN"})`).join(" · ")}</T>}
-      {s?.error ? <T color={c.warn} size={13}>Last problem: {s.error}</T> : null}
       {msg ? <T size={13} muted>{msg}</T> : null}
-      <Row wrap><Btn icon={<Icon name="spark" />} title="Run now" busy={busy === "run"} disabled={!!busy} onPress={() => run()} />
-        <Btn kind="ghost" title="Redo this week's report" busy={busy === "weekly"} disabled={!!busy} onPress={() => run("weekly")} /></Row>
     </Card>
-      {s?.report?.text ? <Fold open title="This week's report" sub={day(s.report.at)}>{String(s.report.text).split("\n").map((l: string, i: number) => <T key={i} size={14}>{l}</T>)}</Fold> : null}
-      {(s?.summary?.striking || []).length > 0 && <Fold title="Searches close to page 1" sub="The next posts aim at these" right={<Pill kind="acc" text={String(Math.min(8, s.summary.striking.length))} />}>
+      {(s?.summary?.striking || []).length > 0 && <Fold title="Searches close to page 1" sub="Where the website is near Google's first page" right={<Pill kind="acc" text={String(Math.min(8, s.summary.striking.length))} />}>
         <Table cols={["Search", "Position", "Seen", "Clicks", "Page", ""]} numeric={[1, 2, 3]} rows={s.summary.striking.slice(0, 8).map((x: any) => [x.q, String(x.pos), String(x.impr), String(x.clicks), x.page,
           <Btn key="b" kind="ghost" icon={<Icon name="spark" />} title="Boost to Top 3" busy={busy === "boost:" + x.q} disabled={!!busy || !x.page} onPress={() => boost(x)} />])} />
-        <T size={12} muted>Boost to Top 3: the AI rewrites that page for the search as a draft. The website changes only when you press Publish. About a minute.</T>
+        <T size={12} muted>Boost to Top 3 makes a new draft of that page. The website changes only when you press Publish.</T>
         {msg ? <T size={13} muted>{msg}</T> : null}
       </Fold>}
       {(s?.review_msgs || []).length > 0 && <Fold title="Ask finished clients for a Google review" right={<Pill kind="acc" text={String(Math.min(6, s.review_msgs.length))} />}>
@@ -674,7 +664,7 @@ function Blog() {
   return (
     <>
       <SeoAutopilot onDraft={setEd} />
-      <Fold title="Write a post yourself" sub="For an extra topic of your own. The AI drafts it; you publish." right={today ? <Pill kind="good" text="written today" /> : undefined}>
+      <Fold title="Write a post yourself" sub="For a topic of your own. You publish." right={today ? <Pill kind="good" text="written today" /> : undefined}>
         <Row wrap>
           <Field label="Topic (or pick an idea below)" value={topic} onChange={setTopic} placeholder="e.g. Choosing stone for villa facades in Riyadh heat" />
           <Field label="Main search phrase" value={kw} onChange={setKw} placeholder="e.g. mechanical stone cladding Riyadh" style={{ maxWidth: 240 }} />
@@ -692,7 +682,7 @@ function Blog() {
           </Row>))}
       </Fold>
       <H2>Waiting for you</H2>
-      {!posts.some((p: any) => p.status !== "Published") && <Empty icon="check" text="No draft is waiting. The autopilot writes the next ones by itself." />}
+      {!posts.some((p: any) => p.status !== "Published") && <Empty icon="check" text="No draft is waiting." />}
       {posts.filter((p: any) => p.status !== "Published").map(postCard)}
       <Fold title="Published posts" sub={`Public at ${BLOG_URL}`} right={<Pill kind="good" text={String(posts.filter((p: any) => p.status === "Published").length)} />}>
         {posts.filter((p: any) => p.status === "Published").map(postCard)}
@@ -705,7 +695,7 @@ function Blog() {
         <Card key={p.id} onPress={() => setEd(p)}>
           <Row>{p.image_url ? <Image source={{ uri: p.image_url }} accessibilityLabel={p.image_alt || p.title} style={{ width: 72, height: 41, borderRadius: 6 }} /> : null}
             <View style={{ flex: 1 }}><T bold>{p.title}</T><T size={12} muted>{p.lang === "ar" ? "العربية" : "English"} · {day(p.created_at)}{p.published_at ? ` · published ${day(p.published_at)}` : ""}{p.twin_id ? (p.lang === "ar" ? " · English version too" : " · Arabic version too") : ""}</T></View>
-            {p.source === "autopilot" ? <Pill kind="acc" text="autopilot" /> : p.source === "boost" ? <Pill kind="acc" text="Top-3 upgrade" /> : null}<Pill kind={p.status === "Published" ? "good" : p.status === "Draft" ? "warn" : "plain"} text={p.status} /></Row>
+            {p.source === "boost" ? <Pill kind="acc" text="Top-3 upgrade" /> : null}<Pill kind={p.status === "Published" ? "good" : p.status === "Draft" ? "warn" : "plain"} text={p.status} /></Row>
           {p.status === "Published" ? <IndexLine url={postUrl(p)} rows={ix.rows} onRows={ix.put} onGbp={() => setGbp(p)} /> : null}
         </Card>); }
 }
@@ -815,7 +805,7 @@ function PostEditor({ p: first, onClose }: { p: any; onClose: () => void }) {
       </> : <>
       {p.image_url
         ? <Image source={{ uri: p.image_url }} accessibilityLabel={p.image_alt || p.title} resizeMode="cover" style={{ width: "100%", aspectRatio: 16 / 9, borderRadius: 8, backgroundColor: c.sunk }} />
-        : <T size={13} muted>No picture yet. Claude makes one for exactly this topic with Higgsfield at its next morning run (about 10:40).</T>}
+        : <T size={13} muted>No picture yet. One is added before the next morning.</T>}
       {p.picture_status === "done" ? <T size={12} color={c.good}>Picture made with Higgsfield for this topic.</T>
         : p.picture_status === "wanted" ? <T size={12} color={c.accent}>A new picture is asked{p.picture_note ? ` ("${p.picture_note}")` : ""}: Claude makes it with Higgsfield at its next run (every morning about 10:40).</T>
         : p.picture_status === "ready" ? <T size={12} color={c.accent}>The new picture is made; it is being saved and put on the post (within about an hour).</T>
@@ -893,7 +883,7 @@ function DistrictPages() {
     <>
       <Card>
         <H2>Riyadh district pages</H2>
-        <T size={13} muted>For each district the AI writes an English page ({SITE_URL}/stone-cladding-[district]-riyadh/) and a Saudi Arabic page (/ar/…) with your company facts, a section on Riyadh's 45°C heat and dust, your prices, local questions, and Google data (LocalBusiness and Service with the district's location). Both are drafts until you press Publish; then they go on the website and in sitemap.xml.</T>
+        <T size={13} muted>Each district gets an English page ({SITE_URL}/stone-cladding-[district]-riyadh/) and a Saudi Arabic page (/ar/…) with your company facts, a section on Riyadh's 45°C heat and dust, your prices, local questions, and Google data (LocalBusiness and Service with the district's location). Both are drafts until you press Publish; then they go on the website and in sitemap.xml.</T>
         <T size={13} muted>Give every district real photos of your work there and, if you can, a line about what you did. Google ranks pages that show real local work, and pushes down many near-identical area pages.</T>
         <T bold size={14}>District</T>
         <Row wrap>{[...DISTRICTS, "Other"].map((x) => <Btn key={x} kind={district === x ? "primary" : "ghost"} title={x} onPress={() => setDistrict(x)} />)}</Row>
@@ -989,7 +979,7 @@ export function CaseStudyButton({ project, installed, lastWork }: { project: any
       {en ? <Btn kind="ghost" title="Make it again" onPress={open} /> : null}
       <Sheet open={!!f} onClose={() => setF(null)} title={`SEO case study: ${project.name}`}>
         {f && <>
-          <T size={13} muted>The AI writes an English and an Arabic project page for al-swaticontracting.com/projects/… from these facts and your site photos. Only the district is shown, never the address; the client's name only if you tick it. Both are drafts until you press Publish.</T>
+          <T size={13} muted>Each project becomes an English and an Arabic page on al-swaticontracting.com/projects/… from these facts and your site photos. Only the district is shown, never the address; the client's name only if you tick it. Both are drafts until you press Publish.</T>
           <T bold size={14}>District</T>
           <Row wrap>{[...DISTRICTS, "Other"].map((x) => <Btn key={x} kind={f.district === x ? "primary" : "ghost"} title={x} onPress={() => setF({ ...f, district: x })} />)}</Row>
           {f.district === "Other" ? <Field label="District name (as on Google Maps)" value={f.other} onChange={(v) => setF({ ...f, other: v })} /> : null}
@@ -1036,7 +1026,7 @@ function CaseStudies() {
     <>
       <Card>
         <H2>Project case studies</H2>
-        <T size={13} muted>Easiest: "Project add karein" below (photos + a few facts; the Projects agent cleans the photos and publishes the pages). Or from Projects → a project → "Publish as SEO Case Study". Each becomes an English and an Arabic page at {SITE_URL}/projects/… with your real data (district, building, stone, m², fixing system, year) and site photos, a card on the Projects page, Google data and a place in sitemap.xml.</T>
+        <T size={13} muted>Easiest: "Project add karein" below (photos and a few facts). Or from Projects → a project → "Publish as SEO Case Study". Each becomes an English and an Arabic page at {SITE_URL}/projects/… with your real data (district, building, stone, m², fixing system, year) and site photos, a card on the Projects page, Google data and a place in sitemap.xml.</T>
       </Card>
       <NewWebsiteProject />
       {!rows.length && <Empty text="No case studies yet." />}
@@ -1085,7 +1075,7 @@ function Outreach() {
     <>
       <Card>
         <Row><H2>Outreach</H2><View style={{ flex: 1 }} /><Btn kind="primary" icon={<Icon name="plus" color="#fff" />} title="Contact" onPress={() => setAdd({ name: "", company: "", role: "Project Manager", city: "Riyadh", email: "", phone: "", source: "", notes: "" })} /></Row>
-        <T size={13} muted>For people you know or who gave you their contact — project managers, construction managers, consultants. The AI writes one personal email at a time; you read it and send it from your own email. Anyone who says no is never emailed again.</T>
+        <T size={13} muted>For people you know or who gave you their contact — project managers, construction managers, consultants. One personal email at a time; you read it and send it from your own email. Anyone who says no is never emailed again.</T>
         <Row wrap><Pill kind={sentToday >= DAILY_CAP ? "bad" : "acc"} text={`${sentToday} of ${DAILY_CAP} emails today`} /><Pill text={`${list.length} contacts`} />{list.filter(dueFollow).length ? <Pill kind="warn" text={`${list.filter(dueFollow).length} follow-ups due`} /> : null}</Row>
       </Card>
       <Row wrap>{[["todo", "To do"], ["emailed", "Waiting"], ["replied", "Replied"], ["all", "All"]].map(([k, l]) => <Btn key={k} kind={show === k ? "primary" : "ghost"} title={l} onPress={() => setShow(k)} />)}</Row>
@@ -1154,7 +1144,7 @@ export default function Growth() {
       <View style={{ gap: 2 }}><H1>Growth</H1><T size={14} muted>What brings new clients: the website on Google, Maps, videos and direct outreach.</T></View>
       <Tabs value={tab} onChange={(k) => setTab(k as any)} items={[{ key: "blog", label: "Website & blog", n: drafts }, { key: "areas", label: "District pages", n: areaDrafts }, { key: "cases", label: "Case studies" }, { key: "maps", label: "Google Maps" }, { key: "videos", label: "Videos" }, { key: "outreach", label: "Outreach" }]} />
       {tab === "blog" ? <Blog /> : tab === "areas" ? <DistrictPages /> : tab === "cases" ? <CaseStudies /> : tab === "maps" ? <MapsBooster /> : tab === "videos" ? <Videos /> : <Outreach />}
-      <Fold title="Company facts the AI writes from" sub="Every agent uses only these. Edit them once."><CompanyProfile /></Fold>
+      <Fold title="Company facts" sub="Used on every page and post. Edit them once."><CompanyProfile /></Fold>
     </Screen>
   );
 }
