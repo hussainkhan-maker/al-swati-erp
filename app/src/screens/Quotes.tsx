@@ -196,7 +196,8 @@ export default function Quotes() {
             {q.lost_reason ? <T muted size={13}>Lost: {q.lost_reason}</T> : null}
             {(q.history || []).slice(-4).reverse().map((h: string, i: number) => <T key={i} size={12} muted>{h}</T>)}
           </Card>);
-      }) : <Empty text={arUI ? "لا توجد عروض بعد." : "No quotations yet. Make one here or from a client query."} />}
+      }) : <Empty icon="doc" title={arUI ? "لا توجد عروض بعد" : "No quotations yet"} text={arUI ? "أنشئ عرضاً من هنا أو من استفسار عميل." : "Press New, or open a client query and let the AI draft one."}
+        steps={arUI ? undefined : ["Draft the lines", "AI advice and checks", "Approve & Lock", "Send the PDF", "Client approves: project opens"]} />}
 
       <Sheet open={!!nq} onClose={() => setNq(null)} title="New quotation">
         {nq && <>

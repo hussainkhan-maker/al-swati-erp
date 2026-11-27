@@ -191,7 +191,8 @@ export default function Queries() {
               <Pill kind={q.status === "New" ? "warn" : q.status === "Won" ? "good" : q.status === "Lost" ? "bad" : "acc"} text={q.status} /></Row>
             {due != null && !["Sent", "Won", "Lost"].includes(q.status) && <Pill kind={due <= 2 ? "bad" : "plain"} text={`Due in ${due} day(s)`} />}
           </Card>);
-      }) : <Empty text={ol ? "No queries here. New client emails in your Outlook come in by themselves (checked every 30 minutes)." : "No queries here. Link your email above, or press Paste one."} />}
+      }) : <Empty icon="inbox" title="No client queries here" text={ol ? "New client emails in your Outlook come in by themselves, checked every 30 minutes." : "Link your email above, or press Paste one."}
+        steps={["Email arrives", "AI reads it twice", "Six checks", "Draft quotation"]} />}
       {open && <QuerySheet q={(d.inquiries || []).find((x: any) => x.id === open.id) || open} onClose={() => setOpen(null)} />}
       <Sheet open={!!add} onClose={() => setAdd(null)} title="Paste a query">
         {add && <>

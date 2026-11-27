@@ -332,7 +332,27 @@ export function Tile({ icon, title, sub, onPress, accent }: { icon: string; titl
   );
 }
 
-export const Empty = ({ text }: { text: string }) => <Card><T muted>{text}</T></Card>;
+/** An empty page says what belongs here and how it gets filled: an icon, one line, and (when given) the steps in order. */
+export function Empty({ text, icon = "inbox", title, steps }: { text: string; icon?: string; title?: string; steps?: string[] }) {
+  const c = useColors();
+  return (
+    <Rise>
+      <View style={[{ backgroundColor: c.surface, borderColor: c.line, borderWidth: 1, borderRadius: 14, paddingVertical: steps ? 34 : 26, paddingHorizontal: 22, alignItems: "center", gap: 10 }, ELEV]}>
+        <View style={{ width: 52, height: 52, borderRadius: 26, backgroundColor: c.accentSoft, alignItems: "center", justifyContent: "center" }}><Icon name={icon} size={24} color={c.accent} /></View>
+        {title ? <T size={17} bold center>{title}</T> : null}
+        <T muted center style={{ maxWidth: 520 }}>{text}</T>
+        {steps ? (
+          <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 10, marginTop: 10 }}>
+            {steps.map((x, i) => (
+              <View key={i} style={{ flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: c.sunk, borderRadius: 999, paddingVertical: 7, paddingHorizontal: 12, borderWidth: 1, borderColor: c.line }}>
+                <View style={{ width: 20, height: 20, borderRadius: 10, backgroundColor: c.accent, alignItems: "center", justifyContent: "center" }}><Text style={{ color: c.accentInk, fontSize: 11, fontWeight: "700" }}>{i + 1}</Text></View>
+                <T size={13}>{x}</T>
+              </View>))}
+          </View>) : null}
+      </View>
+    </Rise>
+  );
+}
 export const s = StyleSheet.create({ grow: { flex: 1 } });
 
 /** Simple bar chart: one bar per label, value written above; the highest bar is solid accent. */
