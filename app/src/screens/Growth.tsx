@@ -38,6 +38,9 @@ function useIndexStatus(urls: string[]) {
   }, [loaded, urls.length]);
   return { rows, put };
 }
+/** Coming from an approval on Home: open the right part of Growth, and the first waiting draft itself. */
+let START = "", OPEN_FIRST = false;
+export const openGrowthAt = (tab: string) => { START = tab; OPEN_FIRST = true; };
 /** Under a published page: "Indexed Ping Sent ✓" once IndexNow has the address, Google's own status, and "Re-ping Google". */
 function IndexLine({ url: raw, rows, onRows, label, onGbp }: { url: string; rows: Record<string, any>; onRows: (rows: any[]) => void; label?: string; onGbp?: () => void }) {
   const url = ixUrl(raw), st = rows[url];
@@ -638,6 +641,7 @@ function Blog() {
   const [gbp, setGbp] = useState<any>(null);
   const [topics, setTopics] = useState<any[]>([]), [topic, setTopic] = useState(""), [kw, setKw] = useState(""), [lang, setLang] = useState("en");
   const [busy, setBusy] = useState(""), [err, setErr] = useState(""), [ed, setEd] = useState<any>(null);
+  useEffect(() => { if (OPEN_FIRST && posts.length) { const first = posts.find((p: any) => p.status === "Draft"); if (first) { OPEN_FIRST = false; setEd(first); } } }, [posts.length]);
   const today = posts.some((p: any) => Date.now() - Date.parse(p.created_at) < 20 * 3600e3);
   const ideas = async () => {
     setBusy("ideas"); setErr("");
@@ -850,6 +854,7 @@ function DistrictPages() {
   const [district, setDistrict] = useState(""), [other, setOther] = useState(""), [stone, setStone] = useState(STONE_TYPES[0]);
   const [photos, setPhotos] = useState<{ uri: string; url: string }[]>([]), [notes, setNotes] = useState("");
   const [busy, setBusy] = useState(""), [err, setErr] = useState(""), [ed, setEd] = useState<any>(null);
+  useEffect(() => { if (OPEN_FIRST && rows.length) { const first = rows.find((p: any) => p.status === "Draft") || all.find((p: any) => p.status === "Draft"); if (first) { OPEN_FIRST = false; setEd(first); } } }, [rows.length]);
   const name = (district === "Other" ? other : district).trim();
   const addPhoto = async () => {
     setErr("");
@@ -1130,7 +1135,8 @@ function WriteMail({ o, kind, profile, signature, onClose }: { o: any; kind: str
 
 export default function Growth() {
   // Back from "Connect YouTube" (state "y.…"): open Videos, where that link is finished.
-  const [tab, setTab] = useState<"blog" | "areas" | "cases" | "maps" | "videos" | "outreach">(() => (Platform.OS === "web" && (new URLSearchParams(globalThis.location?.search || "").get("state") || "").startsWith("y.") ? "videos" : "blog"));
+  const [tab, setTab] = useState<"blog" | "areas" | "cases" | "maps" | "videos" | "outreach">(() => (Platform.OS === "web" && (new URLSearchParams(globalThis.location?.search || "").get("state") || "").startsWith("y.") ? "videos" : ((START || "blog") as any)));
+  useEffect(() => { START = ""; const t = setTimeout(() => { OPEN_FIRST = false; }, 2500); return () => clearTimeout(t); }, []);
   const { d: gd } = useData(); const drafts = (gd.blog_posts || []).filter((x: any) => x.status === "Draft" && !x.area).length, areaDrafts = (gd.blog_posts || []).filter((x: any) => x.status === "Draft" && x.area).length;
   return (
     <Screen>

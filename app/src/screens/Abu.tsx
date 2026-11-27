@@ -54,7 +54,7 @@ export function Home({ go }: { go: (k: string) => void }) {
       <Tile accent icon="mic" title={W("اضغط وتكلم", "دبائیں اور بولیں", "Tap and speak")} sub={W("تكلم بالأردو · سأتأكد معك قبل الحفظ", "اردو میں بولیں · محفوظ کرنے سے پہلے میں پوچھوں گا", "Speak in Urdu · I confirm before saving")} onPress={() => flows("speak")} />
       <View style={{ flexDirection: "row-reverse", flexWrap: "wrap", gap: 12 }}>
         <Tile icon="receipt" title={W("فاتورة شراء", "خریداری کی رسید", "Purchase invoice")} sub={W("صورة + مشروع + ضريبة", "تصویر + پروجیکٹ + VAT", "Photo + project + VAT")} onPress={() => flows("purchase")} />
-        <Tile icon="doc" title={W("طلب مواد", "میٹیریل ریکویزیشن", "Material request")} sub="PDF" onPress={() => flows("speak", { text: "میٹیریل ریکویزیشن: " })} />
+        <Tile icon="doc" title={W("طلب مواد", "میٹیریل ریکویزیشن", "Material request")} sub="PDF" onPress={() => go("sheets")} />
         <Tile icon="log" title={W("كشف حساب", "حساب", "Statement")} sub={W("مشروع · مقاول · مورد", "پروجیکٹ · سب کنٹریکٹر · سپلائر", "Project · subcontractor · supplier")} onPress={() => flows("statement")} />
         <Tile icon="pct" title={W("ضريبة مستردة", "واپس لینے والا VAT", "VAT to recover")} sub={SAR(vat)} onPress={() => go("vat")} />
         <Tile icon="spark" title={W("اسأل مساعدك", "مددگار سے پوچھیں", "Ask your assistant")} sub={W("عن أي مشروع أو حساب", "کسی بھی پروجیکٹ یا حساب کے بارے میں", "About any project or account")} onPress={() => flows("ask")} />

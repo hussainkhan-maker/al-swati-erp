@@ -7,7 +7,7 @@ import { day, money, num, SAR, stamp } from "../lib/fmt";
 import { pricesFor } from "../lib/match";
 import { invoicesOf, STATE_LABEL, waitText } from "../lib/invoices";
 import { ai, supabase } from "../lib/supabase";
-import { CaseStudyButton } from "./Growth";
+import { CaseStudyButton, openGrowthAt } from "./Growth";
 import { WHO } from "./Inbox";
 import { Bars, Btn, Card, Checks, CountUp, DEEP, ELEV, Empty, Fold, Marble, notify, SectionHead, Segmented, StatStrip, Field, H1, H2, Icon, Kpi, MonthCal, Photo, Pill, Rise, Row, Screen, Select, Sheet, T, Table, Tabs, Tile, useColors, useWide } from "../ui";
 
@@ -236,12 +236,12 @@ export function Dashboard({ go }: { go?: (k: string) => void } = {}) {
     { n: newQ, text: newQ === 1 ? "New client query to review" : "New client queries to review", from: "Intake and reading agents", to: "queries", go: "Queries" },
     { n: (d.rfis || []).filter((r: any) => r.status === "Draft").length, text: "RFI written, not sent", from: "Query organizer", to: "rfis", go: "RFIs" },
     { n: (d.suppliers || []).filter((x: any) => x.approved === false).length, text: "Suppliers found on the web, to approve", from: "Supplier finder", to: "suppliers", go: "Suppliers" },
-    { n: (d.blog_posts || []).filter((x: any) => x.status === "Draft" && !x.area).length, text: "Blog drafts to read and publish", from: "Website (SEO) agent", to: "growth", go: "Growth" },
-    { n: (d.blog_posts || []).filter((x: any) => x.status === "Draft" && x.area).length, text: "District page drafts to read and publish", from: "Website (SEO) agent · Growth, District pages", to: "growth", go: "Growth" },
+    { n: (d.blog_posts || []).filter((x: any) => x.status === "Draft" && !x.area).length, text: "Blog drafts to read and publish", from: "Website (SEO) agent", to: "growth", go: "Read", tab: "blog" },
+    { n: (d.blog_posts || []).filter((x: any) => x.status === "Draft" && x.area).length, text: "District page drafts to read and publish", from: "Website (SEO) agent", to: "growth", go: "Read", tab: "areas" },
     { n: measWait, text: measWait === 1 ? "Measurement from site to approve" : "Measurements from site to approve", from: "Site supervisors", to: "sheets", go: "Open" },
     { n: openOrders, text: openOrders === 1 ? "Order placed, invoice photo still missing" : "Orders placed, invoice photo still missing", from: "Site supervisors", to: "sheets", go: "Open" },
-    { n: vidWait, text: vidWait === 1 ? "Video to review before it is posted" : "Videos to review before they are posted", from: "Video agent", to: "growth", go: "Growth" },
-  ] as { n: number; text: string; from: string; to: string; go: string }[]).filter((a) => a.n > 0);
+    { n: vidWait, text: vidWait === 1 ? "Video to review before it is posted" : "Videos to review before they are posted", from: "Video agent", to: "growth", go: "Watch", tab: "videos" },
+  ] as { n: number; text: string; from: string; to: string; go: string; tab?: string }[]).filter((a) => a.n > 0);
   const nextStep = String(rep?.summary || "").split("\n").map((x) => x.trim()).find((x) => /^Agla kaam\s*:/i.test(x))?.replace(/^Agla kaam\s*:\s*/i, "") || "";
   const lateInv = waiting.filter((v: any) => v.state === "late" || v.state === "missed");
   const apN = approvals.reduce((s2, a) => s2 + a.n, 0) + inboxWait.length;
@@ -278,7 +278,7 @@ export function Dashboard({ go }: { go?: (k: string) => void } = {}) {
         </T>
         {approvals.map((a, i) => (
           <Rise key={a.text} i={i + 2}>
-            <Pressable accessibilityRole="button" onPress={() => go?.(a.to)}
+            <Pressable accessibilityRole="button" onPress={() => { if (a.tab) openGrowthAt(a.tab); go?.(a.to); }}
               style={({ hovered, pressed }: any) => [{ flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 12, borderTopWidth: i ? 1 : 0, borderColor: "rgba(255,255,255,0.14)", cursor: "pointer", transitionProperty: "opacity, transform", transitionDuration: "160ms" } as any, hovered ? { transform: [{ translateX: 4 }] } : null, pressed ? { opacity: 0.8 } : null]}>
               <View style={{ minWidth: 36, height: 36, borderRadius: 11, paddingHorizontal: 8, backgroundColor: "rgba(255,255,255,0.12)", alignItems: "center", justifyContent: "center" }}><T size={14} bold color="#FFFFFF">{a.n}</T></View>
               <View style={{ flex: 1 }}><T size={15} bold color="#FFFFFF">{a.text}</T><T size={12} color={DEEP.muted}>{a.from}</T></View>
