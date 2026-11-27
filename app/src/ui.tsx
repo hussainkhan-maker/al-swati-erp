@@ -332,6 +332,39 @@ export function Tile({ icon, title, sub, onPress, accent }: { icon: string; titl
   );
 }
 
+/** A section that stays closed until its header is pressed, so a long page shows its outline first. */
+export function Fold({ title, sub, right, open: first = false, children }: { title: string; sub?: string; right?: React.ReactNode; open?: boolean; children: React.ReactNode }) {
+  const c = useColors(); const [open, setOpen] = useState(first);
+  return (
+    <View style={[{ backgroundColor: c.surface, borderColor: c.line, borderWidth: 1, borderRadius: 12, overflow: "hidden" }, ELEV]}>
+      <Pressable accessibilityRole="button" accessibilityState={{ expanded: open }} onPress={() => setOpen(!open)}
+        style={({ hovered }: any) => [{ flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 14, paddingHorizontal: 18, backgroundColor: hovered ? c.sunk : c.surface, cursor: "pointer", transitionProperty: "background-color", transitionDuration: "140ms" } as any]}>
+        <View style={{ flex: 1, gap: 2 }}><T size={16} bold>{title}</T>{sub ? <T size={13} muted>{sub}</T> : null}</View>
+        {right}
+        <View style={[{ transform: [{ rotate: open ? "180deg" : "0deg" }] }, web ? ({ transitionProperty: "transform", transitionDuration: "180ms" } as any) : null]}>
+          <Svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke={c.muted} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><Path d="M6 9l6 6 6-6" /></Svg>
+        </View>
+      </Pressable>
+      {open ? <View style={{ padding: 18, paddingTop: 14, gap: 10, borderTopWidth: 1, borderColor: c.line }}>{children}</View> : null}
+    </View>
+  );
+}
+
+/** Page tabs: one line, the open one underlined; a count shows what waits inside. */
+export function Tabs({ value, onChange, items }: { value: string; onChange: (k: string) => void; items: { key: string; label: string; n?: number }[] }) {
+  const c = useColors();
+  return (
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0, borderBottomWidth: 1, borderColor: c.line }} contentContainerStyle={{ gap: 4 }}>
+      {items.map((x) => { const on = x.key === value; return (
+        <Pressable key={x.key} accessibilityRole="tab" accessibilityState={{ selected: on }} onPress={() => onChange(x.key)}
+          style={({ hovered }: any) => [{ flexDirection: "row", alignItems: "center", gap: 7, paddingVertical: 11, paddingHorizontal: 14, borderBottomWidth: 2, marginBottom: -1, borderColor: on ? c.accent : hovered ? c.muted : "transparent", cursor: "pointer", transitionProperty: "border-color", transitionDuration: "140ms" } as any]}>
+          <T size={14} bold={on} color={on ? c.accent : c.ink}>{x.label}</T>
+          {x.n ? <View style={{ minWidth: 20, height: 20, borderRadius: 10, paddingHorizontal: 6, backgroundColor: c.warnSoft, alignItems: "center", justifyContent: "center" }}><T size={11} bold color={c.warn}>{x.n}</T></View> : null}
+        </Pressable>); })}
+    </ScrollView>
+  );
+}
+
 /** An empty page says what belongs here and how it gets filled: an icon, one line, and (when given) the steps in order. */
 export function Empty({ text, icon = "inbox", title, steps }: { text: string; icon?: string; title?: string; steps?: string[] }) {
   const c = useColors();
