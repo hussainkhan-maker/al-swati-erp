@@ -2,6 +2,7 @@
 //  • Material order (angles, glue, bolts…) and stone sizes → an Arabic PDF to send to the supplier. Editable until "Final".
 //    A final order stays open until its invoice photo is added (the purchase goes to the project's costs).
 //  • Subcontractor measurement → length × width − deduction per place, summed; "Final" adds the m² to that subcontractor on the project.
+import * as Speech from "expo-speech";
 import React, { useRef, useState } from "react";
 import { Pressable, View } from "react-native";
 import { useFlows } from "../components/Flows";
@@ -23,6 +24,27 @@ const filled = (kind: Kind, l: any) => kind === "material" ? String(l.name || ""
 export default function Sheets() {
   const { d, lang, role, profile, reload } = useData(); const c = useColors();
   const [want, setWant] = useState(""), [wBusy, setWBusy] = useState(false), [wMsg, setWMsg] = useState("");
+  // Voice first: say it, the app works out which sheet it is, fills it and reads back what it understood.
+  const [say, setSay] = useState(""), [sBusy, setSBusy] = useState(false), [sMsg, setSMsg] = useState("");
+  const understandAll = async () => {
+    const text = say.trim(); if (!text) return;
+    setSBusy(true); setSMsg("");
+    try {
+      const names = [...new Set([...(d.sub_names || (d.subcontractors || []).map((x: any) => x.name) || []).map((x: any) => (typeof x === "string" ? x : x?.name)), ...Object.keys(owed)])].filter(Boolean).slice(0, 80);
+      const { data, error } = await supabase.functions.invoke("site", { body: { action: "route", text, projects: (d.projects || []).map((p: any) => p.name), names } });
+      if (error || (data as any)?.error) throw new Error((data as any)?.error || error?.message);
+      const r = data as any, k = r.kind as Kind;
+      const proj = (d.projects || []).find((p: any) => r.project && String(p.name).toLowerCase() === String(r.project).toLowerCase())?.id || pid || (d.projects || [])[0]?.id || "";
+      setEdit(k === "pay" ? { kind: "pay", project_id: proj, party: r.party, amount: r.amount ?? "", lines: [{ method: r.method || "Cash", note: "" }], status: "draft", n: Date.now() }
+        : { kind: k, project_id: proj, party: r.party, rate: r.rate ?? "", lines: (r.lines || []).map((l: any) => ({ ...blank(k), ...l })), status: "draft", heard: text, n: Date.now() });
+      const total = k === "pay" ? 0 : (r.lines || []).reduce((t: number, l: any) => t + lineArea(k, l), 0);
+      const back = k === "pay" ? L(`Payment to ${r.party}: ${r.amount} riyal. Check and save.`, `دفعة إلى ${r.party}: ${r.amount} ريال. راجع ثم احفظ.`, `${r.party} کو ادائیگی: ${r.amount} ریال۔ دیکھ کر محفوظ کریں۔`)
+        : L(`${KIND[k][0]}: ${(r.lines || []).length} lines${total ? ", " + money(total) + " square metres" : ""}. Check and save.`, `${KIND[k][0]}: ${(r.lines || []).length} بنود${total ? "، " + money(total) + " متر مربع" : ""}. راجع ثم احفظ.`, `${KIND[k][0]}: ${(r.lines || []).length} لائن${total ? "، " + money(total) + " میٹر" : ""}۔ دیکھ کر محفوظ کریں۔`);
+      try { Speech.stop(); Speech.speak(back, { language: lang === "ur" ? "ur-PK" : lang === "ar" ? "ar-SA" : "en-US" }); } catch { /* no voice on this device */ }
+      setSay("");
+    } catch (e: any) { setSMsg(e.message); }
+    setSBusy(false);
+  };
   const mine = role === "admin" ? [] : ((d.agent_inbox || []) as any[]).filter((x) => x.source === "staff").slice(0, 5);
   const sendWant = async () => {
     const text = want.trim(); if (!text) return;
@@ -51,6 +73,12 @@ export default function Sheets() {
   return (
     <Screen>
       <H1>{L("Orders & measurements", "الطلبات والقياسات", "آرڈر اور پیمائش")}</H1>
+      <Card style={{ gap: 10 }}>
+        <T bold center size={17}>{L("Just say it", "قلها فقط", "بس بول دیں")}</T>
+        <Voice value={say} onChange={setSay} placeholder={L("Order, stone sizes, a contractor's measurement, or a payment to the stone supplier", "طلب، مقاسات حجر، قياس مقاول، أو دفعة لمورد الحجر", "آرڈر، پتھر کے سائز، ٹھیکیدار کی پیمائش، یا پتھر والے کو ادائیگی")} />
+        <Btn big kind="primary" title={L("Understand", "افهم", "سمجھو")} busy={sBusy} disabled={!say.trim()} onPress={understandAll} style={{ alignSelf: "stretch" }} />
+        {sMsg ? <T color={c.warn}>{sMsg}</T> : null}
+      </Card>
       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12 }}>
         {(Object.keys(KIND) as Kind[]).map((k) => <Tile key={k} icon={KIND[k][2]} title={KIND[k][0]} sub={KIND[k][1]} onPress={() => setEdit({ kind: k, project_id: pid || (d.projects || [])[0]?.id || "", party: "", lines: [], status: "draft" })} />)}
       </View>
@@ -89,8 +117,8 @@ export default function Sheets() {
           {wMsg ? <T size={13} color={c.accent}>{wMsg}</T> : null}
           {mine.map((x) => <View key={x.id} style={{ borderTopWidth: 1, borderColor: c.line, paddingTop: 8, gap: 2 }}><T size={14}>{x.body}</T><T size={12} muted>{x.status === "done" ? (x.result || L("Done", "تم", "ہو گیا")) : L("With the owner", "عند المالك", "مالک کے پاس ہے")}</T></View>)}
         </Card>) : null}
-      {edit && edit.kind === "pay" ? <PayEditor key={edit.id || "pay" + edit.party} init={edit} onClose={() => setEdit(null)} L={L} title={KIND.pay[0]} suppliers={Object.keys(owed)} /> : null}
-      {edit && edit.kind !== "pay" ? <Editor key={edit.id || edit.kind} init={edit} onClose={() => setEdit(null)} L={L} title={KIND[edit.kind as Kind][0]} canReopen={role !== "supervisor"} /> : null}
+      {edit && edit.kind === "pay" ? <PayEditor key={edit.id || "pay" + edit.party + (edit.n || "")} init={edit} onClose={() => setEdit(null)} L={L} title={KIND.pay[0]} suppliers={Object.keys(owed)} /> : null}
+      {edit && edit.kind !== "pay" ? <Editor key={edit.id || edit.kind + (edit.n || "")} init={edit} onClose={() => setEdit(null)} L={L} title={KIND[edit.kind as Kind][0]} canReopen={role !== "supervisor"} /> : null}
     </Screen>
   );
 }

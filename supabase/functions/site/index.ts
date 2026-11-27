@@ -52,6 +52,26 @@ Deno.serve(async (req) => {
       if (add.length) await db.from("preferences").upsert({ key: "site_terms", value: { terms: [...terms, ...add].slice(-200) }, updated_at: new Date().toISOString() });
       return json({ ok: true, learned: add.length });
     }
+    // Voice first: the speaker only talks; this works out which of the four sheets he means and fills it.
+    if (p.action === "route") {
+      if (!text) return json({ error: "Nothing to read" }, 400);
+      const rr = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "x-api-key": KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+        body: JSON.stringify({ model: MODEL, max_tokens: 2500, system: SYSTEM, messages: [{ role: "user", content: `First decide what the speaker wants, then fill it. Return {"kind":"material|stone|measure|pay","project":"<project name if he said one, exactly as in PROJECTS, else empty>","party":"<supplier or subcontractor>","amount":<SAR paid, only for pay, else null>,"rate":<supplier's rate per m2 if said, only for stone, else null>,"method":"<Cash|Hawala|Bank transfer, only for pay>","lines":[...]}
+kind "material" = he orders accessories or materials. ${TASK.material}
+kind "stone" = he lists stone sizes ordered or arrived. ${TASK.stone}
+kind "measure" = he gives measured work of a subcontractor. ${TASK.measure}
+kind "pay" = he says money was paid to a stone supplier (cash, hawala): lines is [].
+${terms.length ? "This team's own words (said → written): " + JSON.stringify(terms.slice(-120)) + "\n" : ""}PROJECTS: ${JSON.stringify((p.projects || []).slice(0, 40))}
+Known names: ${JSON.stringify(p.names || []).slice(0, 1500)}
+THE NOTE: ${text}` }] }) });
+      if (!rr.ok) return json({ error: `AI ${rr.status}` }, 502);
+      const rt = ((await rr.json()).content ?? []).filter((c: { type: string }) => c.type === "text").map((c: { text: string }) => c.text).join("");
+      const ra = rt.indexOf("{"), rb = rt.lastIndexOf("}");
+      if (ra < 0 || rb <= ra) return json({ error: "Could not read it. Say it again." }, 422);
+      const o = JSON.parse(rt.slice(ra, rb + 1));
+      if (!["material", "stone", "measure", "pay"].includes(o.kind)) return json({ error: "Could not tell what you need. Say: order, stone, measurement or payment." }, 422);
+      return json({ kind: o.kind, project: String(o.project || ""), party: String(o.party || "").slice(0, 120), amount: o.amount ?? null, rate: o.rate ?? null, method: String(o.method || ""), lines: Array.isArray(o.lines) ? o.lines.slice(0, 80) : [] });
+    }
     if (!TASK[kind] || !text) return json({ error: "Nothing to read" }, 400);
     const r = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",

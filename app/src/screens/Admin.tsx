@@ -86,7 +86,11 @@ function Pulse({ w, h }: { w: number; h: number }) {
 
 export function Dashboard({ go }: { go?: (k: string) => void } = {}) {
   const { d, profile, reload, update } = useData(); const flows = useFlows(); const c = useColors(); const wide = useWide();
-  const L = d.project_ledger || [], rep = (d.agent_reports || [])[0];
+  // The owner sees his own projects and Abu's: the switch shows all of them, or one side only, in every number below.
+  const [own, setOwn] = useState("all");
+  const PJ = ((d.projects || []) as any[]).filter((x) => own === "all" || (own === "abu") === (x.owner === "abu")), pjIds = new Set(PJ.map((x) => x.id));
+  const hasAbu = ((d.projects || []) as any[]).some((x) => x.owner === "abu");
+  const L = ((d.project_ledger || []) as any[]).filter((l) => own === "all" || pjIds.has(l.project_id)), rep = (d.agent_reports || [])[0];
   // Morning briefing: made the first time Super-Admin opens the app each day (no schedule or secret key needed).
   const [brief, setBrief] = useState(""), riyadhDay = (t: any) => new Date(new Date(t).getTime() + 3 * 3600e3).toISOString().slice(0, 10);
   const makeBrief = async (force = false) => {
@@ -108,7 +112,7 @@ export function Dashboard({ go }: { go?: (k: string) => void } = {}) {
   const [vidWait, setVidWait] = useState(0);
   useEffect(() => { supabase.from("video_ideas").select("id", { count: "exact", head: true }).eq("status", "review").then((r: any) => setVidWait(r.count || 0), () => {}); }, []);
   const loading = !d.project_ledger || !d.txns; // first seconds after opening: the figures are not in yet
-  const tx = active(d.txns), pr = active(d.progress);
+  const tx = active(d.txns).filter((x: any) => own === "all" || pjIds.has(x.project_id)), pr = active(d.progress).filter((x: any) => own === "all" || pjIds.has(x.project_id));
   // Last 7 days, oldest first.
   const days = Array.from({ length: 7 }, (_, i) => { const t = new Date(Date.now() - (6 - i) * 864e5); return t.toISOString().slice(0, 10); });
   const series = days.map((k) => ({
@@ -133,6 +137,7 @@ export function Dashboard({ go }: { go?: (k: string) => void } = {}) {
         <T size={14} muted>{L.length} projects running, {money(totalM2)} m² installed so far.</T>
       </View>
       <Row wrap>
+        {hasAbu ? <Segmented value={own} options={[["all", "All"], ["mine", "Mine"], ["abu", "Abu's"]]} onChange={setOwn} /> : null}
         <Btn kind="primary" icon={<Icon name="plus" size={16} color={c.accentInk} />} title="New entry" onPress={() => flows("speak")} />
         <Btn icon={<Icon name="receipt" size={16} />} title="Purchase invoice" onPress={() => flows("purchase")} />
         <Btn icon={<Icon name="doc" size={16} />} title="Statement" onPress={() => flows("statement")} />
@@ -198,14 +203,14 @@ export function Dashboard({ go }: { go?: (k: string) => void } = {}) {
     }
     return out;
   }, [d.txns]);
-  const waiting = invoicesOf(d).filter((v: any) => v.left > 0.5).sort((a: any, b: any) => b.age - a.age); // longest wait first
+  const waiting = invoicesOf(d).filter((v: any) => v.left > 0.5 && (own === "all" || pjIds.has(v.project_id))).sort((a: any, b: any) => b.age - a.age); // longest wait first
   // Today, by department: live figures from the data, with what the main agent flagged for each one. A tap opens that page.
   const areaOf = (x: string) => /^Outreach|blog|SEO|website|Google|lead|review/i.test(x) ? "website" : /^Quotation|^Query|written but not sent|no answer, due|answered - apply/i.test(x) ? "sales"
     : /^Progress/i.test(x) ? "site" : /has not replied for 2 days|supplier/i.test(x) ? "buying" : /no rate/i.test(x) ? "company" : "money";
   const flagged = ((rep?.items || []) as any[]).map((i: any) => ({ level: i.level === "bad" ? "bad" : "warn", text: String(i.text || ""), area: i.area || areaOf(String(i.text || "")) }));
   const qs = d.quotes || [];
   const waitLock = qs.filter((q: any) => q.status === "Draft" && !q.rfq?.lock && (q.lines || []).length && (q.lines || []).every((l: any) => Number(l.rate) > 0)).length;
-  const owesN = (d.projects || []).reduce((s2: number, p: any) => s2 + clientAccount(d, p.id).owes, 0);
+  const owesN = PJ.reduce((s2: number, p: any) => s2 + clientAccount(d, p.id).owes, 0);
   const waitSum = waiting.reduce((s2: number, v: any) => s2 + v.left, 0);
   const reqWait = (d.supplier_requests || []).filter((r: any) => r.status === "Sent").length;
   const blogDrafts = (d.blog_posts || []).filter((x: any) => x.status === "Draft").length;
@@ -244,7 +249,7 @@ export function Dashboard({ go }: { go?: (k: string) => void } = {}) {
   ] as { n: number; text: string; from: string; to: string; go: string; tab?: string }[]).filter((a) => a.n > 0);
   const nextStep = String(rep?.summary || "").split("\n").map((x) => x.trim()).find((x) => /^Agla kaam\s*:/i.test(x))?.replace(/^Agla kaam\s*:\s*/i, "") || "";
   const lateInv = waiting.filter((v: any) => v.state === "late" || v.state === "missed");
-  const retAll = (d.projects || []).reduce((s2: number, p: any) => s2 + clientAccount(d, p.id).retHeld, 0);
+  const retAll = PJ.reduce((s2: number, p: any) => s2 + clientAccount(d, p.id).retHeld, 0);
   const apN = approvals.reduce((s2, a) => s2 + a.n, 0) + inboxWait.length;
   const [deciding, setDeciding] = useState("");
   const decideInbox = async (x: any, yes: boolean) => {
@@ -389,7 +394,7 @@ export function Dashboard({ go }: { go?: (k: string) => void } = {}) {
   // Details behind each money box (opens on click).
   const KD: Record<string, [string, () => React.ReactNode]> = {
     net: ["Received and kept, by project", () => <Table cols={["Project", "Received (gross)", "VAT", "Fee", "Loan cut", "In hand"]} numeric={[1, 2, 3, 4, 5]} rows={L.map((l: any) => [l.name, money(l.gross), money(l.vat), money(l.fee), money(l.loan_deducted), money(l.net)])} />],
-    owes: ["What each client still owes (before VAT)", () => <Table cols={["Project", "m² done", "Work value", "Received", "Retention kept", "Still owes"]} numeric={[1, 2, 3, 4, 5]} rows={(d.projects || []).map((p: any) => { const a = clientAccount(d, p.id); return [p.name, money(a.m2), a.rate ? money(a.workValue) : "rate not set", money(a.received), money(a.retHeld), money(a.owes)]; })} />],
+    owes: ["What each client still owes (before VAT)", () => <Table cols={["Project", "m² done", "Work value", "Received", "Retention kept", "Still owes"]} numeric={[1, 2, 3, 4, 5]} rows={PJ.map((p: any) => { const a = clientAccount(d, p.id); return [p.name, money(a.m2), a.rate ? money(a.workValue) : "rate not set", money(a.received), money(a.retHeld), money(a.owes)]; })} />],
     cost: ["Costs by project (ex VAT)", () => <Table cols={["Project", "Costs"]} numeric={[1]} rows={L.map((l: any) => [l.name, money(l.cost)])} />],
     sub_work: ["Subcontractors: work, paid, balance", () => <Table cols={["Subcontractor", "m²", "Earned", "Paid", "Balance"]} numeric={[1, 2, 3, 4]} rows={(d.sub_ledger || []).map((x: any) => [x.name, money(x.qty), money(x.earned), money(x.paid), money(Number(x.earned) - Number(x.paid))])} />],
     profit: ["Profit estimate by project", () => <Table cols={["Project", "In hand", "Costs", "Sub work", "Profit est."]} numeric={[1, 2, 3, 4]} rows={L.map((l: any) => [l.name, money(l.net), money(l.cost), money(l.sub_work), money(l.profit)])} />],
