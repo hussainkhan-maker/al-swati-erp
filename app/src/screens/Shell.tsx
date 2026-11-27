@@ -11,7 +11,7 @@ import { supabase } from "../lib/supabase";
 import { useAutopilot } from "../lib/pipeline";
 import { priceHint } from "./Quotes";
 import Svg, { Path } from "react-native-svg";
-import { Btn, Card, DEEP, H2, Icon, Rise, Screen, T, Tile, Toasts, useColors, useDir, useWide } from "../ui";
+import { Btn, Card, DEEP, H2, Icon, Rise, Screen, T, Tile, Toasts, useColors, useDir, useWide, Wordmark } from "../ui";
 import * as Abu from "./Abu";
 import * as Admin from "./Admin";
 import Agents from "./Agents";
@@ -97,7 +97,7 @@ export default function Shell() {
   const introV = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     if (!intro) return;
-    Animated.sequence([Animated.timing(introV, { toValue: 1, duration: 650, easing: Easing.out(Easing.cubic), useNativeDriver: false }), Animated.delay(450)]).start(() => setIntro(false));
+    Animated.sequence([Animated.timing(introV, { toValue: 1, duration: 650, easing: Easing.out(Easing.cubic), useNativeDriver: false }), Animated.delay(1500)]).start(() => setIntro(false));
   }, []);
   // Phone back button: first close the open page, then go to the first tab; only then leave the app.
   const nav = useRef({ tab, sub }); nav.current = { tab, sub };
@@ -147,9 +147,7 @@ export default function Shell() {
   if (intro) return (
     <View style={{ flex: 1, backgroundColor: DEEP.bg, alignItems: "center", justifyContent: "center" }}>
       <Animated.View style={{ opacity: introV, transform: [{ scale: introV.interpolate({ inputRange: [0, 1], outputRange: [0.85, 1] }) }], alignItems: "center", gap: 8 }}>
-        <View style={{ width: 60, height: 60, borderRadius: 8, borderWidth: 2, borderColor: DEEP.glow, alignItems: "center", justifyContent: "center" }}><Text style={{ color: DEEP.glow, fontSize: 22, fontWeight: "600", letterSpacing: 1 }}>AS</Text></View>
-        <Text style={{ color: DEEP.ink, fontSize: 26, fontWeight: "600" }}>Al-Swati Contracting</Text>
-        <Text style={{ color: DEEP.muted, fontSize: 14 }}>Marble, granite, stone and porcelain</Text>
+        <Wordmark size={54} sub="Marble, granite, stone and porcelain" />
       </Animated.View>
     </View>
   );

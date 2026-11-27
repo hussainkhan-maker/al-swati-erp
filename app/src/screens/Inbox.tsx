@@ -53,7 +53,7 @@ export default function Inbox() {
               <T size={12} muted>{WHO[x.source] || x.source} · {stamp(x.created_at)}</T>
               <T size={16} bold>{x.title}</T>
             </View>
-            {!actions ? <Pill kind={x.status === "done" ? "good" : x.status === "rejected" ? "plain" : "warn"} text={x.status === "done" ? "Done" : x.status === "rejected" ? "Not now" : x.status === "working" ? "Claude is on it" : x.kind === "request" ? "Waiting for Claude" : "Approved, with Claude"} /> : null}
+            {!actions ? <Pill kind={x.status === "done" ? "good" : x.status === "rejected" ? "plain" : "warn"} text={x.status === "done" ? "Done" : x.status === "rejected" ? "Rejected" : x.status === "working" ? "Claude is on it" : x.kind === "request" ? "Waiting for Claude" : "Approved, with Claude"} /> : null}
           </Row>
           {x.data?.benefit ? <View style={{ backgroundColor: c.accentSoft, borderRadius: 12, paddingVertical: 8, paddingHorizontal: 12 }}><T size={14}><T size={14} bold>Fayda: </T>{x.data.benefit}</T></View> : null}
           {x.body && x.body !== x.title ? <Pressable disabled={!long} onPress={() => setOpen(isOpen ? null : x.id)} style={{ cursor: long ? "pointer" : "default" } as any}>
@@ -63,7 +63,7 @@ export default function Inbox() {
           {x.result ? <View style={{ backgroundColor: c.sunk, borderRadius: 12, padding: 12 }}><T size={12} muted>Result</T><T size={14}>{x.result}</T></View> : null}
           {actions ? <Row wrap>
             <Btn kind="primary" title="Approve" busy={busy === x.id} onPress={() => decide(x, true)} />
-            <Btn title="Not now" disabled={busy === x.id} onPress={() => decide(x, false)} />
+            <Btn title="Reject" disabled={busy === x.id} onPress={() => decide(x, false)} />
           </Row> : null}
         </Card>
       </Rise>

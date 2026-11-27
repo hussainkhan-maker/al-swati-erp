@@ -8,7 +8,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { Animated, Easing, KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { ai, supabase } from "../lib/supabase";
-import { DEEP, Marble, Rise, useColors, useFieldPaint, useWide } from "../ui";
+import { DEEP, Marble, Rise, useColors, useFieldPaint, useWide, Wordmark } from "../ui";
 
 const web = Platform.OS === "web";
 const calm = web && typeof window !== "undefined" && !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
@@ -33,13 +33,7 @@ function Slab({ tall }: { tall: boolean }) {
         <Marble o={1.4} />
       </Animated.View>
       <Animated.View style={{ opacity: show, transform: [{ translateY: show.interpolate({ inputRange: [0, 1], outputRange: [12, 0] }) }], gap: 14 }}>
-        <View style={{ width: 52, height: 52, borderRadius: 8, borderWidth: 2, borderColor: DEEP.glow, alignItems: "center", justifyContent: "center" }}>
-          <Text style={{ color: DEEP.glow, fontSize: 19, fontWeight: "600", letterSpacing: 1 }}>AS</Text>
-        </View>
-        <View style={{ gap: 4 }}>
-          <Text style={{ color: DEEP.ink, fontSize: tall ? 36 : 28, fontWeight: "600", letterSpacing: -0.8 }}>Al-Swati Contracting</Text>
-          <Text style={{ color: DEEP.muted, fontSize: 15 }}>Marble, granite, stone and porcelain · السواتي للمقاولات</Text>
-        </View>
+        <Wordmark size={tall ? 58 : 38} sub="Marble, granite, stone and porcelain · السواتي للمقاولات" />
       </Animated.View>
       {tall && <Text style={{ color: DEEP.muted, fontSize: 13, opacity: 0.8 }}>Only people added by Super-Admin can sign in.</Text>}
     </View>
@@ -70,7 +64,8 @@ function Input({ label, value, onChange, secure, right, i, ...rest }: any) {
     <Rise i={i}>
       <View style={{ gap: 6 }}>
         <Text style={{ color: c.muted, fontSize: 13, fontWeight: "500" }}>{label}</Text>
-        <View style={{ flexDirection: "row", alignItems: "center", minHeight: 52, borderWidth: focus ? 2 : 1, borderColor: focus ? c.accent : c.line, borderRadius: 10, backgroundColor: c.surface, paddingHorizontal: focus ? 13 : 14 }}>
+        <View style={[{ flexDirection: "row", alignItems: "center", minHeight: 58, borderWidth: 1.5, borderColor: focus ? DEEP.glow : c.line, borderRadius: 18, backgroundColor: focus ? c.surface : c.sunk, paddingHorizontal: 18 },
+          web ? ({ transitionProperty: "border-color, box-shadow, background-color, transform", transitionDuration: "200ms", boxShadow: focus ? "0 0 0 5px rgba(212,175,90,0.20), 0 10px 26px rgba(11,42,74,0.10)" : "0 0 0 0 rgba(212,175,90,0)", transform: [{ translateY: focus ? -1 : 0 }] } as any) : null]}>
           <TextInput value={value} onChangeText={onChange} secureTextEntry={secure} onFocus={() => setFocus(true)} onBlur={() => setFocus(false)} placeholderTextColor="#9AA4A0"
             style={{ flex: 1, fontSize: 17, color: c.ink, paddingVertical: 12, ...(web ? { outlineStyle: "none" } : {}) } as any} autoCapitalize="none" autoCorrect={false} {...rest} />
           {right}
@@ -85,10 +80,14 @@ function MainBtn({ label, onPress, disabled, busy, i }: { label: string; onPress
   return (
     <Rise i={i}>
       <Pressable accessibilityRole="button" accessibilityState={{ disabled: !!off }} disabled={off} onPress={onPress}
-        style={({ pressed, hovered }: any) => ({ minHeight: 52, borderRadius: 10, backgroundColor: pressed ? "#143A63" : c.accent, alignItems: "center", justifyContent: "center", opacity: off ? 0.5 : 1, cursor: off ? "default" : "pointer",
-          transform: [{ scale: pressed && !off ? 0.985 : 1 }, { translateY: hovered && !off && !pressed ? -1 : 0 }],
-          ...(web ? { boxShadow: hovered && !off ? "0 6px 16px rgba(11,42,74,0.28)" : "0 1px 2px rgba(11,42,74,0.25)", transition: "transform .14s ease, box-shadow .18s ease, background-color .18s ease" } : {}) } as any)}>
-        <Text style={{ color: c.accentInk, fontSize: 17, fontWeight: "600" }}>{busy ? "Checking…" : label}</Text>
+        style={({ pressed, hovered }: any) => ({ minHeight: 58, borderRadius: 999, backgroundColor: pressed ? "#143A63" : DEEP.bg, alignItems: "center", justifyContent: "center", overflow: "hidden", opacity: off ? 0.5 : 1, cursor: off ? "default" : "pointer",
+          transform: [{ scale: pressed && !off ? 0.975 : 1 }, { translateY: hovered && !off && !pressed ? -2 : 0 }],
+          ...(web ? { boxShadow: hovered && !off ? "0 14px 30px rgba(11,42,74,0.34)" : "0 2px 6px rgba(11,42,74,0.22)", transition: "transform .18s ease, box-shadow .22s ease, background-color .18s ease" } : {}) } as any)}>
+        {({ hovered }: any) => <>
+          {/* a band of light crosses the button when the mouse is on it */}
+          {web ? <View style={{ position: "absolute", top: 0, bottom: 0, width: 90, left: 0, backgroundColor: "rgba(212,175,90,0.22)", transform: [{ translateX: hovered && !off ? 520 : -140 }, { skewX: "-20deg" }], transitionProperty: "transform", transitionDuration: hovered ? "700ms" : "0ms" } as any} /> : null}
+          <Text style={{ color: DEEP.glow, fontSize: 17, fontWeight: "700", letterSpacing: 0.2 }}>{busy ? "Checking…" : label}</Text>
+        </>}
       </Pressable>
     </Rise>
   );

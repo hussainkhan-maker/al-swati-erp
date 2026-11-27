@@ -113,7 +113,7 @@ function Editor({ init, onClose, L, title, canReopen }: { init: any; onClose: ()
       try { if (!added.current) await insert("progress", { project_id: f.project_id, sub_name: String(f.party).trim(), qty: total, unit: "sqm", work: `Measured, ${lines.length} places`, work_date: new Date().toISOString().slice(0, 10), heard: f.heard || null, flags: [] }); added.current = true; }
       catch (e: any) { setMsg(e.message); setBusy(""); return; }
     }
-    if (await save("final")) setMsg(kind === "measure" ? L(`Saved: ${money(total)} m² added to ${f.party}.`, `تم الحفظ: ${money(total)} م² أضيفت إلى ${f.party}.`, `محفوظ: ${money(total)} میٹر ${f.party} کے کھاتے میں۔`) : L("Final. Send the PDF. When it is paid, add the invoice photo here.", "نهائي. أرسل الملف. عند الدفع أضف صورة الفاتورة هنا.", "فائنل۔ PDF بھیجیں۔ ادائیگی پر بل کی تصویر یہاں ڈالیں۔"));
+    if (await save("final")) { if (f.heard) supabase.functions.invoke("site", { body: { action: "learn", kind, heard: f.heard, lines } }).catch(() => {}); setMsg(kind === "measure" ? L(`Saved: ${money(total)} m² added to ${f.party}.`, `تم الحفظ: ${money(total)} م² أضيفت إلى ${f.party}.`, `محفوظ: ${money(total)} میٹر ${f.party} کے کھاتے میں۔`) : L("Final. Send the PDF. When it is paid, add the invoice photo here.", "نهائي. أرسل الملف. عند الدفع أضف صورة الفاتورة هنا.", "فائنل۔ PDF بھیجیں۔ ادائیگی پر بل کی تصویر یہاں ڈالیں۔")); }
   };
   const share = async () => {
     setBusy("pdf"); setMsg("");

@@ -477,3 +477,31 @@ export function Toasts() {
     </View>
   );
 }
+
+/** The name, drawn in: each letter rises in turn, a gold line runs under it, then the small lines appear. */
+export function Wordmark({ size = 40, sub }: { size?: number; sub?: string }) {
+  const word = "AL-SWATI".split("");
+  const vs = useRef(word.map(() => new Animated.Value(calm ? 1 : 0))).current, line = useRef(new Animated.Value(calm ? 1 : 0)).current, rest = useRef(new Animated.Value(calm ? 1 : 0)).current;
+  useEffect(() => {
+    if (calm) return;
+    Animated.sequence([
+      Animated.stagger(70, vs.map((v) => Animated.timing(v, { toValue: 1, duration: 520, easing: Easing.out(Easing.back(1.6)), useNativeDriver: !web }))),
+      Animated.timing(line, { toValue: 1, duration: 520, easing: Easing.out(Easing.cubic), useNativeDriver: !web }),
+      Animated.timing(rest, { toValue: 1, duration: 420, easing: Easing.out(Easing.cubic), useNativeDriver: !web }),
+    ]).start();
+  }, []);
+  return (
+    <View style={{ gap: Math.round(size * 0.22), alignSelf: "flex-start" }}>
+      <View style={{ flexDirection: "row" }}>
+        {word.map((ch, i) => (
+          <Animated.Text key={i} style={{ color: ch === "-" ? DEEP.glow : "#FFFFFF", fontSize: size, fontWeight: "700", letterSpacing: size * 0.06, lineHeight: Math.round(size * 1.15), opacity: vs[i],
+            transform: [{ translateY: vs[i].interpolate({ inputRange: [0, 1], outputRange: [size * 0.6, 0] }) }] }}>{ch}</Animated.Text>))}
+      </View>
+      <Animated.View style={{ height: 2, backgroundColor: DEEP.glow, borderRadius: 1, opacity: line, transform: [{ scaleX: line }] }} />
+      <Animated.View style={{ opacity: rest, gap: 6, transform: [{ translateY: rest.interpolate({ inputRange: [0, 1], outputRange: [8, 0] }) }] }}>
+        <Text style={{ color: DEEP.glow, fontSize: Math.max(12, Math.round(size * 0.3)), fontWeight: "600", letterSpacing: size * 0.16 }}>CONTRACTING</Text>
+        {sub ? <Text style={{ color: DEEP.muted, fontSize: 14 }}>{sub}</Text> : null}
+      </Animated.View>
+    </View>
+  );
+}

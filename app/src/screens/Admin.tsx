@@ -9,7 +9,7 @@ import { invoicesOf, STATE_LABEL, waitText } from "../lib/invoices";
 import { ai, supabase } from "../lib/supabase";
 import { CaseStudyButton } from "./Growth";
 import { WHO } from "./Inbox";
-import { Bars, Btn, Card, Checks, CountUp, DEEP, ELEV, Empty, Fold, Marble, notify, SectionHead, Segmented, StatStrip, Field, H1, H2, Icon, Kpi, MonthCal, Photo, Pill, Rise, Row, Screen, Select, Sheet, T, Table, Tile, useColors, useWide } from "../ui";
+import { Bars, Btn, Card, Checks, CountUp, DEEP, ELEV, Empty, Fold, Marble, notify, SectionHead, Segmented, StatStrip, Field, H1, H2, Icon, Kpi, MonthCal, Photo, Pill, Rise, Row, Screen, Select, Sheet, T, Table, Tabs, Tile, useColors, useWide } from "../ui";
 
 const sum = (a: any[], k: string) => a.reduce((s, x) => s + (Number(x[k]) || 0), 0);
 const TYPE: Record<string, string> = { income: "Income", loan: "Loan", purchase: "Purchase", expense: "Expense", subpay: "Sub payment" };
@@ -570,6 +570,7 @@ export function Projects() {
   const [sel, setSel] = useState<string | null>(null);
   const cur = projects.find((x: any) => x.id === sel) || (wide ? projects[0] : null);
   const [hf, setHf] = useState(""); // history filter: "" = everything, or a subcontractor name
+  const [ptab, setPtab] = useState("money"); // which part of the project is open
 
   const list = (
     <View style={{ gap: 10 }}>
@@ -587,6 +588,7 @@ export function Projects() {
   const detail = cur && (() => {
     const x = cur, a = clientAccount(d, x.id), subs = subsOf(x.id), pc = contacts.project?.[x.id] || {};
     const rows = historyOf(x.id, hf);
+    const siteRows = ((d.site_sheets || []) as any[]).filter((sh) => sh.project_id === x.id && sh.status !== "cancelled");
     return (
       <View style={{ gap: 14 }}>
         {!wide && <Btn kind="ghost" title="‹ All projects" onPress={() => setSel(null)} />}
@@ -615,12 +617,14 @@ export function Projects() {
         </View>
 
         <StatStrip items={[{ label: "Installed", value: money(a.m2) + " m²" }, { label: "Client still owes", value: SAR(a.owes) }, { label: "Received from client", value: SAR(a.received) },
-          { label: "Expenses (ex VAT)", value: SAR(Number(L(x.id).cost) || 0), onPress: () => setHf("__exp") },
+          { label: "Expenses (ex VAT)", value: SAR(Number(L(x.id).cost) || 0), onPress: () => { setHf("__exp"); setPtab("history"); } },
           { label: "Pay subcontractors now", value: SAR(subNums(x.id).reduce((t, r) => t + Math.max(0, r.now), 0)), tone: subNums(x.id).some((r) => r.now > 0.5) ? "bad" : undefined },
           { label: "Retention held from subs", value: SAR(subNums(x.id).reduce((t, r) => t + r.held, 0)) }, { label: "Retention kept by client", value: SAR(a.retHeld) }]} />
         {!a.rate && <T muted size={13}>Add the client rate per m² (Edit) to see the work value and what is still to come.</T>}
         <VarianceCard x={x} done={a.m2} />
 
+        <Tabs value={ptab} onChange={setPtab} items={[{ key: "money", label: "Invoices & loan" }, { key: "subs", label: "Subcontractors", n: subNums(x.id).filter((r) => r.now > 0.5).length }, { key: "site", label: "Orders & measurements", n: siteRows.filter((sh: any) => sh.kind !== "measure" && sh.status === "final").length }, { key: "history", label: "History" }]} />
+        {ptab === "money" ? <>
         <Rise i={5}><Card style={{ padding: 0, gap: 0, overflow: "hidden" }}>
           <View style={{ padding: 18, paddingBottom: 12 }}><SectionHead title="Invoices" sub={(() => { const open = invoicesOf(d, x.id).filter((v: any) => v.left > 0.5); return open.length
               ? `${money(open.reduce((s2: number, v: any) => s2 + v.left, 0))} SAR still to come from ${x.company || "the company"}, oldest invoice waiting ${Math.max(...open.map((v: any) => v.age))} days. Click an invoice to add a date they promise.`
@@ -658,7 +662,9 @@ export function Projects() {
                 </View>)) : <View style={{ paddingHorizontal: 18, paddingVertical: 14, borderTopWidth: 1, borderColor: c.line }}><T muted>{`No loan yet. When ${co} gives money, press "Loan taken". When they cut it back, enter the cut in the payment form ("Loan ${co} cut from this payment").`}</T></View>}
             </>; })()}
         </Card></Rise>
+        </> : null}
 
+        {ptab === "subs" ? <>
         <Rise i={5}><Card style={{ padding: 0, gap: 0, overflow: "hidden" }}>
           <View style={{ padding: 18, paddingBottom: 12 }}><SectionHead title="Subcontractors" sub={a.r ? `We keep ${money(a.r)}% retention from each one, the same as the client keeps from us` : "Set the project's retention (Edit project) to keep the same % from subcontractors"} right={<Btn icon={<Icon name="plus" size={16} />} title="Add" onPress={() => setS({ name: "", rate: "", unit: "sqm", projects: [x.id] })} />} /></View>
           {subs.length ? (() => { const R = subNums(x.id), tot = R.reduce((t, r) => ({ qty: t.qty + r.qty, earned: t.earned + r.earned, paid: t.paid + r.paid, now: t.now + Math.max(0, r.now), held: t.held + r.held }), { qty: 0, earned: 0, paid: 0, now: 0, held: 0 });
@@ -683,7 +689,17 @@ export function Projects() {
               </View>
             </View>; })() : <View style={{ paddingHorizontal: 18, paddingBottom: 18 }}><T muted>No subcontractors on this project yet. Press Add.</T></View>}
         </Card></Rise>
+        </> : null}
+        {ptab === "site" ? <Card style={{ gap: 4 }}>
+          <SectionHead title="Orders & measurements" sub="Material orders, stone sizes and measured work entered on site for this project" />
+          {siteRows.length ? siteRows.map((sh: any, i: number) => (
+            <Row key={sh.id} style={{ paddingVertical: 9, borderTopWidth: i ? 1 : 0, borderColor: c.line }}>
+              <View style={{ flex: 1 }}><T bold size={14}>{sh.kind === "material" ? "Material order" : sh.kind === "stone" ? "Stone sizes" : "Measurement"}{sh.party ? " · " + sh.party : ""}</T><T size={12} muted>{dkey(sh)} · {(sh.lines || []).length} lines{sh.kind !== "material" ? ` · ${money(sh.total)} m²` : ""}</T></View>
+              <Pill kind={sh.status === "paid" ? "good" : sh.status === "final" ? (sh.kind === "measure" ? "good" : "warn") : "plain"} text={sh.status === "paid" ? "Invoice saved" : sh.status === "final" ? (sh.kind === "measure" ? "Added to m²" : "Invoice photo missing") : "Draft"} />
+            </Row>)) : <T muted>Nothing yet. Supervisors add these in Orders & measurements.</T>}
+        </Card> : null}
 
+        {ptab === "history" ? <>
         <Rise i={6}><Card style={{ padding: 0, gap: 0, overflow: "hidden" }}>
           <View style={{ padding: 18, paddingBottom: 12, gap: 8 }}>
             <SectionHead title="History" sub="Everything on this project, newest first. Click a line for the full details." right={<Select value={hf} onChange={setHf} style={{ width: 210 }} options={[{ value: "", label: "Everything" }, { value: "__exp", label: "Expenses and purchases" }, ...subs.map((q: any) => ({ value: q.name, label: q.name }))]} />} />
@@ -699,6 +715,7 @@ export function Projects() {
               <T bold size={14} color={inc ? c.good : c.ink}>{prog ? `${money(r.qty)} m²` : `${inc ? "+" : "−"}${money(r.gross ?? r.total ?? r.amount)}`}</T>
             </Pressable>); }) : <View style={{ paddingHorizontal: 18, paddingBottom: 18 }}><T muted>Nothing yet.</T></View>}
         </Card></Rise>
+        </> : null}
       </View>
     );
   })();

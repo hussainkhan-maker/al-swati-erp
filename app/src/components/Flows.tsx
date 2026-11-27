@@ -243,9 +243,15 @@ function PurchaseSheet({ init, onClose }: { init?: any; onClose: () => void }) {
   };
 
   const x = useMemo(() => {
-    const lines = f.lines.filter((l: any) => l.name).map((l: any) => ({ name: l.name, qty: num(l.qty), unit: l.unit, price: num(l.price), total: r2(num(l.qty) * num(l.price)) }));
+    const main0 = f.split[0]?.project_id || "";
+    const lines = f.lines.filter((l: any) => l.name).map((l: any) => ({ name: l.name, qty: num(l.qty), unit: l.unit, price: num(l.price), total: r2(num(l.qty) * num(l.price)), ...(f.byLine ? { project_id: l.project_id || main0 } : {}) }));
+    // "Items belong to different projects": the share of each project is worked out from its own lines.
+    const byProj: Record<string, number> = {}; if (f.byLine) lines.forEach((l: any) => { if (l.project_id && l.total > 0) byProj[l.project_id] = (byProj[l.project_id] || 0) + l.total; });
+    const bpSum = Object.values(byProj).reduce((a, b) => a + b, 0), bpIds = Object.keys(byProj);
+    const lineSplit = f.byLine && bpSum > 0 ? bpIds.map((id, i) => ({ project_id: id, pct: i < bpIds.length - 1 ? r2((byProj[id] / bpSum) * 100) : 0 })) : null;
+    if (lineSplit) lineSplit[lineSplit.length - 1].pct = r2(100 - lineSplit.slice(0, -1).reduce((a, s) => a + s.pct, 0));
     // Most invoices go to one project (100%); splitting is only when the purchase is shared.
-    const split = !f.splitOn ? (f.split[0]?.project_id ? [{ project_id: f.split[0].project_id, pct: 100 }] : [])
+    const split = lineSplit ? lineSplit : !f.splitOn ? (f.split[0]?.project_id ? [{ project_id: f.split[0].project_id, pct: 100 }] : [])
       : f.split.filter((s: any) => s.project_id && num(s.pct) > 0).map((s: any) => ({ project_id: s.project_id, pct: num(s.pct) }));
     const company = f.company === "__other" ? String(f.otherCo || "").trim() : f.company;
     return { photo: !!photo, supplier: f.supplier, lines, subtotal: num(f.subtotal), vat: num(f.vat || 0) || 0, total: num(f.total), split, company };
@@ -298,6 +304,7 @@ function PurchaseSheet({ init, onClose }: { init?: any; onClose: () => void }) {
             <Field label={t("qty")} value={l.qty} numeric onChange={(val) => set("lines", f.lines.map((y: any, j: number) => (j === i ? { ...y, qty: val } : y)))} style={{ maxWidth: 100 }} />
             <Field label={t("unit")} value={l.unit} onChange={(val) => set("lines", f.lines.map((y: any, j: number) => (j === i ? { ...y, unit: val } : y)))} style={{ maxWidth: 90 }} />
             <Field label={t("rate")} value={l.price} numeric onChange={(val) => set("lines", f.lines.map((y: any, j: number) => (j === i ? { ...y, price: val } : y)))} style={{ maxWidth: 110 }} />
+            {f.byLine ? <Select label={t("project")} value={l.project_id || ""} options={[{ value: "", label: "↑ " + (pname(d, f.split[0]?.project_id) || "—") }, ...projOpts(projects).slice(1)]} onChange={(val) => set("lines", f.lines.map((y: any, j: number) => (j === i ? { ...y, project_id: val } : y)))} style={{ maxWidth: 190 }} /> : null}
           </Row>))}
         <Btn kind="ghost" icon={<Icon name="plus" />} title={t("addLine")} onPress={() => set("lines", [...f.lines, { name: "", qty: "", unit: "", price: "" }])} />
         <Row wrap>
@@ -313,7 +320,10 @@ function PurchaseSheet({ init, onClose }: { init?: any; onClose: () => void }) {
             <Select value={s.project_id} options={projOpts(projects)} onChange={(val) => set("split", f.split.map((y: any, j: number) => (j === i ? { ...y, project_id: val } : y)))} />
             {f.splitOn && <Field value={s.pct} numeric placeholder="%" onChange={(val) => set("split", f.split.map((y: any, j: number) => (j === i ? { ...y, pct: val } : y)))} style={{ maxWidth: 90, minWidth: 80 }} />}
           </Row>))}
-        <Btn kind="ghost" title={f.splitOn ? t("noSplit") : t("split")} onPress={() => set("splitOn", !f.splitOn)} />
+        {!f.byLine ? <Btn kind="ghost" title={f.splitOn ? t("noSplit") : t("split")} onPress={() => set("splitOn", !f.splitOn)} /> : null}
+        {/* One invoice, items for more than one project: choose the project on each line; the shares are counted from the lines. */}
+        {x.lines.length > 1 ? <Btn kind="ghost" title={f.byLine ? "All items are for one project" : "Items belong to different projects"} onPress={() => setF((y: any) => ({ ...y, byLine: !y.byLine, splitOn: false }))} /> : null}
+        {f.byLine ? (x.split.length ? x.split.map((s: any) => <T key={s.project_id} size={14}>{pname(d, s.project_id)}: {money(s.pct)}%</T>) : <T size={13} muted>Add the quantity and rate on each line to count the shares.</T>) : null}
         {x.vat > 0 && <Select label={t("company")} value={f.company} options={companies} onChange={(val) => set("company", val)} />}
         {x.vat > 0 && f.company === "__other" && <Field label={t("companyName")} value={f.otherCo} onChange={(val) => set("otherCo", val)} />}
       </Card>
