@@ -182,19 +182,87 @@ export function Dashboard({ go }: { go?: (k: string) => void } = {}) {
     return out;
   }, [d.txns]);
   const waiting = invoicesOf(d).filter((v: any) => v.left > 0.5).sort((a: any, b: any) => b.age - a.age); // longest wait first
+  // Today, by department: live figures from the data, with what the main agent flagged for each one. A tap opens that page.
+  const areaOf = (x: string) => /^Outreach|blog|SEO|website|Google|lead|review/i.test(x) ? "website" : /^Quotation|^Query|written but not sent|no answer, due|answered - apply/i.test(x) ? "sales"
+    : /^Progress/i.test(x) ? "site" : /has not replied for 2 days|supplier/i.test(x) ? "buying" : /no rate/i.test(x) ? "company" : "money";
+  const flagged = ((rep?.items || []) as any[]).map((i: any) => ({ level: i.level === "bad" ? "bad" : "warn", text: String(i.text || ""), area: i.area || areaOf(String(i.text || "")) }));
+  const qs = d.quotes || [];
+  const waitLock = qs.filter((q: any) => q.status === "Draft" && !q.rfq?.lock && (q.lines || []).length && (q.lines || []).every((l: any) => Number(l.rate) > 0)).length;
+  const owesN = (d.projects || []).reduce((s2: number, p: any) => s2 + clientAccount(d, p.id).owes, 0);
+  const waitSum = waiting.reduce((s2: number, v: any) => s2 + v.left, 0);
+  const reqWait = (d.supplier_requests || []).filter((r: any) => r.status === "Sent").length;
+  const blogDrafts = (d.blog_posts || []).filter((x: any) => /draft/i.test(String(x.status || ""))).length;
+  const noRate = (d.subcontractors || []).filter((x: any) => !(Number(x.rate) > 0)).length;
+  const teams = new Set(pr.filter((x: any) => dkey(x) >= days[5]).map((x: any) => x.sub_name)).size;
+  const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+  const depts: { k: string; icon: string; title: string; n: number; unit: string; line: string; to: string }[] = [
+    { k: "sales", icon: "inbox", title: "Sales", n: newQ, unit: newQ === 1 ? "new client query" : "new client queries",
+      line: `${plural(waitLock, "quotation", "quotations")} waiting for your approval · ${qs.filter((q: any) => q.status === "Sent to Client").length} with clients · ${(d.rfis || []).filter((r: any) => r.status === "Sent").length} RFIs open`, to: "queries" },
+    { k: "site", icon: "ruler", title: "Site", n: sum(pr.filter((x: any) => dkey(x) === days[6]), "qty"), unit: "m² installed today",
+      line: `${money(sum(pr.filter((x: any) => dkey(x) === days[5]), "qty"))} m² yesterday · ${plural(teams, "team", "teams")} reporting · ${plural(L.length, "project", "projects")}`, to: "projects" },
+    { k: "money", icon: "cash", title: "Money", n: owesN, unit: "SAR clients still owe",
+      line: waiting.length ? `${plural(waiting.length, "invoice", "invoices")} waiting, ${money(waitSum)} SAR` : "No invoice is waiting for payment", to: "money" },
+    { k: "buying", icon: "truck", title: "Buying", n: reqWait, unit: reqWait === 1 ? "price request waiting" : "price requests waiting",
+      line: rises.length ? `${plural(rises.length, "price rise", "price rises")} in the last 30 days` : "No price rise in the last 30 days", to: "suppliers" },
+    { k: "website", icon: "spark", title: "Website", n: blogDrafts, unit: blogDrafts === 1 ? "blog draft to review" : "blog drafts to review",
+      line: `${plural(flagged.filter((i) => i.area === "website").length, "note", "notes")} from the website agent`, to: "growth" },
+    { k: "company", icon: "people", title: "Company", n: (d.profiles || []).length, unit: "people in the app",
+      line: noRate ? `${plural(noRate, "subcontractor", "subcontractors")} without a rate` : "Every subcontractor has a rate", to: "people" },
+  ];
+  const nextStep = String(rep?.summary || "").split("\n").map((x) => x.trim()).find((x) => /^Agla kaam\s*:/i.test(x))?.replace(/^Agla kaam\s*:\s*/i, "") || "";
+  const board = (
+    <View style={{ gap: 12 }}>
+      <SectionHead title="Today, by department" sub={rep ? `Main agent checked everything ${stamp(rep.created_at)}` : brief === "busy" ? "The main agent is checking everything…" : "Live figures"}
+        right={<Btn kind="ghost" icon={<Icon name="spark" size={16} color={c.accent} />} title={brief === "busy" ? "Checking…" : "Check again"} busy={brief === "busy"} onPress={() => makeBrief(true)} />} />
+      {nextStep ? (
+        <View style={[{ flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: c.accentSoft, borderRadius: 12, paddingVertical: 12, paddingHorizontal: 16, borderWidth: 1, borderColor: c.line }]}>
+          <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: c.accent, alignItems: "center", justifyContent: "center" }}><Icon name="spark" size={16} color={c.accentInk} /></View>
+          <View style={{ flex: 1 }}><T size={12} muted>Next step</T><T size={15} bold>{nextStep}</T></View>
+        </View>) : null}
+      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12 }}>
+        {depts.map((x, i) => {
+          const its = flagged.filter((f) => f.area === x.k), state = its.some((f) => f.level === "bad") ? "bad" : its.length ? "warn" : "good";
+          const [soft, fg, word] = state === "bad" ? [c.badSoft, c.bad, "Needs you"] : state === "warn" ? [c.warnSoft, c.warn, "To check"] : [c.goodSoft, c.good, "Clear"];
+          return (
+            <Rise key={x.k} i={i + 1} style={{ flexGrow: 1, flexBasis: wide ? "31%" : "100%", minWidth: wide ? 250 : 0 }}>
+              <Pressable accessibilityRole="button" onPress={() => go?.(x.to)}
+                style={({ hovered, pressed }: any) => [{ flex: 1, backgroundColor: c.surface, borderRadius: 14, borderWidth: 1, borderColor: hovered ? fg : c.line, padding: 16, gap: 10, overflow: "hidden" }, ELEV,
+                  { transitionProperty: "transform, border-color, box-shadow", transitionDuration: "180ms", cursor: "pointer" } as any,
+                  hovered ? { transform: [{ translateY: -3 }] } : null, pressed ? { transform: [{ scale: 0.98 }], backgroundColor: c.sunk } : null]}>
+                <View style={{ position: "absolute", top: 0, left: 0, right: 0, height: 3, backgroundColor: fg, opacity: state === "good" ? 0.35 : 1 }} />
+                <Row style={{ alignItems: "center" }}>
+                  <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: soft, alignItems: "center", justifyContent: "center" }}><Icon name={x.icon} size={18} color={fg} /></View>
+                  <T size={16} bold style={{ flex: 1 }}>{x.title}</T>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: soft, borderRadius: 999, paddingVertical: 4, paddingHorizontal: 10 }}>
+                    <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: fg }} /><T size={12} bold color={fg}>{its.length ? `${word} · ${its.length}` : word}</T>
+                  </View>
+                </Row>
+                <View style={{ flexDirection: "row", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
+                  <CountUp value={Number(x.n) || 0} size={30} color={c.ink} style={{ letterSpacing: -0.6 }} /><T size={13} muted>{x.unit}</T>
+                </View>
+                <T size={13} muted>{x.line}</T>
+                {its.slice(0, 2).map((f, j) => (
+                  <View key={j} style={{ flexDirection: "row", gap: 8, alignItems: "flex-start", paddingTop: 8, borderTopWidth: 1, borderColor: c.line }}>
+                    <View style={{ width: 7, height: 7, borderRadius: 4, marginTop: 6, backgroundColor: f.level === "bad" ? c.bad : c.warn }} />
+                    <T size={13} style={{ flex: 1 }} numberOfLines={2}>{f.text}</T>
+                  </View>))}
+                {its.length > 2 ? <T size={12} color={fg}>+{its.length - 2} more</T> : null}
+              </Pressable>
+            </Rise>);
+        })}
+      </View>
+    </View>
+  );
   const side = <>
     <Rise i={2}><Card><MonthCal marks={marks} /><T size={12} muted>A dot marks a day with a payment or work entry.</T></Card></Rise>
     <Rise i={3}><Card>
-      <SectionHead title="Today's briefing" sub="From the main agent" />
-      {rep ? <>
-        <T size={15}>{rep.summary}</T>
-        <Checks list={(rep.items || []).slice(0, 6).map((i: any) => ({ s: i.level === "bad" ? "bad" : "warn", text: i.text }))} />
-        <T size={12} muted>{stamp(rep.created_at)}</T>
-      </> : <T muted>{brief === "busy" ? "The main agent is checking everything…" : "No report yet."}</T>}
-      <Row><Btn kind="ghost" icon={<Icon name="spark" size={16} color={c.accent} />} title={brief === "busy" ? "Checking…" : "Check again"} busy={brief === "busy"} onPress={() => makeBrief(true)} />{brief && brief !== "busy" ? <T size={12} muted style={{ flex: 1 }}>{brief}</T> : null}</Row>
-      {newQ > 0 && <Pill kind="warn" text={`${newQ} new client queries`} />}
+      <SectionHead title="The main agent says" sub={rep ? stamp(rep.created_at) : undefined} />
+      {rep ? String(rep.summary || "").split("\n").map((x) => x.trim()).filter(Boolean).map((line, i) => { const m = line.match(/^([^:]{2,22}):\s*(.*)$/); return (
+        <View key={i} style={{ paddingVertical: 8, borderTopWidth: i ? 1 : 0, borderColor: c.line, gap: 2 }}>
+          {m ? <><T size={12} bold color={c.accent}>{m[1]}</T><T size={14}>{m[2]}</T></> : <T size={14}>{line}</T>}
+        </View>); }) : <T muted>{brief === "busy" ? "The main agent is checking everything…" : "No report yet."}</T>}
+      {brief && brief !== "busy" ? <T size={12} muted>{brief}</T> : null}
       {rises.map((r, i) => <T key={i} size={13} color={c.bad}>▲ {r}</T>)}
-      {(() => { const wait = (d.quotes || []).filter((q: any) => q.status === "Draft" && !q.rfq?.lock && (q.lines || []).length && (q.lines || []).every((l: any) => Number(l.rate) > 0)); return wait.length ? <Pill kind="bad" text={`${wait.length} quotation(s) waiting for your Approve & Lock`} /> : null; })()}
     </Card></Rise>
     {waiting.length ? <Rise i={4}><Card style={{ gap: 6 }}>
       <SectionHead title="Waiting for payment" sub={`${money(waiting.reduce((s2: number, v: any) => s2 + v.left, 0))} SAR on ${waiting.length} invoice${waiting.length === 1 ? "" : "s"}, longest wait first`} />
@@ -231,10 +299,10 @@ export function Dashboard({ go }: { go?: (k: string) => void } = {}) {
       <Sheet open={!!kd} onClose={() => setKd(null)} title={kd ? KD[kd][0] : ""}>{kd ? KD[kd][1]() : null}</Sheet>
       {wide ? (
         <View style={{ flexDirection: "row", gap: 18, alignItems: "flex-start" }}>
-          <View style={{ flex: 2.2, gap: 16 }}><Rise i={0}>{hero}</Rise><Rise i={1}>{kpis}</Rise><View style={{ flexDirection: "row", flexWrap: "wrap", gap: 16, alignItems: "flex-start" }}><View style={{ flex: 1.3, minWidth: 280 }}>{chartCard}</View><View style={{ flex: 1, minWidth: 280 }}>{recentCard}</View></View>{table}</View>
+          <View style={{ flex: 2.2, gap: 16 }}><Rise i={0}>{hero}</Rise>{board}<Rise i={1}>{kpis}</Rise><View style={{ flexDirection: "row", flexWrap: "wrap", gap: 16, alignItems: "flex-start" }}><View style={{ flex: 1.3, minWidth: 280 }}>{chartCard}</View><View style={{ flex: 1, minWidth: 280 }}>{recentCard}</View></View>{table}</View>
           <View style={{ flex: 1, gap: 16, minWidth: 300 }}>{side}</View>
         </View>
-      ) : <><Rise i={0}>{hero}</Rise><Rise i={1}>{kpis}</Rise>{chartCard}{side}{recentCard}{table}</>}
+      ) : <><Rise i={0}>{hero}</Rise>{board}<Rise i={1}>{kpis}</Rise>{chartCard}{side}{recentCard}{table}</>}
     </Screen>
   );
 }

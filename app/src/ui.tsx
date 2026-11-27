@@ -25,7 +25,9 @@ if (web && typeof document !== "undefined" && !document.getElementById("al-swati
 /** Laptop-size window: sidebar layout and wider grids. */
 export const useWide = () => useWindowDimensions().width >= 960;
 // Clickable surfaces only change their border on hover: no lifting, no shadows.
-const lift = (hovered?: boolean, _pressed?: boolean): any => web ? { cursor: "pointer", borderColor: hovered ? "#B9C3BE" : undefined } : {};
+// Laptop: a card that can be opened rises a little under the mouse and settles back when pressed.
+const lift = (hovered?: boolean, pressed?: boolean): any => web ? { cursor: "pointer", borderColor: hovered ? "#B9C3BE" : undefined, transitionProperty: "transform, box-shadow, border-color, background-color", transitionDuration: "160ms",
+  transform: [{ translateY: hovered && !pressed ? -2 : 0 }], ...(hovered && !pressed ? { boxShadow: "0 8px 22px rgba(17,38,31,0.10)" } : null) } : {};
 
 /** Layout wrapper (kept for older screens). Content appears at once: no entrance animation. */
 const calm = web && typeof window !== "undefined" && !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;

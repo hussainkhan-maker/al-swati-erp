@@ -11,7 +11,7 @@ import { supabase } from "../lib/supabase";
 import { useAutopilot } from "../lib/pipeline";
 import { priceHint } from "./Quotes";
 import Svg, { Path } from "react-native-svg";
-import { Btn, Card, DEEP, H2, Icon, Screen, T, Tile, useColors, useDir, useWide } from "../ui";
+import { Btn, Card, DEEP, H2, Icon, Rise, Screen, T, Tile, useColors, useDir, useWide } from "../ui";
 import * as Abu from "./Abu";
 import * as Admin from "./Admin";
 import Agents from "./Agents";
@@ -223,7 +223,8 @@ export default function Shell() {
         )}
         {sub && !wide && <SafeAreaView edges={["top"]}><Pressable onPress={() => setSub(null)} style={{ padding: 14, flexDirection: row }}><Text style={{ color: c.accent, fontSize: 17, fontWeight: "700" }}>‹ Back</Text></Pressable></SafeAreaView>}
         {topbar}
-        <Body go={(k: string) => (SUBS[k] ? setSub(k) : setTab(k))} />
+        {/* Each page fades up as it opens. */}
+        <Rise key={sub || tab} style={{ flex: 1 }}><Body go={(k: string) => (SUBS[k] ? setSub(k) : setTab(k))} /></Rise>
         {/* AI helper on every page (phone): knows the page, suggests the next step and what to correct. On the laptop it sits in the top bar. */}
         {!wide && <Pressable accessibilityRole="button" accessibilityLabel="AI helper" onPress={() => flows("ask", { page: sub ? (SUB_LABEL[sub] || sub) : cur.label })}
           style={{ position: "absolute", bottom: 20, [row === "row-reverse" ? "left" : "right"]: 20, height: 44, paddingHorizontal: 16, borderRadius: 22, flexDirection: "row", gap: 8, backgroundColor: c.accent, alignItems: "center", justifyContent: "center", elevation: 4, shadowColor: "#11261F", shadowOpacity: 0.22, shadowRadius: 8, shadowOffset: { width: 0, height: 3 } }}>
