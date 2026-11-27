@@ -3,7 +3,7 @@
 //    A final order stays open until its invoice photo is added (the purchase goes to the project's costs).
 //  • Subcontractor measurement → length × width − deduction per place, summed; "Final" adds the m² to that subcontractor on the project.
 import * as Speech from "expo-speech";
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Pressable, View } from "react-native";
 import { useFlows } from "../components/Flows";
 import { Voice } from "../components/Voice";
@@ -124,11 +124,13 @@ export default function Sheets() {
 }
 
 function Editor({ init, onClose, L, title, canReopen }: { init: any; onClose: () => void; L: (en: string, ar: string, ur: string) => string; title: string; canReopen: boolean }) {
-  const { d, profile, insert, update, reload } = useData(); const c = useColors(); const flows = useFlows();
+  const { d, profile, insert, update, reload, lang } = useData(); const c = useColors(); const flows = useFlows();
   const kind = init.kind as Kind;
   const [f, setF] = useState<any>({ ...init, lines: (init.lines || []).length ? init.lines : [blank(kind)] });
   const [text, setText] = useState(""), [busy, setBusy] = useState(""), [msg, setMsg] = useState(""), [sure, setSure] = useState(false);
   const locked = f.status !== "draft"; const added = useRef(false);
+  // Every message is also said aloud, so someone who does not read is led to the next step: check, Final, then the photo.
+  useEffect(() => { if (!msg) return; try { Speech.stop(); Speech.speak(msg, { language: lang === "ur" ? "ur-PK" : lang === "ar" ? "ar-SA" : "en-US" }); } catch { /* no voice on this device */ } }, [msg]);
   const subs: string[] = (d.sub_names || (d.subcontractors || []).map((s: any) => s.name) || []).map((s: any) => (typeof s === "string" ? s : s?.name)).filter(Boolean);
   const lines = (f.lines as any[]).filter((l) => filled(kind, l));
   const total = r2(lines.reduce((s, l) => s + lineArea(kind, l), 0));
