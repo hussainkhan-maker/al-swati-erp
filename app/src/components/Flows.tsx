@@ -213,7 +213,7 @@ function SpeakSheet({ init, onClose, open }: { init?: any; onClose: () => void; 
 
 // ───────────────────────── purchase invoice / expense with receipt ─────────────────────────
 function PurchaseSheet({ init, onClose }: { init?: any; onClose: () => void }) {
-  const { t, d, role, insert, profile, online } = useData(); const c = useColors();
+  const { t, d, role, insert, profile, online, reload } = useData(); const c = useColors();
   const v = init?.voice || {};
   const projects = role === "supervisor" ? (d.projects || []) : (d.projects || []);
   const [photo, setPhoto] = useState<string | null>(null), [path, setPath] = useState<string | null>(null);
@@ -265,6 +265,8 @@ function PurchaseSheet({ init, onClose }: { init?: any; onClose: () => void }) {
       const put = (rw: any) => path ? insert("txns", { ...rw, receipt_path: path }) : insert("txns", rw, { bucket: "receipts", uri: photo!, field: "receipt_path", path: `${profile.id}/${uid()}.jpg` });
       // Until the database has the invoice-number column, the number is kept in the note.
       const r = await put(full).catch((e: any) => { if (!/invoice_no/.test(String(e.message))) throw e; return put({ ...row, description: [row.description, "Invoice " + inv].filter(Boolean).join(" · ") }); });
+      // An order from "Orders & measurements" is closed by its invoice: the purchase is now in the project's costs.
+      if (init?.sheet_id && !r.queued) await supabase.from("site_sheets").update({ status: "paid", txn_id: r.data?.id ?? null }).eq("id", init.sheet_id).then(() => reload(["site_sheets"]), () => {});
       if (r.queued) setErr(t("queued")); else onClose();
     } catch (e: any) { setErr(e.message); } finally { setBusy(false); }
   };

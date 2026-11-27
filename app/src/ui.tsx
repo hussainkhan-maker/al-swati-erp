@@ -446,18 +446,19 @@ export function MonthCal({ marks = {} }: { marks?: Record<string, number> }) {
 type Note = { key: string; agent: string; title: string; sub?: string };
 const noteSeen = new Set<string>(); let noteQueue: Note[] = []; let noteListen: (() => void) | null = null;
 export function notify(n: Note) { if (noteSeen.has(n.key)) return; noteSeen.add(n.key); noteQueue.push(n); noteListen?.(); }
-function Toast({ n, onDone }: { n: Note; onDone: () => void }) {
+function Toast({ n, onDone, compact }: { n: Note; onDone: () => void; compact?: boolean }) {
   const c = useColors(); const v = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     Animated.timing(v, { toValue: 1, duration: calm ? 0 : 420, easing: Easing.out(Easing.back(1.4)), useNativeDriver: !web }).start();
-    const t = setTimeout(() => Animated.timing(v, { toValue: 0, duration: calm ? 0 : 300, easing: Easing.in(Easing.cubic), useNativeDriver: !web }).start(onDone), 4800);
+    const t = setTimeout(() => Animated.timing(v, { toValue: 0, duration: calm ? 0 : 300, easing: Easing.in(Easing.cubic), useNativeDriver: !web }).start(onDone), compact ? 3200 : 4800);
     return () => clearTimeout(t);
   }, []);
   return (
-    <Animated.View style={[{ opacity: v, transform: [{ translateX: v.interpolate({ inputRange: [0, 1], outputRange: [40, 0] }) }], flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: c.surface, borderWidth: 1, borderColor: c.line, borderRadius: 18, paddingVertical: 11, paddingLeft: 11, paddingRight: 18 },
+    <Animated.View style={[{ opacity: v, transform: [{ translateX: v.interpolate({ inputRange: [0, 1], outputRange: [40, 0] }) }], flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: c.surface, borderWidth: 1, borderColor: c.line, borderRadius: compact ? 999 : 18, paddingVertical: compact ? 7 : 11, paddingLeft: compact ? 7 : 11, paddingRight: 18 },
       web ? ({ boxShadow: "0 18px 50px rgba(11,42,74,0.22)" } as any) : { elevation: 6, shadowColor: "#0B2A4A", shadowOpacity: 0.2, shadowRadius: 14, shadowOffset: { width: 0, height: 6 } }]}>
-      <View style={{ width: 36, height: 36, borderRadius: 11, backgroundColor: DEEP.bg, alignItems: "center", justifyContent: "center" }}><Text style={{ color: DEEP.glow, fontSize: 14, fontWeight: "700" }}>{n.agent.slice(0, 1).toUpperCase()}</Text></View>
-      <View style={{ flex: 1 }}><Text numberOfLines={1} style={{ color: c.muted, fontSize: 12 }}>{n.agent}</Text><Text numberOfLines={2} style={{ color: c.ink, fontSize: 14, fontWeight: "600" }}>{n.title}</Text>{n.sub ? <Text numberOfLines={1} style={{ color: c.muted, fontSize: 12 }}>{n.sub}</Text> : null}</View>
+      <View style={{ width: compact ? 28 : 36, height: compact ? 28 : 36, borderRadius: compact ? 14 : 11, backgroundColor: DEEP.bg, alignItems: "center", justifyContent: "center" }}><Text style={{ color: DEEP.glow, fontSize: 14, fontWeight: "700" }}>{n.agent.slice(0, 1).toUpperCase()}</Text></View>
+      {compact ? <Text numberOfLines={1} style={{ flex: 1, color: c.ink, fontSize: 13, fontWeight: "600" }}>{n.title}</Text>
+        : <View style={{ flex: 1 }}><Text numberOfLines={1} style={{ color: c.muted, fontSize: 12 }}>{n.agent}</Text><Text numberOfLines={2} style={{ color: c.ink, fontSize: 14, fontWeight: "600" }}>{n.title}</Text>{n.sub ? <Text numberOfLines={1} style={{ color: c.muted, fontSize: 12 }}>{n.sub}</Text> : null}</View>}
     </Animated.View>
   );
 }
@@ -472,7 +473,7 @@ export function Toasts() {
   if (!shown.length) return null;
   return (
     <View pointerEvents="none" style={[{ position: "absolute", gap: 10, zIndex: 50 }, wide ? { right: 28, bottom: 28, width: 360 } : { left: 12, right: 12, bottom: 84 }]}>
-      {shown.map((n) => <Toast key={n.key} n={n} onDone={() => setShown((cur) => cur.filter((x) => x.key !== n.key))} />)}
+      {shown.map((n) => <Toast key={n.key} n={n} compact={!wide} onDone={() => setShown((cur) => cur.filter((x) => x.key !== n.key))} />)}
     </View>
   );
 }

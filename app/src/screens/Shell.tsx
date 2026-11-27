@@ -24,13 +24,14 @@ import RFIs from "./RFIs";
 import Quotes from "./Quotes";
 import * as Sup from "./Supervisor";
 import Suppliers from "./Suppliers";
+import Sheets from "./Sheets";
 
 type TabDef = { key: string; label: string; icon: string; C: React.ComponentType<any> };
 function MoreAdmin({ go }: { go: (k: string) => void }) {
   return (
     <Screen>
       <H2>More</H2>
-      {([["Site", [["folder", "Projects", "Company, fee, sites, subcontractors", "projects"], ["pin", "Team on site", "Live 06:00–18:00", "team"]]],
+      {([["Site", [["folder", "Projects", "Company, fee, sites, subcontractors", "projects"], ["ruler", "Orders & measurements", "Material orders, stone sizes, contractor meters", "sheets"], ["pin", "Team on site", "Live 06:00–18:00", "team"]]],
          ["Sales", [["inbox", "RFIs", "Questions to consultants, follow-ups", "rfis"], ["spark", "Growth", "Blog for Google, videos, outreach", "growth"]]],
          ["Buying", [["truck", "Suppliers", "Directory and price requests", "suppliers"], ["tag", "Materials & prices", "Invoices, Abu's rates, AI estimates", "prices"]]],
          ["Company", [["cash", "Entries", "Payments, purchases and work entries", "money"], ["spark", "AI agents", "What each agent checked", "agents"], ["people", "People", "Add Abu, engineers, supervisors", "people"], ["log", "Audit log", "Every change, by whom", "audit"]]]] as [string, string[][]][]).map(([g, items], gi) => (
@@ -56,6 +57,7 @@ const TABS: Record<string, TabDef[]> = {
     { key: "home", label: "الرئيسية", icon: "home", C: Abu.Home },
     { key: "money", label: "الحسابات", icon: "cash", C: Abu.Money },
     { key: "vat", label: "الضريبة", icon: "pct", C: Abu.Vat },
+    { key: "sheets", label: "الطلبات", icon: "ruler", C: Sheets },
     { key: "suppliers", label: "الموردون", icon: "truck", C: Suppliers },
     { key: "quotes", label: "العروض", icon: "doc", C: Quotes },
   ],
@@ -65,20 +67,21 @@ const TABS: Record<string, TabDef[]> = {
   ],
   supervisor: [
     { key: "home", label: "ہوم", icon: "home", C: Sup.Home },
+    { key: "sheets", label: "آرڈر / پیمائش", icon: "ruler", C: Sheets },
     { key: "week", label: "ہفتہ", icon: "log", C: Sup.Week },
     { key: "report", label: "رپورٹ", icon: "doc", C: Sup.Report },
   ],
 };
-const SUB_LABEL: Record<string, string> = { money: "Entries", rfis: "RFIs", growth: "Growth", projects: "Projects", suppliers: "Suppliers", prices: "Prices", agents: "AI agents", people: "People", team: "Team on site", audit: "Audit log" };
-const SUB_ICON: Record<string, string> = { money: "cash", rfis: "inbox", growth: "spark", projects: "folder", suppliers: "truck", prices: "tag", agents: "spark", people: "people", team: "pin", audit: "log" };
-const SUBS: Record<string, React.ComponentType<any>> = { money: Admin.Money, rfis: RFIs, growth: Growth, projects: Admin.Projects, suppliers: Suppliers, prices: Prices, agents: Agents, people: Admin.People, team: Admin.Team, audit: Admin.Audit };
+const SUB_LABEL: Record<string, string> = { money: "Entries", sheets: "Orders & measurements", rfis: "RFIs", growth: "Growth", projects: "Projects", suppliers: "Suppliers", prices: "Prices", agents: "AI agents", people: "People", team: "Team on site", audit: "Audit log" };
+const SUB_ICON: Record<string, string> = { money: "cash", sheets: "ruler", rfis: "inbox", growth: "spark", projects: "folder", suppliers: "truck", prices: "tag", agents: "spark", people: "people", team: "pin", audit: "log" };
+const SUBS: Record<string, React.ComponentType<any>> = { money: Admin.Money, sheets: Sheets, rfis: RFIs, growth: Growth, projects: Admin.Projects, suppliers: Suppliers, prices: Prices, agents: Agents, people: Admin.People, team: Admin.Team, audit: Admin.Audit };
 
 export default function Shell() {
   const { role, online, pending, failed, dropFailed, t } = useData(); const c = useColors(); const { row } = useDir();
   const { lang, profile, d } = useData();
   const inboxN = role === "admin" ? ((d.agent_inbox || []) as any[]).filter((x) => x.kind !== "request" && x.status === "waiting").length : 0;
   useAutopilot(priceHint); // reads new client queries and drafts their quotations by itself
-  const ABU_LABELS: Record<string, [string, string, string]> = { home: ["الرئيسية", "ہوم", "Home"], money: ["الحسابات", "حسابات", "Accounts"], vat: ["الضريبة", "VAT", "VAT"], suppliers: ["الموردون", "سپلائرز", "Suppliers"], quotes: ["العروض", "کوٹیشن", "Quotes"] };
+  const ABU_LABELS: Record<string, [string, string, string]> = { home: ["الرئيسية", "ہوم", "Home"], money: ["الحسابات", "حسابات", "Accounts"], vat: ["الضريبة", "VAT", "VAT"], sheets: ["الطلبات والقياس", "آرڈر / پیمائش", "Orders"], suppliers: ["الموردون", "سپلائرز", "Suppliers"], quotes: ["العروض", "کوٹیشن", "Quotes"] };
   const tabs = role === "abu" ? TABS.abu.map((x) => ({ ...x, label: ABU_LABELS[x.key][lang === "ur" ? 1 : lang === "en" ? 2 : 0] })) : TABS[role];
   // Back from "Sign in with Microsoft" (Outlook link): open Client queries, where the link is finished.
   // Back from "Sign in with Google" (state "g.…", Search Console link, or "y.…", YouTube): open Growth, where that link is finished.
@@ -159,7 +162,7 @@ export default function Shell() {
   // Admin sidebar order: what is used most first; the list of all entries near the end.
   // Admin sidebar in groups, in the order the work happens: sales → site → money → company.
   const groups: [string, any[]][] = role === "admin"
-    ? [["", [T_("home"), T_("inbox")]], ["Sales", [T_("queries"), T_("quotes"), S_("rfis"), S_("growth")]], ["Site", [S_("projects"), S_("team")]],
+    ? [["", [T_("home"), T_("inbox")]], ["Sales", [T_("queries"), T_("quotes"), S_("rfis"), S_("growth")]], ["Site", [S_("projects"), S_("sheets"), S_("team")]],
        ["Buying", [S_("suppliers"), S_("prices")]], ["Money", [S_("money")]], ["Company", [S_("people"), S_("agents"), S_("audit")]]]
     : [["", tabs.map((x) => ({ key: x.key, label: x.label, icon: x.icon, isSub: false }))]];
   const initials = String(profile?.name || "AS").split(/\s+/).map((w: string) => w[0]).join("").slice(0, 2).toUpperCase();
@@ -240,7 +243,7 @@ export default function Shell() {
             const on = x.key === cur.key && !sub;
             return (
               <Pressable key={x.key} accessibilityRole="tab" accessibilityState={{ selected: on }} onPress={() => { setSub(null); setTab(x.key); }}
-                style={{ alignItems: "center", gap: 2, paddingVertical: 6, paddingHorizontal: 10, borderRadius: 12, backgroundColor: on ? c.accentSoft : "transparent", minWidth: 64 }}>
+                style={{ alignItems: "center", gap: 2, paddingVertical: 6, paddingHorizontal: tabs.length > 5 ? 4 : 10, borderRadius: 12, backgroundColor: on ? c.accentSoft : "transparent", minWidth: tabs.length > 5 ? 52 : 64 }}>
                 <Icon name={x.icon} size={24} color={on ? c.accent : c.muted} />
                 {x.key === "inbox" && inboxN ? <View style={{ position: "absolute", top: 2, right: 12, minWidth: 18, height: 18, borderRadius: 9, paddingHorizontal: 5, backgroundColor: DEEP.glow, alignItems: "center", justifyContent: "center" }}><Text style={{ fontSize: 11, fontWeight: "700", color: "#13202E" }}>{inboxN}</Text></View> : null}
                 <Text style={{ fontSize: 12, color: on ? c.accent : c.muted, fontWeight: on ? "700" : "500" }}>{x.label}</Text>

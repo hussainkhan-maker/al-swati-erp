@@ -226,6 +226,7 @@ export function Dashboard({ go }: { go?: (k: string) => void } = {}) {
     { k: "company", icon: "people", title: "Company", n: (d.profiles || []).length, unit: "people in the app",
       line: noRate ? `${plural(noRate, "subcontractor", "subcontractors")} without a rate` : "Every subcontractor has a rate", to: "people" },
   ];
+  const openOrders = ((d.site_sheets || []) as any[]).filter((x) => x.kind !== "measure" && x.status === "final").length;
   const inboxWait = ((d.agent_inbox || []) as any[]).filter((x) => x.kind !== "request" && x.status === "waiting");
   const brainState = ((d.preferences || []).find((p: any) => p.key === "brain_state")?.value || {}) as any;
   // Everything an agent has prepared and only the owner can release, in one list.
@@ -237,6 +238,7 @@ export function Dashboard({ go }: { go?: (k: string) => void } = {}) {
     { n: (d.blog_posts || []).filter((x: any) => x.status === "Draft" && !x.area).length, text: "Blog drafts to read and publish", from: "Website (SEO) agent", to: "growth", go: "Growth" },
     { n: (d.blog_posts || []).filter((x: any) => x.status === "Draft" && x.area).length, text: "District page drafts to read and publish", from: "Website (SEO) agent · Growth, District pages", to: "growth", go: "Growth" },
     { n: inboxWait.length, text: inboxWait.length === 1 ? "Proposal from the growth agents or Claude" : "Proposals from the growth agents and Claude", from: [...new Set(inboxWait.map((x: any) => WHO[x.source] || x.source))].join(", "), to: "inbox", go: "Open" },
+    { n: openOrders, text: openOrders === 1 ? "Order placed, invoice photo still missing" : "Orders placed, invoice photo still missing", from: "Site supervisors", to: "sheets", go: "Open" },
     { n: vidWait, text: vidWait === 1 ? "Video to review before it is posted" : "Videos to review before they are posted", from: "Video agent", to: "growth", go: "Growth" },
   ] as { n: number; text: string; from: string; to: string; go: string }[]).filter((a) => a.n > 0);
   const nextStep = String(rep?.summary || "").split("\n").map((x) => x.trim()).find((x) => /^Agla kaam\s*:/i.test(x))?.replace(/^Agla kaam\s*:\s*/i, "") || "";

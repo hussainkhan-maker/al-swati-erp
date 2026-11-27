@@ -38,14 +38,14 @@ const Rpc = (key: string, fn: string): Q => ({ key, run: () => supabase.rpc(fn) 
 const READS: Record<Role, Q[]> = {
   admin: [Tbl("projects"), View("project_members"), Tbl("subcontractors"), Tbl("txns"), Tbl("progress", "created_at", 5000), Tbl("items"), Tbl("prices"), Tbl("quotes", "updated_at"), Tbl("documents"), Tbl("profiles"),
     View("project_ledger"), View("vat_by_company"), View("sub_ledger"), Tbl("audit_log", "at", 300), Tbl("locations", "at", 600),
-    Tbl("inquiries"), Tbl("suppliers"), Tbl("supplier_requests"), Tbl("agent_reports", "created_at", 5), View("preferences"), Tbl("agent_inbox", "created_at", 300),
+    Tbl("inquiries"), Tbl("suppliers"), Tbl("supplier_requests"), Tbl("agent_reports", "created_at", 5), View("preferences"), Tbl("agent_inbox", "created_at", 300), Tbl("site_sheets", "created_at", 500),
     Tbl("rfis", "updated_at"), Tbl("blog_posts", "updated_at"), Tbl("outreach_contacts"), Tbl("email_outbox", "created_at", 200), Tbl("company_invoices", "issued_on")],
   abu: [Tbl("projects"), Tbl("subcontractors"), Tbl("txns"), Tbl("progress", "created_at", 5000), Tbl("items"), Tbl("prices"), Tbl("quotes", "updated_at"), View("project_ledger"), View("vat_by_company"), View("sub_ledger"),
-    Tbl("suppliers"), Tbl("supplier_requests"), View("preferences"), Tbl("company_invoices", "issued_on")],
+    Tbl("suppliers"), Tbl("supplier_requests"), View("preferences"), Tbl("company_invoices", "issued_on"), Tbl("site_sheets", "created_at", 500)],
   // Engineers: project names, m² progress and drawings only (no rates, prices, quotations or staff phone numbers).
   engineer: [Rpc("projects", "eng_projects"), Rpc("progress", "eng_progress"), Tbl("documents"), Rpc("sub_names", "sub_names")],
   // Supervisors: project name and company only (no service fee, client or prices).
-  supervisor: [Rpc("projects", "sup_projects"), Tbl("txns"), Tbl("documents"), Rpc("sub_names", "sub_names"), Rpc("progress", "sup_progress"), View("preferences")],
+  supervisor: [Rpc("projects", "sup_projects"), Tbl("txns"), Tbl("documents"), Rpc("sub_names", "sub_names"), Rpc("progress", "sup_progress"), View("preferences"), Tbl("site_sheets", "created_at", 300)],
 };
 // which base-table change refreshes which keys
 const DERIVED: Record<string, string[]> = {
