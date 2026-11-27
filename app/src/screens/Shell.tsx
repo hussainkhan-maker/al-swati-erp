@@ -29,17 +29,16 @@ function MoreAdmin({ go }: { go: (k: string) => void }) {
   return (
     <Screen>
       <H2>More</H2>
-      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12 }}>
-        <Tile icon="folder" title="Projects" sub="Company, fee, sites, subcontractors" onPress={() => go("projects")} />
-        <Tile icon="inbox" title="RFIs" sub="Questions to consultants, follow-ups" onPress={() => go("rfis")} />
-        <Tile icon="spark" title="Growth" sub="Blog for Google, outreach emails" onPress={() => go("growth")} />
-        <Tile icon="truck" title="Suppliers" sub="Directory and price requests" onPress={() => go("suppliers")} />
-        <Tile icon="tag" title="Materials & prices" sub="Invoices, Abu's rates, AI estimates" onPress={() => go("prices")} />
-        <Tile icon="spark" title="AI agents" sub="What each agent checked" onPress={() => go("agents")} />
-        <Tile icon="people" title="People" sub="Add Abu, engineers, supervisors" onPress={() => go("people")} />
-        <Tile icon="pin" title="Team on site" sub="Live 06:00–18:00" onPress={() => go("team")} />
-        <Tile icon="log" title="Audit log" sub="Every change, by whom" onPress={() => go("audit")} />
-      </View>
+      {([["Site", [["folder", "Projects", "Company, fee, sites, subcontractors", "projects"], ["pin", "Team on site", "Live 06:00–18:00", "team"]]],
+         ["Sales", [["inbox", "RFIs", "Questions to consultants, follow-ups", "rfis"], ["spark", "Growth", "Blog for Google, videos, outreach", "growth"]]],
+         ["Buying", [["truck", "Suppliers", "Directory and price requests", "suppliers"], ["tag", "Materials & prices", "Invoices, Abu's rates, AI estimates", "prices"]]],
+         ["Company", [["spark", "AI agents", "What each agent checked", "agents"], ["people", "People", "Add Abu, engineers, supervisors", "people"], ["log", "Audit log", "Every change, by whom", "audit"]]]] as [string, string[][]][]).map(([g, items], gi) => (
+        <Rise key={g} i={gi} style={{ gap: 8 }}>
+          <T size={13} bold muted>{g}</T>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12 }}>
+            {items.map(([icon, title, sub, k]) => <Tile key={k} icon={icon} title={title} sub={sub} onPress={() => go(k)} />)}
+          </View>
+        </Rise>))}
     </Screen>
   );
 }

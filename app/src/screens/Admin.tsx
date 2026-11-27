@@ -1,6 +1,6 @@
 // Super-Admin screens: dashboard, money, projects & subcontractors, people, team on site, audit log.
 import React, { useEffect, useMemo, useState } from "react";
-import { Linking, Pressable, View } from "react-native";
+import { Animated, Linking, Pressable, View } from "react-native";
 import { useFlows } from "../components/Flows";
 import { active, pname, useData } from "../lib/data";
 import { day, money, num, SAR, stamp } from "../lib/fmt";
@@ -76,6 +76,13 @@ function VarianceCard({ x, done }: { x: any; done: number }) {
   );
 }
 
+/** A soft bar that breathes while a figure is still loading. */
+function Pulse({ w, h }: { w: number; h: number }) {
+  const c = useColors(); const v = React.useRef(new Animated.Value(0.35)).current;
+  useEffect(() => { const a = Animated.loop(Animated.sequence([Animated.timing(v, { toValue: 0.9, duration: 650, useNativeDriver: false }), Animated.timing(v, { toValue: 0.35, duration: 650, useNativeDriver: false })])); a.start(); return () => a.stop(); }, []);
+  return <Animated.View style={{ width: w, height: h, borderRadius: 6, backgroundColor: c.line, opacity: v }} />;
+}
+
 export function Dashboard({ go }: { go?: (k: string) => void } = {}) {
   const { d, profile, reload } = useData(); const flows = useFlows(); const c = useColors(); const wide = useWide();
   const L = d.project_ledger || [], rep = (d.agent_reports || [])[0];
@@ -91,6 +98,10 @@ export function Dashboard({ go }: { go?: (k: string) => void } = {}) {
   const newQ = (d.inquiries || []).filter((q: any) => q.status === "New").length;
   const [chart, setChart] = useState<"m2" | "in" | "out">("m2");
   const [kd, setKd] = useState<string | null>(null); // which money box is opened for details
+  // Videos made by the video agent and waiting for the owner's review (they are not in the shared data set).
+  const [vidWait, setVidWait] = useState(0);
+  useEffect(() => { supabase.from("video_ideas").select("id", { count: "exact", head: true }).eq("status", "review").then((r: any) => setVidWait(r.count || 0), () => {}); }, []);
+  const loading = !d.project_ledger || !d.txns; // first seconds after opening: the figures are not in yet
   const tx = active(d.txns), pr = active(d.progress);
   // Last 7 days, oldest first.
   const days = Array.from({ length: 7 }, (_, i) => { const t = new Date(Date.now() - (6 - i) * 864e5); return t.toISOString().slice(0, 10); });
@@ -209,6 +220,15 @@ export function Dashboard({ go }: { go?: (k: string) => void } = {}) {
     { k: "company", icon: "people", title: "Company", n: (d.profiles || []).length, unit: "people in the app",
       line: noRate ? `${plural(noRate, "subcontractor", "subcontractors")} without a rate` : "Every subcontractor has a rate", to: "people" },
   ];
+  // Everything an agent has prepared and only the owner can release, in one list.
+  const approvals = ([
+    { n: waitLock, text: waitLock === 1 ? "Quotation ready for Approve & Lock" : "Quotations ready for Approve & Lock", from: "Price agent and advisor", to: "quotes", go: "Quotations" },
+    { n: newQ, text: newQ === 1 ? "New client query to review" : "New client queries to review", from: "Intake and reading agents", to: "queries", go: "Queries" },
+    { n: (d.rfis || []).filter((r: any) => r.status === "Draft").length, text: "RFI written, not sent", from: "Query organizer", to: "rfis", go: "RFIs" },
+    { n: (d.suppliers || []).filter((x: any) => x.approved === false).length, text: "Suppliers found on the web, to approve", from: "Supplier finder", to: "suppliers", go: "Suppliers" },
+    { n: (d.blog_posts || []).filter((x: any) => x.status === "Draft").length, text: "Blog drafts to read and publish", from: "Website (SEO) agent", to: "growth", go: "Growth" },
+    { n: vidWait, text: vidWait === 1 ? "Video to review before it is posted" : "Videos to review before they are posted", from: "Video agent", to: "growth", go: "Growth" },
+  ] as { n: number; text: string; from: string; to: string; go: string }[]).filter((a) => a.n > 0);
   const nextStep = String(rep?.summary || "").split("\n").map((x) => x.trim()).find((x) => /^Agla kaam\s*:/i.test(x))?.replace(/^Agla kaam\s*:\s*/i, "") || "";
   const board = (
     <View style={{ gap: 12 }}>
@@ -218,6 +238,21 @@ export function Dashboard({ go }: { go?: (k: string) => void } = {}) {
         <View style={[{ flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: c.accentSoft, borderRadius: 12, paddingVertical: 12, paddingHorizontal: 16, borderWidth: 1, borderColor: c.line }]}>
           <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: c.accent, alignItems: "center", justifyContent: "center" }}><Icon name="spark" size={16} color={c.accentInk} /></View>
           <View style={{ flex: 1 }}><T size={12} muted>Next step</T><T size={15} bold>{nextStep}</T></View>
+        </View>) : null}
+      {!loading ? (
+        <View style={[{ backgroundColor: c.surface, borderRadius: 14, borderWidth: 1, borderColor: c.line, overflow: "hidden" }, ELEV]}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 12, paddingHorizontal: 16 }}>
+            <Icon name="check" size={18} color={approvals.length ? c.warn : c.good} />
+            <T size={15} bold style={{ flex: 1 }}>Waiting for your approval</T>
+            <Pill kind={approvals.length ? "warn" : "good"} text={approvals.length ? String(approvals.reduce((s2, a) => s2 + a.n, 0)) : "Nothing waiting"} />
+          </View>
+          {approvals.map((a) => (
+            <Pressable key={a.text} accessibilityRole="button" onPress={() => go?.(a.to)}
+              style={({ hovered, pressed }: any) => [{ flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 11, paddingHorizontal: 16, borderTopWidth: 1, borderColor: c.line, cursor: "pointer", transitionProperty: "background-color", transitionDuration: "140ms" } as any, (hovered || pressed) && { backgroundColor: c.sunk }]}>
+              <View style={{ minWidth: 28, height: 28, borderRadius: 14, paddingHorizontal: 8, backgroundColor: c.warnSoft, alignItems: "center", justifyContent: "center" }}><T size={13} bold color={c.warn}>{a.n}</T></View>
+              <View style={{ flex: 1 }}><T size={14} bold>{a.text}</T><T size={12} muted>{a.from}</T></View>
+              <T size={13} bold color={c.accent}>{a.go} ›</T>
+            </Pressable>))}
         </View>) : null}
       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12 }}>
         {depts.map((x, i) => {
@@ -238,9 +273,9 @@ export function Dashboard({ go }: { go?: (k: string) => void } = {}) {
                   </View>
                 </Row>
                 <View style={{ flexDirection: "row", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
-                  <CountUp value={Number(x.n) || 0} size={30} color={c.ink} style={{ letterSpacing: -0.6 }} /><T size={13} muted>{x.unit}</T>
+                  {loading ? <Pulse w={72} h={30} /> : <CountUp value={Number(x.n) || 0} size={30} color={c.ink} style={{ letterSpacing: -0.6 }} />}<T size={13} muted>{x.unit}</T>
                 </View>
-                <T size={13} muted>{x.line}</T>
+                {loading ? <Pulse w={190} h={13} /> : <T size={13} muted>{x.line}</T>}
                 {its.slice(0, 2).map((f, j) => (
                   <View key={j} style={{ flexDirection: "row", gap: 8, alignItems: "flex-start", paddingTop: 8, borderTopWidth: 1, borderColor: c.line }}>
                     <View style={{ width: 7, height: 7, borderRadius: 4, marginTop: 6, backgroundColor: f.level === "bad" ? c.bad : c.warn }} />
@@ -323,7 +358,22 @@ export function Money() {
           <Btn icon={<Icon name="doc" size={16} />} title="Statement" onPress={() => flows("statement")} />
         </Row>
       </View>
-      <Select value={filter} onChange={setFilter} style={{ maxWidth: 260 }} options={[{ value: "all", label: "All entries" }, ...Object.entries(TYPE).map(([k, v]) => ({ value: k, label: v }))]} />
+      {(() => { const mk = new Date().toISOString().slice(0, 7), mine = active(d.txns || []).filter((x: any) => dkey(x).slice(0, 7) === mk);
+        const inn = sum(mine.filter((x: any) => x.type === "income"), "gross"), out = mine.filter((x: any) => ["subpay", "expense", "purchase"].includes(x.type)).reduce((t: number, x: any) => t + (Number(x.amount ?? x.total) || 0), 0);
+        return (
+          <View style={[{ flexDirection: "row", flexWrap: "wrap", backgroundColor: c.surface, borderRadius: 14, borderWidth: 1, borderColor: c.line, overflow: "hidden" }, ELEV]}>
+            {([["Received this month", inn, c.good], ["Paid out this month", out, c.ink], ["Entries this month", mine.length, c.ink]] as [string, number, string][]).map(([l, v, col], i) => (
+              <View key={l} style={{ flexGrow: 1, flexBasis: 160, paddingVertical: 14, paddingHorizontal: 18, gap: 4, borderLeftWidth: wide && i ? 1 : 0, borderTopWidth: !wide && i ? 1 : 0, borderColor: c.line }}>
+                <T size={13} muted>{l}</T><CountUp value={Math.round(v)} size={22} color={col} />
+              </View>))}
+          </View>); })()}
+      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+        {[["all", "All"], ...Object.entries(TYPE)].map(([k, v]) => { const on = filter === k, n = k === "all" ? (d.txns || []).length : (d.txns || []).filter((x: any) => x.type === k).length; return (
+          <Pressable key={k} accessibilityRole="button" onPress={() => setFilter(k)}
+            style={({ hovered }: any) => [{ flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 7, paddingHorizontal: 12, borderRadius: 999, borderWidth: 1, borderColor: on ? c.accent : hovered ? c.muted : c.line, backgroundColor: on ? c.accentSoft : c.surface, cursor: "pointer", transitionProperty: "border-color, background-color", transitionDuration: "140ms" } as any]}>
+            <T size={13} bold={on} color={on ? c.accent : c.ink}>{v}</T><T size={12} muted>{n}</T>
+          </Pressable>); })}
+      </View>
       {list.length ? <View style={{ backgroundColor: c.surface, borderWidth: 1, borderColor: c.line, borderRadius: 10, overflow: "hidden" }}>
         {list.map((x: any, i: number) => { const off = x.status === "cancelled"; return (
           <View key={x.id} style={{ flexDirection: "row", alignItems: "flex-start", gap: 14, paddingVertical: 12, paddingHorizontal: 16, borderTopWidth: i ? 1 : 0, borderColor: c.line, opacity: off ? 0.55 : 1 }}>
