@@ -55,7 +55,7 @@ function SpeakSheet({ init, onClose, open }: { init?: any; onClose: () => void; 
     if (!text.trim()) return;
     setBusy(true); setErr(""); setO(null); setMrn(null);
     try {
-      const a = await ai("parse", { text, lang, context: { projects: projects.map((p: any) => ({ id: p.id, name: p.name, company: p.company })), subcontractors: subNames(d), companies: companiesOf(d), today: new Date().toISOString().slice(0, 10) } });
+      const a = await ai("parse", { text, lang, context: { projects: projects.map((p: any) => ({ id: p.id, name: p.site?.aka?.length ? `${p.name} (the team also calls it: ${p.site.aka.join(", ")})` : p.name, company: p.company })), subcontractors: subNames(d), companies: companiesOf(d), today: new Date().toISOString().slice(0, 10) } });
       setParsed(a);
       if (a.heard && role !== "admin") say(a.heard, { language: speechLang(lang) });
       if (a.intent === "purchase") { onClose(); setTimeout(() => open("purchase", { voice: a, text }), 350); return; }
