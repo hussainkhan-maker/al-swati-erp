@@ -1,6 +1,6 @@
 // The shared flows every account uses: speak/type an entry → AI understands → code checks → you confirm.
 // Also: purchase invoice with receipt, statements as checked PDFs, and the personal AI assistant.
-import * as Speech from "expo-speech";
+import { hush, say } from "../lib/talk";
 import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { View } from "react-native";
 import { Check, entryChecks, purchaseChecks } from "../lib/checks";
@@ -57,7 +57,7 @@ function SpeakSheet({ init, onClose, open }: { init?: any; onClose: () => void; 
     try {
       const a = await ai("parse", { text, lang, context: { projects: projects.map((p: any) => ({ id: p.id, name: p.name, company: p.company })), subcontractors: subNames(d), companies: companiesOf(d), today: new Date().toISOString().slice(0, 10) } });
       setParsed(a);
-      if (a.heard && role !== "admin") Speech.speak(a.heard, { language: speechLang(lang) });
+      if (a.heard && role !== "admin") say(a.heard, { language: speechLang(lang) });
       if (a.intent === "purchase") { onClose(); setTimeout(() => open("purchase", { voice: a, text }), 350); return; }
       if (a.intent === "statement") { onClose(); setTimeout(() => open("statement", a.statement || {}), 350); return; }
       if (a.intent === "mrn") {
@@ -135,7 +135,7 @@ function SpeakSheet({ init, onClose, open }: { init?: any; onClose: () => void; 
         if (!itemId) { const { data, error } = await supabase.from("items").insert({ name: form.material, unit: form.unit }).select().single(); if (error) throw error; itemId = data.id; }
         q(await insert("prices", { item_id: itemId, price: form.amount, kind: "cost", source: "abu", supplier: form.supplier }));
       }
-      Speech.stop();
+      hush();
       setErr(queued ? t("queued") : ""); if (!queued) onClose();
     } catch (e: any) { setErr(e.message); } finally { setBusy(false); }
   };
@@ -157,7 +157,7 @@ function SpeakSheet({ init, onClose, open }: { init?: any; onClose: () => void; 
       </>; })()}
 
       {o && <Card>
-        {parsed?.heard ? <Row wrap><T size={16} style={{ flex: 1 }}>“{parsed.heard}”</T><Btn kind="ghost" title={t("readBack")} onPress={() => Speech.speak(parsed.heard, { language: speechLang(lang) })} /></Row> : null}
+        {parsed?.heard ? <Row wrap><T size={16} style={{ flex: 1 }}>“{parsed.heard}”</T><Btn kind="ghost" title={t("readBack")} onPress={() => say(parsed.heard, { language: speechLang(lang) })} /></Row> : null}
         {o.intent === "expense" && <Select label="Type of expense *" value="small" options={[{ value: "small", label: "Small expense (no photo): transport, food, tools…" }, { value: "material", label: "Material purchase (invoice photo; AI reads items, VAT, invoice no.)" }]}
           onChange={(v) => { if (v === "material") { const pid = o.project_id; onClose(); setTimeout(() => open("purchase", { voice: { project_id: pid } }), 350); } }} />}
         {(parsed?.questions || []).filter(Boolean).map((qq: string, i: number) => <Card key={i} style={{ backgroundColor: c.warnSoft, borderColor: c.warnSoft }}><T color={c.warn}>{t("question")}: {qq}</T></Card>)}
@@ -204,7 +204,7 @@ function SpeakSheet({ init, onClose, open }: { init?: any; onClose: () => void; 
         {tried || checks.some((x) => x.s === "warn") ? <Checks list={tried ? checks : checks.filter((x) => x.s === "warn")} /> : null}
         <Row wrap>
           <Btn big kind="primary" icon={<Icon name="check" color={c.accentInk} />} title={t("save")} onPress={() => { setTried(true); save(); }} busy={busy} />
-          <Btn big kind="ghost" title={t("no")} onPress={() => { setO(null); setTried(false); Speech.stop(); }} />
+          <Btn big kind="ghost" title={t("no")} onPress={() => { setO(null); setTried(false); hush(); }} />
         </Row>
       </Card>}
     </Sheet>
@@ -380,7 +380,7 @@ function AskSheet({ init, onClose }: { init?: any; onClose: () => void }) {
     // 1) Token saver: simple money / m² questions are answered from the app's own numbers, with no AI call.
     if (!quick.includes(qq)) {
       const local = localAnswer(d, qq, lang);
-      if (local) { setA(local.text); setFree(true); setBusy(false); if (role !== "admin") Speech.speak(local.text, { language: speechLang(lang) }); return; }
+      if (local) { setA(local.text); setFree(true); setBusy(false); if (role !== "admin") say(local.text, { language: speechLang(lang) }); return; }
     }
     // 2) Otherwise send the AI only what the question needs (one project's entries, not everything).
     const pr = mentionedProject(d, qq), inP = (x: any) => !pr || x.project_id === pr.id || (x.split || []).some((s: any) => s.project_id === pr.id);
@@ -396,11 +396,11 @@ function AskSheet({ init, onClose }: { init?: any; onClose: () => void }) {
     if (d.inquiries && about(/quer|rfq|enquir|inquir|استفسار|کوئری|client/)) data.queries = d.inquiries.slice(0, 40).map((x: any) => ({ ref: x.ref, subject: x.subject, status: x.status, deadline: x.deadline }));
     if (d.supplier_requests && about(/supplier|مورد|سپلائر/)) data.supplier_requests = d.supplier_requests.slice(0, 40).map((x: any) => ({ supplier: (d.suppliers || []).find((s: any) => s.id === x.supplier_id)?.name, status: x.status, sent: x.sent_at }));
     const question = page ? `[The person is on the "${page}" page of the app. Explain how to use that page, point out entries that look wrong (missing project, wrong amount, VAT, duplicate, unknown subcontractor) and say exactly how to correct them.] ${qq}` : qq;
-    try { const r = await ai("ask", { question, data }); setA(r.text); if (role !== "admin") Speech.speak(r.text, { language: speechLang(lang) }); }
+    try { const r = await ai("ask", { question, data }); setA(r.text); if (role !== "admin") say(r.text, { language: speechLang(lang) }); }
     catch (e: any) { setA(/401|ANTHROPIC|api key/i.test(e.message) ? W("The assistant is not available right now. Please tell the owner.", "المساعد غير متاح الآن. أخبر المالك.", "مددگار ابھی دستیاب نہیں۔ مالک کو بتائیں۔") : e.message); } finally { setBusy(false); }
   };
   return (
-    <Sheet open onClose={() => { Speech.stop(); onClose(); }} title={(lang === "ar" ? "مساعدك" : lang === "ur" ? "آپ کا مددگار" : "Your assistant") + (page ? " · " + page : "")}>
+    <Sheet open onClose={() => { hush(); onClose(); }} title={(lang === "ar" ? "مساعدك" : lang === "ur" ? "آپ کا مددگار" : "Your assistant") + (page ? " · " + page : "")}>
       {quick.length ? <View style={{ gap: 8 }}>{quick.map((x) => <Btn key={x} title={x} onPress={() => ask(x)} disabled={busy} />)}</View> : null}
       <Voice value={q} onChange={setQ} placeholder={lang === "en" ? "How much has Uzair done on Malqa, and what do we owe him?" : ""} />
       <Btn big kind="primary" icon={<Icon name="spark" color={c.accentInk} />} title={lang === "ar" ? "اسأل" : lang === "ur" ? "پوچھیں" : "Ask"} onPress={() => ask()} busy={busy} disabled={!q.trim()} />

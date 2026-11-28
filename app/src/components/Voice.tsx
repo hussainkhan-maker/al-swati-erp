@@ -4,6 +4,7 @@ import React, { useRef, useState } from "react";
 import { Pressable, View } from "react-native";
 import { useData } from "../lib/data";
 import { speechLang } from "../lib/i18n";
+import { hush, isSpeaking } from "../lib/talk";
 import { Field, Icon, T, useColors } from "../ui";
 
 export function Voice({ value, onChange, hints = [], placeholder }: { value: string; onChange: (v: string) => void; hints?: string[]; placeholder?: string }) {
@@ -12,6 +13,7 @@ export function Voice({ value, onChange, hints = [], placeholder }: { value: str
   const base = useRef("");
 
   useSpeechRecognitionEvent("result", (e: any) => {
+    if (isSpeaking()) return; // the app's own voice is never written down
     const tr = e.results?.[0]?.transcript ?? "";
     if (tr) onChange((base.current + tr).trim());
     if (e.isFinal && typeof e.results?.[0]?.confidence === "number" && e.results[0].confidence > 0 && e.results[0].confidence < 0.35) setErr(t("voiceUnclear"));
@@ -21,7 +23,7 @@ export function Voice({ value, onChange, hints = [], placeholder }: { value: str
 
   const toggle = async () => {
     if (on) { ExpoSpeechRecognitionModule.stop(); return; }
-    setErr("");
+    setErr(""); hush(); // the person wants to speak: the app stops talking at once
     const p = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
     if (!p.granted) { setErr(t("voiceUnclear")); return; }
     base.current = value ? value + " " : "";

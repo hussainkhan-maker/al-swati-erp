@@ -2,7 +2,7 @@
 // everything by Urdu voice, confirmed before saving.
 import React from "react";
 import { View } from "react-native";
-import * as Speech from "expo-speech";
+import { say } from "../lib/talk";
 import { useFlows } from "../components/Flows";
 import { active, pname, useData } from "../lib/data";
 import { day, money, SAR } from "../lib/fmt";
@@ -49,7 +49,7 @@ export function Home({ go }: { go: (k: string) => void }) {
           W(`هذا الأسبوع تم تركيب ${m2} متر مربع.`, `اس ہفتے ${m2} مربع میٹر کام ہوا۔`, `This week ${m2} square meters were installed.`),
           review ? W(`لديك ${review} عرض سعر للمراجعة.`, `آپ کے پاس ${review} کوٹیشن دیکھنے کے لیے ہیں۔`, `You have ${review} quotations to review.`) : "",
         ].filter(Boolean).join(" ");
-        Speech.stop(); Speech.speak(parts, { language: lang === "ar" ? "ar-SA" : lang === "en" ? "en-US" : "ur-PK", rate: 0.9 });
+        say(parts, { language: lang === "ar" ? "ar-SA" : lang === "en" ? "en-US" : "ur-PK", rate: 0.9 });
       }} />
       <Tile accent icon="mic" title={W("اضغط وتكلم", "دبائیں اور بولیں", "Tap and speak")} sub={W("تكلم بالأردو · سأتأكد معك قبل الحفظ", "اردو میں بولیں · محفوظ کرنے سے پہلے میں پوچھوں گا", "Speak in Urdu · I confirm before saving")} onPress={() => flows("speak")} />
       <View style={{ flexDirection: "row-reverse", flexWrap: "wrap", gap: 12 }}>

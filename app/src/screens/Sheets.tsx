@@ -2,7 +2,7 @@
 //  • Material order (angles, glue, bolts…) and stone sizes → an Arabic PDF to send to the supplier. Editable until "Final".
 //    A final order stays open until its invoice photo is added (the purchase goes to the project's costs).
 //  • Subcontractor measurement → length × width − deduction per place, summed; "Final" adds the m² to that subcontractor on the project.
-import * as Speech from "expo-speech";
+import { say as speak, stopListening } from "../lib/talk";
 import React, { useEffect, useRef, useState } from "react";
 import { Pressable, View } from "react-native";
 import { useFlows } from "../components/Flows";
@@ -28,7 +28,7 @@ export default function Sheets() {
   const [say, setSay] = useState(""), [sBusy, setSBusy] = useState(false), [sMsg, setSMsg] = useState("");
   const understandAll = async () => {
     const text = say.trim(); if (!text) return;
-    setSBusy(true); setSMsg("");
+    stopListening(); setSBusy(true); setSMsg("");
     try {
       const names = [...new Set([...(d.sub_names || (d.subcontractors || []).map((x: any) => x.name) || []).map((x: any) => (typeof x === "string" ? x : x?.name)), ...Object.keys(owed)])].filter(Boolean).slice(0, 80);
       const { data, error } = await supabase.functions.invoke("site", { body: { action: "route", text, lang, projects: (d.projects || []).map((p: any) => p.name), names } });
@@ -41,7 +41,7 @@ export default function Sheets() {
       const back = k === "pay" ? L(`Payment to ${r.party}: ${r.amount} riyal. Check and save.`, `دفعة إلى ${r.party}: ${r.amount} ريال. راجع ثم احفظ.`, `${r.party} کو ادائیگی: ${r.amount} ریال۔ دیکھ کر محفوظ کریں۔`)
         : L(`${KIND[k][0]}: ${(r.lines || []).length} lines${total ? ", " + money(total) + " square metres" : ""}. Check and save.`, `${KIND[k][0]}: ${(r.lines || []).length} بنود${total ? "، " + money(total) + " متر مربع" : ""}. راجع ثم احفظ.`, `${KIND[k][0]}: ${(r.lines || []).length} لائن${total ? "، " + money(total) + " میٹر" : ""}۔ دیکھ کر محفوظ کریں۔`);
       const said = r.ask ? back + " " + r.ask : back;
-      try { Speech.stop(); Speech.speak(said, { language: lang === "ur" ? "ur-PK" : lang === "ar" ? "ar-SA" : "en-US" }); } catch { /* no voice on this device */ }
+      try { speak(said, { language: lang === "ur" ? "ur-PK" : lang === "ar" ? "ar-SA" : "en-US" }); } catch { /* no voice on this device */ }
       if (r.ask) setSMsg(String(r.ask));
       setSay("");
     } catch (e: any) { setSMsg(e.message); }
@@ -132,7 +132,7 @@ function Editor({ init, onClose, L, title, canReopen }: { init: any; onClose: ()
   const [text, setText] = useState(""), [busy, setBusy] = useState(""), [msg, setMsg] = useState(""), [sure, setSure] = useState(false);
   const locked = f.status !== "draft"; const added = useRef(false);
   // Every message is also said aloud, so someone who does not read is led to the next step: check, Final, then the photo.
-  useEffect(() => { if (!msg) return; try { Speech.stop(); Speech.speak(msg, { language: lang === "ur" ? "ur-PK" : lang === "ar" ? "ar-SA" : "en-US" }); } catch { /* no voice on this device */ } }, [msg]);
+  useEffect(() => { if (!msg) return; try { speak(msg, { language: lang === "ur" ? "ur-PK" : lang === "ar" ? "ar-SA" : "en-US" }); } catch { /* no voice on this device */ } }, [msg]);
   const subs: string[] = (d.sub_names || (d.subcontractors || []).map((s: any) => s.name) || []).map((s: any) => (typeof s === "string" ? s : s?.name)).filter(Boolean);
   const lines = (f.lines as any[]).filter((l) => filled(kind, l));
   const total = r2(lines.reduce((s, l) => s + lineArea(kind, l), 0));
@@ -153,7 +153,7 @@ function Editor({ init, onClose, L, title, canReopen }: { init: any; onClose: ()
   };
   const understand = async () => {
     if (!text.trim()) return;
-    setBusy("read"); setMsg("");
+    stopListening(); setBusy("read"); setMsg("");
     try {
       const { data, error } = await supabase.functions.invoke("site", { body: { kind, text, lang, names: subs.slice(0, 60) } });
       if (error || (data as any)?.error) throw new Error((data as any)?.error || error?.message);
