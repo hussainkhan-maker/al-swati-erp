@@ -179,7 +179,9 @@ function Editor({ init, onClose, L, title, canReopen }: { init: any; onClose: ()
   const total = r2(lines.reduce((s, l) => s + lineArea(kind, l), 0));
   const pieces = kind === "stone" ? lines.reduce((s, l) => s + n0(l.qty), 0) : 0;
   // A subcontractor may have one rate for work on C-channel and another for work fixed on the wall: the m² are kept apart.
-  const bySystem = (["wall", "channel", ""] as const).map((k) => ({ k, m2: r2(lines.filter((l) => (l.system || "") === k).reduce((t, l) => t + lineArea(kind, l), 0)), n: lines.filter((l) => (l.system || "") === k).length })).filter((g) => g.m2 > 0);
+  const bySystem0 = (["wall", "channel", ""] as const).map((k) => ({ k, m2: r2(lines.filter((l) => (l.system || "") === k).reduce((t, l) => t + lineArea(kind, l), 0)), n: lines.filter((l) => (l.system || "") === k).length })).filter((g) => g.m2 !== 0);
+  // A deduction said without a type is taken off the biggest group, so no group is ever below zero when the m² are added.
+  const bySystem = (() => { const g = bySystem0.map((x) => ({ ...x })); const neg = g.filter((x) => x.m2 < 0), pos = g.filter((x) => x.m2 > 0).sort((a, b) => b.m2 - a.m2); if (pos[0]) for (const x of neg) pos[0].m2 = r2(pos[0].m2 + x.m2); return g.filter((x) => x.m2 > 0); })();
   const sysName = (k: string) => (k === "channel" ? "C-channel" : k === "wall" ? "Wall" : "");
   const setLine = (i: number, k: string, v: any) => setF((x: any) => ({ ...x, lines: x.lines.map((l: any, j: number) => (j === i ? { ...l, [k]: v } : l)) }));
 

@@ -9,8 +9,7 @@ import { Pressable, View } from "react-native";
 import { useData } from "../lib/data";
 import { money, num, r2 } from "../lib/fmt";
 import { speechLang } from "../lib/i18n";
-import { mQty, measureDoc } from "../lib/measure";
-import { mArea } from "../lib/measure";
+import { mArea, mGross, mIsDed, mQty, mValid, measureDoc } from "../lib/measure";
 import { docHTML, makeAndShare } from "../lib/pdf";
 import { supabase } from "../lib/supabase";
 import { hush, isSpeaking, say, stopListening } from "../lib/talk";
@@ -77,12 +76,12 @@ export function LiveMeasure({ init, onClose }: { init?: any; onClose: () => void
     const said = r.party ? subs.find((x) => x.toLowerCase() === String(r.party).toLowerCase()) : "";
     if (said && now.current.party && said !== now.current.party) switchParty(said);
     if (r.party && !now.current.party) { const hit = subs.find((s) => s.toLowerCase() === String(r.party).toLowerCase()) || String(r.party); setParty(hit); now.current.party = hit; }
-    const got = (r.lines || []).map((l: any) => { if (l.system) sys.current = l.system; return { place: l.place || "", element: elemWord(l.element, "ar"), qty: n0(l.qty) > 1 ? n0(l.qty) : 1, l: l.l, w: l.w, deduct: n0(l.deduct) || 0, system: l.system || sys.current || "", photo: "", heard: text }; }).filter((l: any) => n0(l.l) > 0 && n0(l.w) > 0);
+    const got = (r.lines || []).map((l: any) => { if (l.system) sys.current = l.system; return { ...(l.ded ? { ded: true, m2: n0(l.m2) || 0 } : {}), place: l.place || "", element: elemWord(l.element, "ar"), qty: n0(l.qty) > 1 ? n0(l.qty) : 1, l: l.l, w: l.w, deduct: n0(l.deduct) || 0, system: l.system || sys.current || "", photo: "", heard: text }; }).filter(mValid);
     if (!got.length) { tell(/\d/.test(text) ? L("Say the length and the width.", "قل الطول والعرض.", "لمبائی اور چوڑائی بولیں۔") : L(`Ready${now.current.party ? ", " + now.current.party : ""}. Say each place.`, `جاهز${now.current.party ? "، " + now.current.party : ""}. قل كل مكان.`, `تیار${now.current.party ? "، " + now.current.party : ""}۔ ہر جگہ بولتے جائیں۔`)); return; }
     const next = [...now.current.lines, ...got]; setLines(next); now.current.lines = next;
     await save(next);
     const T = r2(next.reduce((t, l) => t + area(l), 0));
-    const back = got.map((l: any) => `${mQty(l) > 1 ? mQty(l) + " " : ""}${l.element || l.place || ""} ${l.l} ${L("by", "في", "ضرب")} ${l.w}${n0(l.deduct) ? ` ${L("minus", "خصم", "خصم")} ${l.deduct}` : ""}، ${money(area(l))}`).join("۔ ");
+    const back = got.map((l: any) => { const sized = n0(l.l) > 0 && n0(l.w) > 0; return `${mIsDed(l) ? L("deduction ", "خصم ", "خصم ") : ""}${mQty(l) > 1 ? mQty(l) + " " : ""}${l.element || l.place || ""}${sized ? ` ${l.l} ${L("by", "في", "ضرب")} ${l.w}` : ""}${n0(l.deduct) ? ` ${L("minus", "خصم", "خصم")} ${l.deduct}` : ""}، ${money(mGross(l))}`; }).join("۔ ");
     tell(`${back}۔ ${L("Total", "المجموع", "کل")} ${money(T)}`); // no questions while he measures: the place is written, said back, and he goes on
   };
   const pump = async () => {
@@ -170,20 +169,20 @@ export function LiveMeasure({ init, onClose }: { init?: any; onClose: () => void
         {msg ? <T center color={c.warn} size={16}>{msg}</T> : null}
         <View style={{ borderWidth: 1, borderColor: c.line, borderRadius: 10, overflow: "hidden", backgroundColor: c.surface }}>
           <Row style={{ backgroundColor: c.accentSoft, paddingVertical: 10, paddingHorizontal: 8, alignItems: "center", gap: 0 }}>
-            <T bold size={20} style={{ flex: 1 }}>المجموع</T><T bold size={24}>{money(total)} m²</T>
+            <View style={{ flex: 1 }}><T bold size={20}>المجموع</T>{lines.some(mIsDed) ? <T size={13} color={c.bad}>خصم: {money(r2(lines.filter(mIsDed).reduce((t, l) => t + area(l), 0)))}</T> : null}</View><T bold size={24}>{money(total)} m²</T>
           </Row>
           {lines.some((l) => l.system) ? <T muted size={13} style={{ paddingHorizontal: 8, paddingVertical: 4 }}>{["wall", "channel", ""].filter((k) => part(k) > 0).map((k) => `${k === "channel" ? "حديد" : k === "wall" ? "سادة" : "—"}: ${money(part(k))}`).join("   ·   ")}</T> : null}
           <Row style={{ backgroundColor: c.sunk, borderTopWidth: 1, borderColor: c.line, gap: 0 }}>
             {HEAD.map(([h, fx], i) => <View key={i} style={[CELL, { flex: fx, borderColor: c.line }]}><T bold size={13}>{h}</T></View>)}
           </Row>
           {lines.map((l, i) => ({ l, i })).reverse().map(({ l, i }) => (
-            <Row key={i} style={{ borderTopWidth: 1, borderColor: c.line, gap: 0, alignItems: "stretch", backgroundColor: i === lines.length - 1 ? c.goodSoft : c.surface }}>
+            <Row key={i} style={{ borderTopWidth: 1, borderColor: c.line, gap: 0, alignItems: "stretch", backgroundColor: mIsDed(l) ? c.badSoft : i === lines.length - 1 ? c.goodSoft : c.surface }}>
               <View style={[CELL, { flex: HEAD[0][1], borderColor: c.line }]}><T muted size={14}>{i + 1}</T></View>
-              <View style={[CELL, { flex: HEAD[1][1], borderColor: c.line }]}><T bold size={16}>{[l.element, l.place].filter(Boolean).join(" - ") || "—"}</T>{l.system ? <T muted size={12}>{l.system === "channel" ? "حديد" : "سادة"}</T> : null}</View>
+              <View style={[CELL, { flex: HEAD[1][1], borderColor: c.line }]}><T bold size={16} color={mIsDed(l) ? c.bad : undefined}>{[mIsDed(l) ? "خصم" : "", l.element, l.place].filter(Boolean).join(" - ") || "—"}</T>{l.system ? <T muted size={12}>{l.system === "channel" ? "حديد" : "سادة"}</T> : null}</View>
               <View style={[CELL, { flex: HEAD[2][1], borderColor: c.line }]}><T size={16}>{String(mQty(l))}</T></View>
-              <View style={[CELL, { flex: HEAD[3][1], borderColor: c.line }]}><T size={16}>{String(l.l)}</T></View>
-              <View style={[CELL, { flex: HEAD[4][1], borderColor: c.line }]}><T size={16}>{String(l.w)}</T></View>
-              <View style={[CELL, { flex: HEAD[5][1], borderColor: c.line }]}><T bold size={16}>{money(area(l))}</T>{n0(l.deduct) ? <T muted size={12}>خصم {String(l.deduct)}</T> : null}</View>
+              <View style={[CELL, { flex: HEAD[3][1], borderColor: c.line }]}><T size={16}>{n0(l.l) > 0 ? String(l.l) : ""}</T></View>
+              <View style={[CELL, { flex: HEAD[4][1], borderColor: c.line }]}><T size={16}>{n0(l.w) > 0 ? String(l.w) : ""}</T></View>
+              <View style={[CELL, { flex: HEAD[5][1], borderColor: c.line }]}><T bold size={16} color={mIsDed(l) ? c.bad : undefined}>{money(area(l))}</T>{n0(l.deduct) ? <T muted size={12}>خصم {String(l.deduct)}</T> : null}</View>
               <Pressable accessibilityRole="button" accessibilityLabel="remove" disabled={sent} onPress={() => removeAt(i)} style={[CELL, { flex: HEAD[6][1], borderColor: c.line, borderLeftWidth: 0, borderRightWidth: 0, alignItems: "center" }]}><T color={c.bad} size={16}>{sent ? "" : "✕"}</T></Pressable>
             </Row>))}
           {!lines.length ? <T muted style={{ padding: 10 }}>{L("Nothing yet. Example: \"Zar, hadeed, amood 3.2 by 0.6\"", "لا شيء بعد. مثال: \"زر، حديد، عمود 3.2 في 0.6\"", "ابھی کچھ نہیں۔ مثال: «زر، حدید، عمود 3.2 ضرب 0.6»")}</T> : null}
