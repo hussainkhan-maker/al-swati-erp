@@ -20,9 +20,11 @@ Deno.serve(async (req) => {
     // Forgot password: Super-Admin sets a new starting password; the person chooses their own at the next sign-in.
     if (body.action === "reset") {
       if (!body.user_id || !pwOk(body.password)) return json({ error: "A new password of 10 or more characters is required" }, 400);
-      const { data: r, error } = await admin.auth.admin.updateUserById(body.user_id, { password: body.password, user_metadata: { temp_password: true } });
+      const { data: who } = await admin.from("profiles").select("role").eq("id", body.user_id).single();
+      const keep = who?.role === "supervisor"; // a supervisor keeps the password the Super-Admin sets
+      const { data: r, error } = await admin.auth.admin.updateUserById(body.user_id, { password: body.password, user_metadata: { temp_password: !keep } });
       if (error) return json({ error: error.message }, 400);
-      await admin.from("profiles").update({ must_change: true }).eq("id", body.user_id); // nothing opens until they choose their own
+      await admin.from("profiles").update({ must_change: !keep }).eq("id", body.user_id); // for the others nothing opens until they choose their own
       return json({ id: body.user_id, email: r.user?.email });
     }
 
@@ -32,15 +34,18 @@ Deno.serve(async (req) => {
     const lang = role === "abu" ? "ar" : role === "supervisor" ? "ur" : "en";
 
     let id: string | undefined;
-    const created = await admin.auth.admin.createUser({ email, password, email_confirm: true, user_metadata: { temp_password: true } });
+    // A site supervisor is not asked to choose a password: many cannot read the rules. The password the Super-Admin sets
+    // stays, and the phone's own PIN or fingerprint opens the app. Everyone else chooses their own at the first sign-in.
+    const temp = role !== "supervisor";
+    const created = await admin.auth.admin.createUser({ email, password, email_confirm: true, user_metadata: { temp_password: temp } });
     if (created.error) {
       const { data: list } = await admin.auth.admin.listUsers({ perPage: 1000 });
       id = list?.users.find((x) => x.email?.toLowerCase() === String(email).toLowerCase())?.id;
       if (!id) return json({ error: created.error.message }, 400);
-      await admin.auth.admin.updateUserById(id, { password, user_metadata: { temp_password: true } });
+      await admin.auth.admin.updateUserById(id, { password, user_metadata: { temp_password: temp } });
     } else id = created.data.user.id;
 
-    const { error: pe } = await admin.from("profiles").upsert({ id, name, role, phone, lang, active: true, must_change: true });
+    const { error: pe } = await admin.from("profiles").upsert({ id, name, role, phone, lang, active: true, must_change: temp });
     if (pe) return json({ error: pe.message }, 400);
     if (projects.length) await admin.from("project_members").upsert(projects.map((p: string) => ({ project_id: p, user_id: id })));
     return json({ id, email });

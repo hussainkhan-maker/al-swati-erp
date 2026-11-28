@@ -32,10 +32,17 @@ function Main() {
     setReady(true);
   };
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      // Sign in again after 7 days (the database and the AI refuse older sign-ins anyway).
+    supabase.auth.getSession().then(async ({ data }) => {
+      // Abu and supervisors stay signed in until they sign out themselves: the phone's own PIN or fingerprint opens the app.
+      // (The server says who that is; for them, opening the app counts as being signed in.) Everyone else signs in again
+      // after 7 days, and the database and the AI refuse older sign-ins anyway.
+      let stays = false;
+      if (data.session) { try { const { data: ok } = await supabase.rpc("touch_sign_in"); stays = ok === true; } catch { /* offline: decided below */ } }
       const at = Date.parse(data.session?.user.last_sign_in_at || "");
-      if (data.session && at && at < Date.now() - 7 * 864e5) { setProblem("For safety, please sign in again (every 7 days)."); supabase.auth.signOut(); return; }
+      if (data.session && !stays && at && at < Date.now() - 7 * 864e5) {
+        const { data: pr } = await supabase.from("profiles").select("role").eq("id", data.session.user.id).maybeSingle();
+        if (!pr || !["abu", "supervisor"].includes((pr as any).role)) { setProblem("For safety, please sign in again (every 7 days)."); supabase.auth.signOut(); return; }
+      }
       setMustSet(!!data.session?.user.user_metadata?.temp_password); load(data.session?.user.id);
     });
     const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => { setMustSet(!!s?.user.user_metadata?.temp_password); load(s?.user.id); });
