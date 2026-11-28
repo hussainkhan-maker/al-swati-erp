@@ -174,7 +174,14 @@ export function SetPassword({ onDone }: { onDone: () => void }) {
   const save = async () => {
     setBusy(true); setMsg("");
     // The server checks the password (strength and known leaked passwords) and then opens the account.
-    try { await ai("set_password", { password: a }); setBusy(false); await supabase.auth.refreshSession(); onDone(); }
+    // Changing the password ends the old session on the server, so sign in again at once with the new one:
+    // otherwise every server call (voice, AI) answers "Sign in first" until the person signs out and in by hand.
+    try {
+      await ai("set_password", { password: a });
+      if (mail) { const { error } = await supabase.auth.signInWithPassword({ email: mail, password: a }); if (error) await supabase.auth.refreshSession().catch(() => {}); }
+      else await supabase.auth.refreshSession().catch(() => {});
+      setBusy(false); onDone();
+    }
     catch (e: any) { setBusy(false); setMsg(e.message); }
   };
   const bar = ["#B23A2E", "#C77A1F", "#9A5E10", "#2C7350", "#0B2A4A"];
