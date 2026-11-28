@@ -17,7 +17,7 @@ import { Btn, Card, Field, Icon, Row, Select, Sheet, T, useColors } from "../ui"
 
 const n0 = (v: any) => { const x = num(v); return Number.isFinite(x) ? x : 0; };
 const area = mArea;
-const WORDS = ["عمود", "سقف", "جدار", "دیوار", "طول", "عرض", "خصم", "حدید", "سادہ", "چینل", "شانل", "ضرب", "في", "میٹر", "غلط", "بس"];
+const WORDS = ["خصم", "خصم دروازہ", "خصم کھڑکی", "خصم باب", "خصم شباك", "عمود", "سقف", "جدار", "دیوار", "طول", "عرض", "حدید", "سادہ", "چینل", "شانل", "ضرب", "في", "میٹر", "غلط", "بس"];
 const ELEM: [RegExp, string, string][] = [[/seedh|straight|مستقيم|سیدھ/i, "جدار مستقيم", "سیدھی دیوار"], [/amood|amoot|amud|amod|column|pillar|عمود|اموت|امود|ستون/i, "عمود", "عمود"], [/saqaf|saqf|sakaf|ceiling|soffit|سقف|صقف|چھت/i, "سقف", "سقف"], [/beam|kamra|كمرة|بیم/i, "كمرة", "بیم"], [/deewar|diwar|dewar|wall|jidar|جدار|دیوار/i, "جدار", "دیوار"], [/darwaza|door|باب|دروازہ/i, "باب", "دروازہ"], [/khirki|window|شباك|نافذة|کھڑکی/i, "شباك", "کھڑکی"], [/zeena|stair|درج|سیڑھ/i, "درج", "سیڑھی"]];
 const elemWord = (e: any, lang: string) => { const t = String(e || "").trim(); if (!t || lang === "en") return t; const hit = ELEM.find(([re]) => re.test(t)); return hit ? (lang === "ar" ? hit[1] : hit[2]) : t; };
 const UNDO = /(غلط|ghalat|galat|مٹا|mita|ہٹا|hata|wrong|delete|undo|احذف|امسح|خطأ|کاٹ)/i;
@@ -72,7 +72,9 @@ export function LiveMeasure({ init, onClose }: { init?: any; onClose: () => void
       const next = cur.slice(0, -1); setLines(next); now.current.lines = next; await save(next);
       tell(L(`Last line removed. Total ${money(r2(next.reduce((t, l) => t + area(l), 0)))}.`, `حذف آخر بند. المجموع ${money(r2(next.reduce((t, l) => t + area(l), 0)))}.`, `آخری لائن ہٹا دی۔ کل ${money(r2(next.reduce((t, l) => t + area(l), 0)))} میٹر۔`)); return;
     }
-    const { data, error } = await supabase.functions.invoke("site", { body: { kind: "measure", text, lang, names: subs.slice(0, 60) } });
+    // On this page "qisam / قسم" is always the microphone mishearing "khasam / خصم" (deduction): it is put right before reading.
+    const fixed = text.replace(/قسم|کسم|كسم|خسم|قصم|حسم|کسام|خصام|قسام/g, "خصم").replace(/\b(qisam|kisam|qasam|kasam|qism|khasm|hasam|kasm|kassam|qasim)\b/gi, "khasam");
+    const { data, error } = await supabase.functions.invoke("site", { body: { kind: "measure", text: fixed, lang, names: subs.slice(0, 60) } });
     if (error || (data as any)?.error) throw new Error((data as any)?.error || error?.message);
     const r = data as any;
     const said = r.party ? subs.find((x) => x.toLowerCase() === String(r.party).toLowerCase()) : "";
