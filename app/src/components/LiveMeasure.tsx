@@ -83,7 +83,7 @@ export function LiveMeasure({ init, onClose }: { init?: any; onClose: () => void
     if (said && now.current.party && said !== now.current.party) switchParty(said);
     if (r.party && !now.current.party) { const hit = subs.find((s) => s.toLowerCase() === String(r.party).toLowerCase()) || String(r.party); setParty(hit); now.current.party = hit; }
     const got = (r.lines || []).map((l: any) => { if (l.system) sys.current = l.system; return { ...(l.ded ? { ded: true } : {}), ...(n0(l.m2) > 0 ? { m2: n0(l.m2) } : {}), place: l.place || "", element: elemWord(l.element, "ar"), qty: n0(l.qty) > 1 ? n0(l.qty) : 1, l: l.l, w: l.w, deduct: n0(l.deduct) || 0, system: l.system || sys.current || "", photo: "", heard: text }; }).filter(mValid);
-    if (!got.length) { tell(/\d/.test(text) ? L("Say the length and the width.", "قل الطول والعرض.", "لمبائی اور چوڑائی بولیں۔") : L(`Ready${now.current.party ? ", " + now.current.party : ""}. Say each place.`, `جاهز${now.current.party ? "، " + now.current.party : ""}. قل كل مكان.`, `تیار${now.current.party ? "، " + now.current.party : ""}۔ ہر جگہ بولتے جائیں۔`)); return; }
+    if (!got.length) { tell(/\d/.test(text) ? L("I heard one size only. Say it with a word between: 3 zarb 3, or tool 3 ardh 3.", "سمعت مقاسًا واحدًا فقط. قلها هكذا: 3 ضرب 3، أو طول 3 عرض 3.", "صرف ایک ناپ سنا۔ ایسے بولیں: 3 ضرب 3، یا طول 3 عرض 3۔") : L(`Ready${now.current.party ? ", " + now.current.party : ""}. Say each place.`, `جاهز${now.current.party ? "، " + now.current.party : ""}. قل كل مكان.`, `تیار${now.current.party ? "، " + now.current.party : ""}۔ ہر جگہ بولتے جائیں۔`)); return; }
     const next = [...now.current.lines, ...got]; setLines(next); now.current.lines = next;
     await save(next);
     const T = r2(next.reduce((t, l) => t + area(l), 0));
@@ -210,7 +210,7 @@ export function LiveMeasure({ init, onClose }: { init?: any; onClose: () => void
               <View style={[CELL, { flex: HEAD[5][1], borderColor: P.line }]}><T bold size={16} color={mIsDed(l) ? P.ded : P.ink}>{money(area(l))}</T>{n0(l.deduct) ? <T color={P.soft} size={12}>خصم {String(l.deduct)}</T> : null}</View>
               <Pressable accessibilityRole="button" accessibilityLabel="remove" disabled={sent} onPress={() => removeAt(i)} style={[CELL, { flex: HEAD[6][1], borderColor: P.line, borderLeftWidth: 0, borderRightWidth: 0, alignItems: "center" }]}><T color={P.ded} size={16}>{sent ? "" : "✕"}</T></Pressable>
             </Row>))}
-          {!lines.length ? <T color={P.soft} style={{ padding: 10 }}>{L("Nothing yet. Example: \"Zar, hadeed, amood 3.2 by 0.6\"", "لا شيء بعد. مثال: \"زر، حديد، عمود 3.2 في 0.6\"", "ابھی کچھ نہیں۔ مثال: «زر، حدید، عمود 3.2 ضرب 0.6»")}</T> : null}
+          {!lines.length ? <T color={P.soft} style={{ padding: 10 }}>{L("Nothing yet. Example: \"Zar, hadeed, amood 3.2 by 0.6\"", "لا شيء بعد. مثال: \"زر، حديد، عمود 3.2 في 0.6\"", "ابھی کچھ نہیں۔ مثال: «عمود 3 اشاریہ 20 ضرب 0 اشاریہ 60»")}</T> : null}
         </View>
         {!sent ? <Row wrap style={{ alignItems: "flex-end" }}>
           <View style={{ flex: 1, minWidth: 180 }}><Field label={L("Or type one place", "أو اكتب مكانًا", "یا ایک جگہ لکھیں")} value={typed} onChange={setTyped} /></View>
