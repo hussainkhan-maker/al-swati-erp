@@ -26,6 +26,30 @@ export default function Sheets() {
   const [want, setWant] = useState(""), [wBusy, setWBusy] = useState(false), [wMsg, setWMsg] = useState("");
   // Voice first: say it, the app works out which sheet it is, fills it and reads back what it understood.
   const [say, setSay] = useState(""), [sBusy, setSBusy] = useState(false), [sMsg, setSMsg] = useState("");
+  const [pend, setPend] = useState<any>(null);
+  const openSheet = (r: any, text: string, proj: string) => {
+    const k = r.kind as Kind;
+    setEdit(k === "pay" ? { kind: "pay", project_id: proj, party: r.party, amount: r.amount ?? "", lines: [{ method: r.method || "Cash", note: "" }], status: "draft", n: Date.now() }
+      : { kind: k, project_id: proj, party: r.party, rate: r.rate ?? "", lines: (r.lines || []).map((l: any) => ({ ...blank(k), ...l })), status: "draft", heard: text, n: Date.now() });
+    const total = k === "pay" ? 0 : (r.lines || []).reduce((t: number, l: any) => t + lineArea(k, l), 0);
+    const back = k === "pay" ? L(`Payment to ${r.party}: ${r.amount} riyal. Check and save.`, `دفعة إلى ${r.party}: ${r.amount} ريال. راجع ثم احفظ.`, `${r.party} کو ادائیگی: ${r.amount} ریال۔ دیکھ کر محفوظ کریں۔`)
+      : L(`${KIND[k][0]}: ${(r.lines || []).length} lines${total ? ", " + money(total) + " square metres" : ""}. Check and save.`, `${KIND[k][0]}: ${(r.lines || []).length} بنود${total ? "، " + money(total) + " متر مربع" : ""}. راجع ثم احفظ.`, `${KIND[k][0]}: ${(r.lines || []).length} لائن${total ? "، " + money(total) + " میٹر" : ""}۔ دیکھ کر محفوظ کریں۔`);
+    const said = r.ask ? back + " " + r.ask : back;
+    try { speak(said, { language: lang === "ur" ? "ur-PK" : lang === "ar" ? "ar-SA" : "en-US" }); } catch { /* no voice on this device */ }
+    setSMsg(r.ask ? String(r.ask) : "");
+  };
+  /** The staff member said yes: the new project is made (Abu's side), he is put on it, and the owner is told. */
+  const makeProject = async () => {
+    if (!pend) return;
+    setSBusy(true); setSMsg("");
+    try {
+      const { data, error } = await supabase.functions.invoke("site", { body: { action: "make_project", name: pend.r.new_project, lang } });
+      if (error || (data as any)?.error) throw new Error((data as any)?.error || error?.message);
+      await reload(["projects"]);
+      const p = pend; setPend(null); openSheet(p.r, p.text, (data as any).id);
+    } catch (e: any) { setSMsg(e.message); }
+    setSBusy(false);
+  };
   const understandAll = async () => {
     const text = say.trim(); if (!text) return;
     stopListening(); setSBusy(true); setSMsg("");
@@ -33,16 +57,16 @@ export default function Sheets() {
       const names = [...new Set([...(d.sub_names || (d.subcontractors || []).map((x: any) => x.name) || []).map((x: any) => (typeof x === "string" ? x : x?.name)), ...Object.keys(owed)])].filter(Boolean).slice(0, 80);
       const { data, error } = await supabase.functions.invoke("site", { body: { action: "route", text, lang, projects: (d.projects || []).map((p: any) => p.name), names } });
       if (error || (data as any)?.error) throw new Error((data as any)?.error || error?.message);
-      const r = data as any, k = r.kind as Kind;
-      const proj = (d.projects || []).find((p: any) => r.project && String(p.name).toLowerCase() === String(r.project).toLowerCase())?.id || pid || (d.projects || [])[0]?.id || "";
-      setEdit(k === "pay" ? { kind: "pay", project_id: proj, party: r.party, amount: r.amount ?? "", lines: [{ method: r.method || "Cash", note: "" }], status: "draft", n: Date.now() }
-        : { kind: k, project_id: proj, party: r.party, rate: r.rate ?? "", lines: (r.lines || []).map((l: any) => ({ ...blank(k), ...l })), status: "draft", heard: text, n: Date.now() });
-      const total = k === "pay" ? 0 : (r.lines || []).reduce((t: number, l: any) => t + lineArea(k, l), 0);
-      const back = k === "pay" ? L(`Payment to ${r.party}: ${r.amount} riyal. Check and save.`, `دفعة إلى ${r.party}: ${r.amount} ريال. راجع ثم احفظ.`, `${r.party} کو ادائیگی: ${r.amount} ریال۔ دیکھ کر محفوظ کریں۔`)
-        : L(`${KIND[k][0]}: ${(r.lines || []).length} lines${total ? ", " + money(total) + " square metres" : ""}. Check and save.`, `${KIND[k][0]}: ${(r.lines || []).length} بنود${total ? "، " + money(total) + " متر مربع" : ""}. راجع ثم احفظ.`, `${KIND[k][0]}: ${(r.lines || []).length} لائن${total ? "، " + money(total) + " میٹر" : ""}۔ دیکھ کر محفوظ کریں۔`);
-      const said = r.ask ? back + " " + r.ask : back;
-      try { speak(said, { language: lang === "ur" ? "ur-PK" : lang === "ar" ? "ar-SA" : "en-US" }); } catch { /* no voice on this device */ }
-      if (r.ask) setSMsg(String(r.ask));
+      const r = data as any;
+      const hit = (d.projects || []).find((p: any) => r.project && String(p.name).toLowerCase() === String(r.project).toLowerCase())?.id || "";
+      // He named a project the app does not have yet: ask him, and make it on his yes (the owner is told).
+      if (!hit && String(r.new_project || "").trim()) {
+        setPend({ r, text });
+        const q = L(`"${r.new_project}" is not in the app yet. Shall I add it as a new project?`, `"${r.new_project}" غير موجود في التطبيق. هل أضيفه كمشروع جديد؟`, `"${r.new_project}" ایپ میں نہیں ہے۔ نیا پراجیکٹ بنا دوں؟`);
+        setSMsg(q); try { speak(q, { language: lang === "ur" ? "ur-PK" : lang === "ar" ? "ar-SA" : "en-US" }); } catch { /* no voice */ }
+        setSay(""); setSBusy(false); return;
+      }
+      openSheet(r, text, hit || pid || (d.projects || [])[0]?.id || "");
       setSay("");
     } catch (e: any) { setSMsg(e.message); }
     setSBusy(false);
@@ -80,6 +104,10 @@ export default function Sheets() {
         <Voice value={say} onChange={setSay} placeholder={L("Order, stone sizes, a contractor's measurement, or a payment to the stone supplier", "طلب، مقاسات حجر، قياس مقاول، أو دفعة لمورد الحجر", "آرڈر، پتھر کے سائز، ٹھیکیدار کی پیمائش، یا پتھر والے کو ادائیگی")} />
         <Btn big kind="primary" title={L("Understand", "افهم", "سمجھو")} busy={sBusy} disabled={!say.trim()} onPress={understandAll} style={{ alignSelf: "stretch" }} />
         {sMsg ? <T color={c.warn}>{sMsg}</T> : null}
+        {pend ? <Row style={{ gap: 8 }}>
+          <Btn big kind="primary" title={L("Yes, add it", "نعم، أضفه", "ہاں، بنا دو")} busy={sBusy} onPress={makeProject} style={{ flex: 1 }} />
+          <Btn big title={L("No", "لا", "نہیں")} onPress={() => { const p = pend; setPend(null); openSheet(p.r, p.text, pid || ""); }} style={{ flex: 1 }} />
+        </Row> : null}
       </Card>
       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12 }}>
         {(Object.keys(KIND) as Kind[]).map((k) => <Tile key={k} icon={KIND[k][2]} title={KIND[k][0]} sub={KIND[k][1]} onPress={() => setEdit({ kind: k, project_id: pid || (d.projects || [])[0]?.id || "", party: "", lines: [], status: "draft" })} />)}

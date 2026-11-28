@@ -254,7 +254,14 @@ export function Dashboard({ go }: { go?: (k: string) => void } = {}) {
   const [deciding, setDeciding] = useState("");
   const decideInbox = async (x: any, yes: boolean) => {
     setDeciding(x.id);
-    try { await update("agent_inbox", x.id, { status: yes ? "approved" : "rejected", decided_at: new Date().toISOString() }); if (yes) await supabase.functions.invoke("brain", { body: { action: "apply", id: x.id } }).catch(() => {}); await reload(["agent_inbox"]); } catch {}
+    try {
+      // A project a staff member added by voice: yes keeps it (the owner then fills in its details under Projects), no closes it.
+      if (x.data?.type === "new_project") {
+        if (!yes && x.data.project_id) await update("projects", x.data.project_id, { status: "closed" });
+        await update("agent_inbox", x.id, { status: yes ? "done" : "rejected", decided_at: new Date().toISOString(), result: yes ? "Kept. Fill in the details under Projects." : "Closed." });
+        await reload(["agent_inbox", "projects"]);
+      } else { await update("agent_inbox", x.id, { status: yes ? "approved" : "rejected", decided_at: new Date().toISOString() }); if (yes) await supabase.functions.invoke("brain", { body: { action: "apply", id: x.id } }).catch(() => {}); await reload(["agent_inbox"]); }
+    } catch {}
     setDeciding("");
   };
   const wk = sum(pr.filter((x: any) => dkey(x) >= days[0]), "qty"), wkBefore = sum(pr.filter((x: any) => { const k = dkey(x); return k < days[0] && k >= new Date(Date.now() - 13 * 864e5).toISOString().slice(0, 10); }), "qty");

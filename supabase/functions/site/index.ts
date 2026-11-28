@@ -2,6 +2,7 @@
 //  kind "material": an order for accessories (angles, glue, bolts, anchors…)  → Arabic item lines for the supplier
 //  kind "stone":    stone sizes to order ("30×60, 20 pieces, for the entrance")  → size lines
 //  Every answer may carry "ask": one short question back to the speaker, in his language, when something is missing or unclear.
+//  action "make_project": a staff member named a project the app does not have and agreed to add it.
 //  kind "measure":  measured work of a subcontractor ("column 3.2 by 0.6, ceiling 4 by 2 minus 0.5") → length, width, deduction
 // The app does every sum; this function only reads the words. Any signed-in, active account may use it.
 // It keeps learning the team's own words: after a sheet is made final, action "learn" compares what was said with what was
@@ -59,7 +60,7 @@ Deno.serve(async (req) => {
     if (p.action === "route") {
       if (!text) return json({ error: "Nothing to read" }, 400);
       const rr = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "x-api-key": KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-        body: JSON.stringify({ model: MODEL, max_tokens: 2500, system: SYSTEM, messages: [{ role: "user", content: `First decide what the speaker wants, then fill it. Return {"kind":"material|stone|measure|pay","project":"<project name if he said one, exactly as in PROJECTS, else empty>","party":"<supplier or subcontractor>","amount":<SAR paid, only for pay, else null>,"rate":<supplier's rate per m2 if said, only for stone, else null>,"method":"<Cash|Hawala|Bank transfer, only for pay>","lines":[...],"ask":"<as the system rules say, else empty>"}
+        body: JSON.stringify({ model: MODEL, max_tokens: 2500, system: SYSTEM, messages: [{ role: "user", content: `First decide what the speaker wants, then fill it. Return {"kind":"material|stone|measure|pay","project":"<project name if he said one, exactly as in PROJECTS, else empty>","party":"<supplier or subcontractor>","amount":<SAR paid, only for pay, else null>,"rate":<supplier's rate per m2 if said, only for stone, else null>,"method":"<Cash|Hawala|Bank transfer, only for pay>","lines":[...],"ask":"<as the system rules say, else empty>","new_project":"<only if he clearly names a project, site or area that is NOT in PROJECTS and is not one of the team's words for a listed project: that name as he said it, in Latin letters if he spoke Urdu or English, Arabic if he spoke Arabic. Else empty. Never a subcontractor, a supplier, a place inside a building or a stone type>"}
 REPLY LANGUAGE: ${replyLang}
 kind "material" = he orders accessories or materials. ${TASK.material}
 kind "stone" = he lists stone sizes ordered or arrived. ${TASK.stone}
@@ -74,7 +75,24 @@ THE NOTE: ${text}` }] }) });
       if (ra < 0 || rb <= ra) return json({ error: "Could not read it. Say it again." }, 422);
       const o = JSON.parse(rt.slice(ra, rb + 1));
       if (!["material", "stone", "measure", "pay"].includes(o.kind)) return json({ error: "Could not tell what you need. Say: order, stone, measurement or payment." }, 422);
-      return json({ kind: o.kind, project: String(o.project || ""), party: String(o.party || "").slice(0, 120), amount: o.amount ?? null, rate: o.rate ?? null, method: String(o.method || ""), lines: Array.isArray(o.lines) ? o.lines.slice(0, 80) : [], ask: String(o.ask || "").slice(0, 300) });
+      return json({ kind: o.kind, project: String(o.project || ""), party: String(o.party || "").slice(0, 120), amount: o.amount ?? null, rate: o.rate ?? null, method: String(o.method || ""), lines: Array.isArray(o.lines) ? o.lines.slice(0, 80) : [], ask: String(o.ask || "").slice(0, 300), new_project: String(o.new_project || "").replace(/[\u0000-\u001f<>]/g, "").trim().slice(0, 60) });
+    }
+    // A staff member named a project the app does not have, and said yes to adding it. It is made on Abu's side (the owner's
+    // own projects stay his), the person who asked is put on it, and the owner is told in his approvals list. At most 3 a day each.
+    if (p.action === "make_project") {
+      const name = String(p.name || "").replace(/[\u0000-\u001f<>]/g, "").trim().slice(0, 60);
+      if (name.length < 2) return json({ error: "No project name" }, 400);
+      const { data: same } = await db.from("projects").select("id, name").ilike("name", name).limit(1);
+      if (same?.[0]) return json({ id: same[0].id, name: same[0].name, existed: true });
+      const since = new Date(Date.now() - 864e5).toISOString();
+      const { count } = await db.from("projects").select("id", { count: "exact", head: true }).eq("created_by", who.user.id).gte("created_at", since);
+      if (prof.role !== "admin" && (count ?? 0) >= 3) return json({ error: "3 new projects today already. Ask the owner." }, 429);
+      const { data: made, error: me } = await db.from("projects").insert({ name, owner: prof.role === "admin" ? "admin" : "abu", status: "active", created_by: who.user.id }).select("id, name").single();
+      if (me || !made) return json({ error: me?.message || "Could not add the project" }, 500);
+      if (prof.role === "supervisor") await db.from("project_members").insert({ project_id: made.id, user_id: who.user.id }).then(() => {}, () => {});
+      const { data: me2 } = await db.from("profiles").select("name").eq("id", who.user.id).single();
+      await db.from("agent_inbox").insert({ source: "staff", kind: "approval", area: "site", status: "waiting", title: `Naya project: ${name} (${me2?.name || prof.role} ne bol kar banaya)`, body: `${me2?.name || prof.role} ne is project ka naam liya jo app me nahi tha, aur us ki haan pe ye Abu ke hisse me ban gaya.\nApprove = project rehne dein; phir Projects me khol kar service fee, client aur company bhar dein.\nReject = project band ho jayega.`, data: { type: "new_project", project_id: made.id, from: me2?.name || "", role: prof.role, benefit: "Naya project: details bharni hain" } }).then(() => {}, () => {});
+      return json({ id: made.id, name: made.name });
     }
     if (!TASK[kind] || !text) return json({ error: "Nothing to read" }, 400);
     const content = `${TASK[kind]} Add "ask" as the system rules say.\nREPLY LANGUAGE: ${replyLang}\n${terms.length ? "This team's own words, learned from earlier sheets (said → written): " + JSON.stringify(terms.slice(-120)) + "\n" : ""}${p.names?.length ? "Known names (subcontractors, suppliers): " + JSON.stringify(p.names).slice(0, 1500) + "\n" : ""}THE NOTE: ${text}`;

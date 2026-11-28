@@ -22,9 +22,15 @@ export default function Inbox() {
   const decide = async (x: any, yes: boolean) => {
     setBusy(x.id); setMsg("");
     try {
-      await update("agent_inbox", x.id, { status: yes ? "approved" : "rejected", decided_at: new Date().toISOString() });
-      if (yes) await brain({ action: "apply", id: x.id }).catch(() => {});
-      await reload(["agent_inbox"]);
+      if (x.data?.type === "new_project") {
+        if (!yes && x.data.project_id) await update("projects", x.data.project_id, { status: "closed" });
+        await update("agent_inbox", x.id, { status: yes ? "done" : "rejected", decided_at: new Date().toISOString(), result: yes ? "Kept. Fill in the details under Projects." : "Closed." });
+        await reload(["agent_inbox", "projects"]);
+      } else {
+        await update("agent_inbox", x.id, { status: yes ? "approved" : "rejected", decided_at: new Date().toISOString() });
+        if (yes) await brain({ action: "apply", id: x.id }).catch(() => {});
+        await reload(["agent_inbox"]);
+      }
     } catch (e: any) { setMsg(e.message); }
     setBusy("");
   };
