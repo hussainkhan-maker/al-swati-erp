@@ -9,7 +9,7 @@ import { Pressable, View } from "react-native";
 import { useData } from "../lib/data";
 import { money, num, r2 } from "../lib/fmt";
 import { speechLang } from "../lib/i18n";
-import { mArea, mGross, mIsDed, mQty, mValid, measureDoc } from "../lib/measure";
+import { mArea, mGross, mIsDed, mQty, mValid, measureDoc, quickLine } from "../lib/measure";
 import { docHTML, makeAndShare } from "../lib/pdf";
 import { supabase } from "../lib/supabase";
 import { hush, isSpeaking, say, stopListening } from "../lib/talk";
@@ -76,9 +76,15 @@ export function LiveMeasure({ init, onClose }: { init?: any; onClose: () => void
     const fixed = text.replace(/قسم|کسم|كسم|خسم|قصم|حسم|کسام|خصام|قسام|खसम|कसम|क़िस्म|किस्म|क़सम/g, "خصم").replace(/\b(qisam|kisam|qasam|kasam|qism|khasm|hasam|kasm|kassam|qasim)\b/gi, "khasam")
       // "3 ishariya 20" is how he says 3.20
       .replace(/(\d+)\s*(?:ishariya|ishariye|ashariya|asharia|اشاریہ|اشاریے|اعشاریہ|عشاریہ|اشاریا|فاصلة|فاصله|point|پوائنٹ)\s*(\d+)/gi, "$1.$2");
-    const { data, error } = await supabase.functions.invoke("site", { body: { kind: "measure", text: fixed, lang, names: subs.slice(0, 60) } });
-    if (error || (data as any)?.error) throw new Error((data as any)?.error || error?.message);
-    const r = data as any;
+    // A plain entry is read on the phone at once; only a sentence with a name, a place or anything unclear goes to the server.
+    const quick = quickLine(fixed);
+    let r: any;
+    if (quick) r = { party: "", lines: [quick] };
+    else {
+      const { data, error } = await supabase.functions.invoke("site", { body: { kind: "measure", text: fixed, lang, names: subs.slice(0, 60) } });
+      if (error || (data as any)?.error) throw new Error((data as any)?.error || error?.message);
+      r = data as any;
+    }
     const said = r.party ? subs.find((x) => x.toLowerCase() === String(r.party).toLowerCase()) : "";
     if (said && now.current.party && said !== now.current.party) switchParty(said);
     if (r.party && !now.current.party) { const hit = subs.find((s) => s.toLowerCase() === String(r.party).toLowerCase()) || String(r.party); setParty(hit); now.current.party = hit; }

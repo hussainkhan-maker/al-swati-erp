@@ -49,3 +49,38 @@ export function measureDoc(all: any[], who: string, project: string, en: boolean
     [X("Entries", "عدد البنود"), String(lines.length)], [deds.length ? X("Net total m²", "المجموع الصافي م²") : X("Total m²", "المجموع م²"), money(sub(all))]];
   return { title: `${X("Work measurement", "قياس أعمال")} - ${who || "-"} - ${project}`, cols, rows, sum, numCols: [] as number[] };
 }
+
+// ───────── the fast reader ─────────
+// A plain entry ("عمود 3.20 0.60", "خصم باب 2 1", "5 عمود 4 ضرب 2", "حديد جدار 6 3") is read on the phone itself, at once,
+// with no waiting for the server. It only answers when every word is one it knows and the numbers can mean one thing;
+// anything else (a name, a place, an unclear sentence) returns null and goes to the full reader.
+const Q_ELEM: [RegExp, string][] = [[/seedhi?\s*deewar|straight\s*wall|جدار\s*مستقيم|جدار\s*مستقیم|سیدھی\s*دیوار/gi, "جدار مستقيم"], [/amood|amoot|amud|amod|column|pillar|عمود|اموت|امود|ستون|अमूद|अमूत|आमूद/gi, "عمود"], [/saqaf|saqf|sakaf|sagaf|ceiling|soffit|سقف|صقف|چھت|सकफ|छत/gi, "سقف"], [/beam|kamra|camera|كمرة|کمرہ|کیمرہ|بیم|कैमरा/gi, "كمرة"], [/deewar|diwar|dewar|wall|jidar|جدار|دیوار|जेदार|जिदार|दीवार/gi, "جدار"], [/khirki|window|شبابيك|شبابیک|شباك|نافذة|کھڑکی|खिड़की/gi, "شباك"], [/darwaza|darwaze|door|باب|دروازہ|دروازے|दरवाजा|दरवाज़ा/gi, "باب"], [/zeena|stairs?|درج|سیڑھی/gi, "درج"], [/decor|ديكور|دیکور|ڈیکور|डेकोर/gi, "ديكور"]];
+const Q_DED = /khasam|خصم|खसम/gi;
+const Q_CHANNEL = /hadeed|hadid|channel|chanel|shanal|حديد|حدید|شانل|شینل|چینل|قناة|हदीद|चैनल/gi;
+const Q_WALL = /\bsada\b|\bsaada\b|سادة|ساده|سادہ|सादा/gi;
+const Q_M2 = /murabba|square|sq\.?\s*m|مربع|مربّع/gi;
+const Q_FILL = /zarb|\bby\b|\bfi\b|\binto\b|guna|ضرب|في|فی|گنا|×|\*|\bx\b|tool|\bard\b|arz|طول|عرض|لمبائی|چوڑائی|meter|metre|میٹر|متر|ميتر|मीटर|\bka\b|\bki\b|\bke\b|\bpe\b|\bpar\b|\bor\b|\baur\b|کا|کی|کے|پر|پہ|اور|و|،|,|۔|\./gi;
+const has = (re: RegExp, t: string) => { re.lastIndex = 0; const r = re.test(t); re.lastIndex = 0; return r; };
+export function quickLine(raw: string): any | null {
+  let t = " " + String(raw || "").replace(/[٠-٩]/g, (d) => String("٠١٢٣٤٥٦٧٨٩".indexOf(d))).replace(/[۰-۹]/g, (d) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(d))).replace(/(\d)[٫,](\d)/g, "$1.$2") + " ";
+  const ded = has(Q_DED, t); t = t.replace(Q_DED, " ");
+  const m2 = has(Q_M2, t); t = t.replace(Q_M2, " ");
+  // the numbers, in the order he said them, with where each one stood
+  const nums: { v: number; at: number }[] = []; t = t.replace(/\d+(?:\.\d+)?/g, (m, at) => { nums.push({ v: Number(m), at }); return " ".repeat(m.length); });
+  let element = "", elAt = -1;
+  for (const [re, name] of Q_ELEM) { re.lastIndex = 0; const m = re.exec(t); re.lastIndex = 0; if (m) { if (element) return null; element = name; elAt = m.index; let n = 0; t = t.replace(re, (x) => { n++; return " ".repeat(x.length); }); if (n > 1) return null; } }
+  const channel = has(Q_CHANNEL, t), wall = has(Q_WALL, t); if (channel && wall) return null;
+  t = t.replace(Q_CHANNEL, " ").replace(Q_WALL, " ").replace(Q_FILL, " ");
+  if (t.replace(/\s+/g, "")) return null; // a word it does not know: the full reader takes it
+  if (nums.some((n) => !(n.v > 0) || n.v > 500)) return null;
+  const base: any = { place: "", element, deduct: 0, system: channel ? "channel" : wall ? "wall" : "", ...(ded ? { ded: true } : {}) };
+  const isDoor = element === "باب" || element === "شباك";
+  if (isDoor && !ded) return null; // a door without the word khasam: ask the full reader rather than guess
+  if (m2) return nums.length === 1 ? { ...base, qty: 1, l: 0, w: 0, m2: nums[0].v } : null;
+  // "5 عمود 4.2": a number before the name and one after it is a count with ONE size heard, not a length and a width
+  if (nums.length === 2) return elAt >= 0 && nums[0].at < elAt && nums[1].at > elAt ? null : { ...base, qty: 1, l: nums[0].v, w: nums[1].v };
+  // "5 عمود 4 ضرب 2": a whole number said before the name is the count
+  if (nums.length === 3 && elAt >= 0 && nums[0].at < elAt && nums[1].at > elAt && Number.isInteger(nums[0].v) && nums[0].v <= 200) return { ...base, qty: nums[0].v, l: nums[1].v, w: nums[2].v };
+  if (nums.length === 1 && ded && !element) return { ...base, qty: 1, l: 0, w: 0, m2: nums[0].v }; // "خصم 1.5"
+  return null;
+}
