@@ -18,10 +18,10 @@ import { Btn, Card, Field, Icon, Row, Select, Sheet, T, useColors } from "../ui"
 const n0 = (v: any) => { const x = num(v); return Number.isFinite(x) ? x : 0; };
 const area = mArea;
 const WORDS = ["خصم", "خصم دروازہ", "خصم کھڑکی", "خصم باب", "خصم شباك", "عمود", "سقف", "جدار", "دیوار", "طول", "عرض", "حدید", "سادہ", "چینل", "شانل", "ضرب", "في", "میٹر", "غلط", "بس"];
-const ELEM: [RegExp, string, string][] = [[/seedh|straight|مستقيم|سیدھ/i, "جدار مستقيم", "سیدھی دیوار"], [/amood|amoot|amud|amod|column|pillar|عمود|اموت|امود|ستون/i, "عمود", "عمود"], [/saqaf|saqf|sakaf|ceiling|soffit|سقف|صقف|چھت/i, "سقف", "سقف"], [/beam|kamra|كمرة|بیم/i, "كمرة", "بیم"], [/deewar|diwar|dewar|wall|jidar|جدار|دیوار/i, "جدار", "دیوار"], [/darwaza|door|باب|دروازہ/i, "باب", "دروازہ"], [/khirki|window|شباك|نافذة|کھڑکی/i, "شباك", "کھڑکی"], [/zeena|stair|درج|سیڑھ/i, "درج", "سیڑھی"]];
+const ELEM: [RegExp, string, string][] = [[/seedh|straight|مستقيم|سیدھ/i, "جدار مستقيم", "سیدھی دیوار"], [/amood|amoot|amud|amod|column|pillar|عمود|اموت|امود|ستون|अमूद|अमूत|आमूद/i, "عمود", "عمود"], [/saqaf|saqf|sakaf|ceiling|soffit|سقف|صقف|چھت/i, "سقف", "سقف"], [/beam|kamra|camera|كمرة|کمرہ|کیمرہ|بیم|कैमरा/i, "كمرة", "بیم"], [/deewar|diwar|dewar|wall|jidar|جدار|دیوار|जेदार|जिदार|दीवार/i, "جدار", "دیوار"], [/darwaza|door|باب|دروازہ/i, "باب", "دروازہ"], [/khirki|window|شباك|شبابيك|شبابیک|نافذة|کھڑکی|खिड़की/i, "شباك", "کھڑکی"], [/zeena|stair|درج|سیڑھ/i, "درج", "سیڑھی"]];
 const elemWord = (e: any, lang: string) => { const t = String(e || "").trim(); if (!t || lang === "en") return t; const hit = ELEM.find(([re]) => re.test(t)); return hit ? (lang === "ar" ? hit[1] : hit[2]) : t; };
-const UNDO = /(غلط|ghalat|galat|مٹا|mita|ہٹا|hata|wrong|delete|undo|احذف|امسح|خطأ|کاٹ)/i;
-const STOP = /^\s*(bas|بس|khatam|ختم|ho gaya|ہو گیا|خلاص|خلص|finish|done|stop|رک جا|ruk)/i;
+const UNDO = /(गलत|ग़लत|غلط|ghalat|galat|مٹا|mita|ہٹا|hata|wrong|delete|undo|احذف|امسح|خطأ|کاٹ)/i;
+const STOP = /^\s*(बस|bas|بس|khatam|ختم|ho gaya|ہو گیا|خلاص|خلص|finish|done|stop|رک جا|ruk)/i;
 
 /** The sheet's columns, written the way the subcontractors' paper is: item, length, width, length × width. */
 const HEAD: [string, number][] = [["#", 0.5], ["البند", 2], ["العدد", 0.8], ["الطول", 1], ["العرض", 1], ["م²", 1.2], ["", 0.5]];
@@ -73,7 +73,7 @@ export function LiveMeasure({ init, onClose }: { init?: any; onClose: () => void
       tell(L(`Last line removed. Total ${money(r2(next.reduce((t, l) => t + area(l), 0)))}.`, `حذف آخر بند. المجموع ${money(r2(next.reduce((t, l) => t + area(l), 0)))}.`, `آخری لائن ہٹا دی۔ کل ${money(r2(next.reduce((t, l) => t + area(l), 0)))} میٹر۔`)); return;
     }
     // On this page "qisam / قسم" is always the microphone mishearing "khasam / خصم" (deduction): it is put right before reading.
-    const fixed = text.replace(/قسم|کسم|كسم|خسم|قصم|حسم|کسام|خصام|قسام/g, "خصم").replace(/\b(qisam|kisam|qasam|kasam|qism|khasm|hasam|kasm|kassam|qasim)\b/gi, "khasam")
+    const fixed = text.replace(/قسم|کسم|كسم|خسم|قصم|حسم|کسام|خصام|قسام|खसम|कसम|क़िस्म|किस्म|क़सम/g, "خصم").replace(/\b(qisam|kisam|qasam|kasam|qism|khasm|hasam|kasm|kassam|qasim)\b/gi, "khasam")
       // "3 ishariya 20" is how he says 3.20
       .replace(/(\d+)\s*(?:ishariya|ishariye|ashariya|asharia|اشاریہ|اشاریے|اعشاریہ|عشاریہ|اشاریا|فاصلة|فاصله|point|پوائنٹ)\s*(\d+)/gi, "$1.$2");
     const { data, error } = await supabase.functions.invoke("site", { body: { kind: "measure", text: fixed, lang, names: subs.slice(0, 60) } });

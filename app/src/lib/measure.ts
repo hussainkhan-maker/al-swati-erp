@@ -17,7 +17,7 @@ export const mGross = size;
 export const mArea = (l: any) => (mIsDed(l) ? -size(l) : r2(Math.max(0, size(l) - n0(l?.deduct))));
 export const mValid = (l: any) => sized(l) || n0(l?.m2) > 0;
 
-const NAMES: [RegExp, string, string][] = [[/seedh|straight|مستقيم|سیدھ/i, "جدار مستقيم", "Straight wall"], [/amood|amoot|amud|amod|column|pillar|عمود|اموت|امود|ستون/i, "عمود", "Column"], [/saqaf|saqf|sakaf|sagaf|ceiling|soffit|سقف|صقف|چھت/i, "سقف", "Ceiling"], [/beam|kamra|كمرة|بیم/i, "كمرة", "Beam"], [/deewar|diwar|dewar|wall|jidar|جدار|دیوار/i, "جدار", "Wall"], [/darwaza|door|باب|دروازہ/i, "باب", "Door"], [/khirki|window|شباك|نافذة|کھڑکی/i, "شباك", "Window"], [/zeena|stair|درج|سیڑھ/i, "درج", "Stairs"]];
+const NAMES: [RegExp, string, string][] = [[/seedh|straight|مستقيم|سیدھ/i, "جدار مستقيم", "Straight wall"], [/amood|amoot|amud|amod|column|pillar|عمود|اموت|امود|ستون|अमूद|अमूत|आमूद/i, "عمود", "Column"], [/saqaf|saqf|sakaf|sagaf|ceiling|soffit|سقف|صقف|چھت/i, "سقف", "Ceiling"], [/beam|kamra|camera|كمرة|کمرہ|کیمرہ|بیم|कैमरा/i, "كمرة", "Beam"], [/deewar|diwar|dewar|wall|jidar|جدار|دیوار|जेदार|जिदार|दीवार/i, "جدار", "Wall"], [/darwaza|door|باب|دروازہ/i, "باب", "Door"], [/khirki|window|شباك|شبابيك|شبابیک|نافذة|کھڑکی|खिड़की/i, "شباك", "Window"], [/zeena|stair|درج|سیڑھ/i, "درج", "Stairs"]];
 export const elemName = (e: any, en: boolean) => { const t = String(e || "").trim(); const hit = NAMES.find(([re]) => re.test(t)); return hit ? (en ? hit[2] : hit[1]) : t; };
 
 /** The paper: every entry on its own row with its working, grouped under "on the wall" and "on C-channel", a subtotal
