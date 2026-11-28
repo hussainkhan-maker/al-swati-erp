@@ -18,6 +18,10 @@ type Kind = "material" | "stone" | "measure" | "pay";
 const n0 = (v: any) => { const x = num(v); return Number.isFinite(x) ? x : 0; };
 /** m² of one line: stone = length cm × width cm × pieces; measure = length m × width m − deduction. */
 export const lineArea = (kind: Kind, l: any) => kind === "stone" ? r2((n0(l.l) * n0(l.w) * n0(l.qty)) / 10000) : kind === "measure" ? r2(Math.max(0, n0(l.l) * n0(l.w) - n0(l.deduct))) : 0;
+const SITE_WORDS = ["عمود", "سقف", "جدار", "دیوار", "طول", "عرض", "خصم", "حدید", "سادہ", "چینل", "شانل", "زاویہ", "متر", "میٹر", "في", "ضرب"];
+/** What was measured, written the way the team says it (they do not read English): column → عمود, wall → دیوار / جدار… */
+const ELEM: [RegExp, string, string][] = [[/seedh|straight|مستقيم|سیدھ/i, "جدار مستقيم", "سیدھی دیوار"], [/amood|amoot|amud|amod|column|pillar|عمود|اموت|امود|ستون/i, "عمود", "عمود"], [/saqaf|saqf|sakaf|ceiling|soffit|سقف|صقف|چھت/i, "سقف", "سقف"], [/beam|kamra|كمرة|بیم/i, "كمرة", "بیم"], [/deewar|diwar|dewar|wall|jidar|جدار|دیوار/i, "جدار", "دیوار"], [/darwaza|door|باب|دروازہ/i, "باب", "دروازہ"], [/khirki|window|شباك|نافذة|کھڑکی/i, "شباك", "کھڑکی"], [/zeena|stair|درج|سیڑھ/i, "درج", "سیڑھی"]];
+export const elemWord = (e: any, lang: string) => { const t = String(e || "").trim(); if (!t || lang === "en") return t; const hit = ELEM.find(([re]) => re.test(t)); return hit ? (lang === "ar" ? hit[1] : hit[2]) : t; };
 const blank = (kind: Kind) => kind === "material" ? { name: "", size: "", qty: "", unit: "حبة", note: "" } : kind === "stone" ? { place: "", l: "", w: "", qty: "", note: "" } : { place: "", element: "", l: "", w: "", deduct: "", system: "", photo: "" };
 const filled = (kind: Kind, l: any) => kind === "material" ? String(l.name || "").trim() : n0(l.l) > 0 && n0(l.w) > 0;
 
@@ -29,6 +33,8 @@ export default function Sheets() {
   const [pend, setPend] = useState<any>(null);
   const openSheet = (r: any, text: string, proj: string) => {
     const k = r.kind as Kind;
+    if (k === "pay" && role === "supervisor") { const m = L("Payments are written by the owner or Abu, not here.", "الدفعات يسجلها المالك أو أبو، ليس هنا.", "ادائیگی مالک یا ابو لکھتے ہیں، یہاں نہیں۔"); setSMsg(m); try { speak(m, { language: lang === "ur" ? "ur-PK" : lang === "ar" ? "ar-SA" : "en-US" }); } catch { /* no voice */ } return; }
+    if (k === "measure") r = { ...r, lines: (r.lines || []).map((l: any) => ({ ...l, element: elemWord(l.element, lang) })) };
     setEdit(k === "pay" ? { kind: "pay", project_id: proj, party: r.party, amount: r.amount ?? "", lines: [{ method: r.method || "Cash", note: "" }], status: "draft", n: Date.now() }
       : { kind: k, project_id: proj, party: r.party, rate: r.rate ?? "", lines: (r.lines || []).map((l: any) => ({ ...blank(k), ...l })), status: "draft", heard: text, n: Date.now() });
     const total = k === "pay" ? 0 : (r.lines || []).reduce((t: number, l: any) => t + lineArea(k, l), 0);
@@ -101,7 +107,7 @@ export default function Sheets() {
       <H1>{L("Orders & measurements", "الطلبات والقياسات", "آرڈر اور پیمائش")}</H1>
       <Card style={{ gap: 10 }}>
         <T bold center size={17}>{L("Just say it", "قلها فقط", "بس بول دیں")}</T>
-        <Voice value={say} onChange={setSay} placeholder={L("Order, stone sizes, a contractor's measurement, or a payment to the stone supplier", "طلب، مقاسات حجر، قياس مقاول، أو دفعة لمورد الحجر", "آرڈر، پتھر کے سائز، ٹھیکیدار کی پیمائش، یا پتھر والے کو ادائیگی")} />
+        <Voice value={say} onChange={setSay} hints={[...SITE_WORDS, ...(d.projects || []).flatMap((p: any) => [p.name, ...(p.site?.aka || [])])]} placeholder={role === "supervisor" ? L("Order, stone sizes, or a contractor's measurement", "طلب، مقاسات حجر، أو قياس مقاول", "آرڈر، پتھر کے سائز، یا ٹھیکیدار کی پیمائش") : L("Order, stone sizes, a contractor's measurement, or a payment to the stone supplier", "طلب، مقاسات حجر، قياس مقاول، أو دفعة لمورد الحجر", "آرڈر، پتھر کے سائز، ٹھیکیدار کی پیمائش، یا پتھر والے کو ادائیگی")} />
         <Btn big kind="primary" title={L("Understand", "افهم", "سمجھو")} busy={sBusy} disabled={!say.trim()} onPress={understandAll} style={{ alignSelf: "stretch" }} />
         {sMsg ? <T color={c.warn}>{sMsg}</T> : null}
         {pend ? <Row style={{ gap: 8 }}>
@@ -110,14 +116,14 @@ export default function Sheets() {
         </Row> : null}
       </Card>
       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12 }}>
-        {(Object.keys(KIND) as Kind[]).map((k) => <Tile key={k} icon={KIND[k][2]} title={KIND[k][0]} sub={KIND[k][1]} onPress={() => setEdit({ kind: k, project_id: pid || (d.projects || [])[0]?.id || "", party: "", lines: [], status: "draft" })} />)}
+        {(Object.keys(KIND) as Kind[]).filter((k) => k !== "pay" || role !== "supervisor").map((k) => <Tile key={k} icon={KIND[k][2]} title={KIND[k][0]} sub={KIND[k][1]} onPress={() => setEdit({ kind: k, project_id: pid || (d.projects || [])[0]?.id || "", party: "", lines: [], status: "draft" })} />)}
       </View>
       {owing.length ? (
         <Card style={{ borderColor: c.warn, backgroundColor: c.warnSoft, gap: 6 }}>
           <T bold color={c.warn}>{L(`${owing.length} order(s) placed: the invoice photo is still missing`, `${owing.length} طلب: صورة الفاتورة غير موجودة`, `${owing.length} آرڈر: بل کی تصویر ابھی نہیں آئی`)}</T>
           {owing.slice(0, 5).map((x) => <Pressable key={x.id} onPress={() => setEdit(x)} style={{ paddingVertical: 4, cursor: "pointer" } as any}><T size={14}>{pname(d, x.project_id)} · {KIND[x.kind as Kind][0]}{x.party ? " · " + x.party : ""} · {day(x.final_at || x.created_at)}</T></Pressable>)}
         </Card>) : null}
-      {owedList.length ? (
+      {owedList.length && role !== "supervisor" ? (
         <Card style={{ gap: 4 }}>
           <T bold>{L("Stone suppliers: still to pay", "موردو الحجر: المتبقي", "پتھر والے: باقی رقم")}</T>
           {owedList.map(([name, v], i) => (
@@ -172,7 +178,7 @@ function Editor({ init, onClose, L, title, canReopen }: { init: any; onClose: ()
 
   /** What the reader returned goes into the sheet. It says aloud what it wrote and asks back when something is unclear. */
   const take = (data: any, heard: string) => {
-    const got = (data.lines || []).map((l: any) => ({ ...blank(kind), ...l }));
+    const got = (data.lines || []).map((l: any) => ({ ...blank(kind), ...l, ...(kind === "measure" ? { element: elemWord(l.element, lang) } : {}) }));
     if (!got.length) throw new Error(data.ask || L("Nothing understood. Say it again, one item at a time.", "لم أفهم. قلها مرة أخرى، بندًا بندًا.", "سمجھ نہیں آیا۔ دوبارہ بولیں، ایک ایک چیز۔"));
     setF((x: any) => ({ ...x, party: x.party || data.party || "", heard: [x.heard, heard].filter(Boolean).join(" | "), lines: [...x.lines.filter((l: any) => filled(kind, l)), ...got] }));
     const sum = r2(got.reduce((t: number, l: any) => t + lineArea(kind, l), 0));
@@ -292,7 +298,7 @@ function Editor({ init, onClose, L, title, canReopen }: { init: any; onClose: ()
         {kind === "stone" && amount ? <T size={14}>{money(total)} m² × {money(rate)} = <T bold size={14}>{money(amount)} SAR</T></T> : null}
       </Card>
       {!locked ? <Card>
-        <Voice value={text} onChange={setText} hints={subs} placeholder={kind === "material" ? "زاوية 5×5 مئة حبة، غراء أبو جمال 10 كرتون، مسمار 10×100 مئتين"
+        <Voice value={text} onChange={setText} hints={[...SITE_WORDS, ...subs]} placeholder={kind === "material" ? "زاوية 5×5 مئة حبة، غراء أبو جمال 10 كرتون، مسمار 10×100 مئتين"
           : kind === "stone" ? "30×60 عشرين حبة للمدخل، 30×80 أربعين حبة للواجهة" : "عمود طول 3.2 عرض 0.6، سقف 4 في 2 خصم 0.5، جدار 6 في 3"} />
         <Btn big kind="primary" title={L("Understand", "افهم", "سمجھو")} busy={busy === "read"} disabled={!text.trim()} onPress={understand} style={{ alignSelf: "stretch" }} />
       </Card> : null}
