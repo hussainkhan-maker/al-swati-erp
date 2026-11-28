@@ -180,7 +180,7 @@ function SpeakSheet({ init, onClose, open }: { init?: any; onClose: () => void; 
 
       {o && <Card>
         {parsed?.heard ? <Row wrap><T size={16} style={{ flex: 1 }}>“{parsed.heard}”</T><Btn kind="ghost" title={t("readBack")} onPress={() => say(parsed.heard, { language: speechLang(lang) })} /></Row> : null}
-        {o.intent === "expense" && <Select label="Type of expense *" value="small" options={[{ value: "small", label: "Small expense (no photo): transport, food, tools…" }, { value: "material", label: "Material purchase (invoice photo; AI reads items, VAT, invoice no.)" }]}
+        {o.intent === "expense" && <Select label="Type of expense *" value="small" options={[{ value: "small", label: "Small expense (no photo): transport, food, tools…" }, { value: "material", label: "Material purchase (invoice photo)" }]}
           onChange={(v) => { if (v === "material") { const pid = o.project_id; onClose(); setTimeout(() => open("purchase", { voice: { project_id: pid } }), 350); } }} />}
         {(parsed?.questions || []).filter(Boolean).map((qq: string, i: number) => <Card key={i} style={{ backgroundColor: c.warnSoft, borderColor: c.warnSoft }}><T color={c.warn}>{t("question")}: {qq}</T></Card>)}
         <Select label={t("project") + " *"} value={o.project_id} options={projOpts(projects)} onChange={(v) => setO((x: any) => ({ ...x, project_id: v, invoice_no: undefined }))} />

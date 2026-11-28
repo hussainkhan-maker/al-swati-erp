@@ -18,10 +18,10 @@ export function Home() {
         <Tile icon="receipt" title={t("purchase")} sub={t("ck_photo")} onPress={() => flows("purchase")} />
         <Tile icon="doc" title={t("report")} sub="PDF" onPress={() => flows("statement")} />
         <Tile icon="mic" title={lang === "ur" ? "الفاظ سکھائیں" : lang === "ar" ? "علّم الكلمات" : "Teach words"} sub={lang === "ur" ? "ایک ایک لفظ بول کر" : ""} onPress={() => flows("teach")} />
-        <Tile icon="spark" title={lang === "ur" ? "مددگار سے پوچھیں" : "Ask"} sub={lang === "ur" ? "«عزیر نے کتنا کام کیا؟»" : ""} onPress={() => flows("ask")} />
+        <Tile icon="spark" title={lang === "ur" ? "مددگار سے پوچھیں" : lang === "ar" ? "اسأل المساعد" : "Ask"} sub={lang === "ur" ? "«عزیر نے کتنا کام کیا؟»" : ""} onPress={() => flows("ask")} />
       </View>
       <Card>
-        <T bold>{lang === "ur" ? "طریقہ" : "How to"}</T>
+        <T bold>{lang === "ur" ? "طریقہ" : lang === "ar" ? "الطريقة" : "How to"}</T>
         <T>1. سنہرا بٹن دبا کر رکھیں اور بولیں، چھوڑیں تو رک جائے گا کس نے کتنے میٹر کام کیا۔</T>
         <T>پیمائش: سنہرا بٹن دبا کر بولیں «زر کی پیمائش، عمود 3.2 ضرب 0.6»۔ شیٹ کھل جائے گی۔ ہر جگہ کے لیے مائیک دبا کر رکھیں اور بولیں، لائن خود لکھی جائے گی۔ آخر میں فائنل دبائیں، PDF بن جائے گا۔</T>
         <T>2. «سمجھو» دبائیں۔ فون آپ کو سنائے گا کہ اس نے کیا سمجھا۔</T>

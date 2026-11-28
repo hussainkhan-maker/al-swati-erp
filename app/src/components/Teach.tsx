@@ -27,7 +27,9 @@ export function TeachSheet({ onClose }: { onClose: () => void }) {
     const heard = (buf.current + " " + partial.current).trim(); buf.current = ""; partial.current = ""; kept.current = ""; setHearing("");
     if (!heard) return;
     const w = words[idx.current];
-    try { await supabase.rpc("teach_term", { p_said: heard, p_means: w }); } catch { /* kept next time */ }
+    let failed = false;
+    try { const { error } = await supabase.rpc("teach_term", { p_said: heard, p_means: w }); failed = !!error; } catch { failed = true; }
+    if (failed) { setMsg(L("Not saved. Say it again.", "لم يُحفظ. قلها مرة أخرى.", "محفوظ نہیں ہوا۔ دوبارہ بولیں۔")); return; }
     setDone((n) => n + 1);
     setMsg(L(`Heard: "${heard}". Saved as ${w}.`, `سمعت: «${heard}». حُفظت: ${w}.`, `سنا: «${heard}»۔ محفوظ: ${w}`));
     setTimeout(() => { if (idx.current < words.length - 1 && !held.current) { setI(idx.current + 1); setMsg(""); } }, 1400);

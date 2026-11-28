@@ -63,7 +63,7 @@ export function Home({ go }: { go: (k: string) => void }) {
       {review > 0 && <Card onPress={() => go("quotes")}><Row><T bold style={{ flex: 1 }}>{W("عروض الأسعار", "کوٹیشنز", "Quotations")}</T><Pill kind="warn" text={`${review} ${W("للمراجعة", "دیکھنے کے لیے", "to review")}`} /></Row></Card>}
       <Card>
         <T bold>{W("كيف أستعمل التطبيق؟", "ایپ کیسے چلائیں؟", "How to use the app")}</T>
-        <T>1. {W("اضغط الزر الذهبي الكبير وتكلم بالأردو كما تتكلم مع الناس.", "بڑا سنہرا بٹن دبائیں اور اردو میں ویسے ہی بولیں جیسے لوگوں سے بات کرتے ہیں۔", "Press the big green button and speak in Urdu, the way you talk to people.")}</T>
+        <T>1. {W("اضغط الزر الذهبي الكبير وتكلم بالأردو كما تتكلم مع الناس.", "بڑا سنہرا بٹن دبائیں اور اردو میں ویسے ہی بولیں جیسے لوگوں سے بات کرتے ہیں۔", "Press the big gold button and speak in Urdu, the way you talk to people.")}</T>
         <T>2. {W("اضغط «افهم». سأقرأ لك ما فهمت بصوت.", "«سمجھو» دبائیں۔ میں سنا دوں گا کہ میں نے کیا سمجھا۔", "Press “Understand”. I read back what I understood.")}</T>
         <T>3. {W("إذا كان صحيحاً اضغط «نعم، احفظ». إذا لا، تكلم مرة أخرى.", "صحیح ہو تو «ہاں، محفوظ کریں»۔ غلط ہو تو دوبارہ بولیں۔", "If it is right, press “Yes, save”. If not, speak again.")}</T>
         <T>4. {W("للفاتورة: صوّر الفاتورة، اختر المشروع، واختر الشركة التي دُفعت الضريبة باسمها.", "رسید کے لیے: تصویر لیں، پروجیکٹ چنیں، اور وہ کمپنی چنیں جس کے نام پر VAT دیا۔", "For an invoice: take the photo, pick the project, and pick the company the VAT was paid under.")}</T>

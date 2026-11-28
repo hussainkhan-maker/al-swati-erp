@@ -216,15 +216,15 @@ export default function Shell() {
         {(!online || pending > 0 || failed.length > 0) && (
           <SafeAreaView edges={["top"]} style={{ backgroundColor: c.warnSoft }}>
             <View style={{ padding: 10, gap: 6 }}>
-              {!online && <Text style={{ color: c.warn, fontWeight: "700" }}>Offline · آف لائن — entries are kept on the phone</Text>}
-              {pending > 0 && <Text style={{ color: c.warn }}>{pending} waiting to upload</Text>}
+              {!online && <Text style={{ color: c.warn, fontWeight: "700" }}>{lang === "ar" ? "غير متصل: الإدخالات محفوظة في الجوال" : lang === "ur" ? "آف لائن: اینٹریاں فون میں محفوظ ہیں" : "Offline: entries are kept on the phone"}</Text>}
+              {pending > 0 && <Text style={{ color: c.warn }}>{pending} {lang === "ar" ? "بانتظار الرفع" : lang === "ur" ? "اپ لوڈ ہونا باقی" : "waiting to upload"}</Text>}
               {/* Same error many times → shown once with a count; Remove clears all of them. */}
               {Object.values(failed.reduce((m: Record<string, any[]>, j) => { const k = String(j.row?._error || "?"); (m[k] ||= []).push(j); return m; }, {})).map((js) => (
-                <Card key={js[0].id}><T color={c.bad}>Not saved{js.length > 1 ? ` (${js.length}×)` : ""}: {js[0].row?._error}</T><Btn title={js.length > 1 ? `Remove all ${js.length}` : "Remove"} onPress={async () => { for (const j of js) await dropFailed(j.id); }} /></Card>))}
+                <Card key={js[0].id}><T color={c.bad}>{lang === "ar" ? "لم يُحفظ" : lang === "ur" ? "محفوظ نہیں ہوا" : "Not saved"}{js.length > 1 ? ` (${js.length}×)` : ""}: {js[0].row?._error}</T><Btn title={lang === "ar" ? (js.length > 1 ? `إزالة الكل (${js.length})` : "إزالة") : lang === "ur" ? (js.length > 1 ? `سب ہٹائیں (${js.length})` : "ہٹائیں") : js.length > 1 ? `Remove all ${js.length}` : "Remove"} onPress={async () => { for (const j of js) await dropFailed(j.id); }} /></Card>))}
             </View>
           </SafeAreaView>
         )}
-        {sub && !wide && <SafeAreaView edges={["top"]}><Pressable onPress={() => setSub(null)} style={{ padding: 14, flexDirection: row }}><Text style={{ color: c.accent, fontSize: 17, fontWeight: "700" }}>‹ Back</Text></Pressable></SafeAreaView>}
+        {sub && !wide && <SafeAreaView edges={["top"]}><Pressable onPress={() => setSub(null)} style={{ padding: 14, flexDirection: row }}><Text style={{ color: c.accent, fontSize: 17, fontWeight: "700" }}>‹ {lang === "ar" ? "رجوع" : lang === "ur" ? "واپس" : "Back"}</Text></Pressable></SafeAreaView>}
         {topbar}
         {/* Each page fades up as it opens. */}
         <Rise key={sub || tab} style={{ flex: 1 }}><Body go={(k: string) => (SUBS[k] ? setSub(k) : setTab(k))} /></Rise>

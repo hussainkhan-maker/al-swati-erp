@@ -10,7 +10,7 @@ import { Voice } from "../components/Voice";
 import { pname, useData } from "../lib/data";
 import { pickPhoto, uploadFile } from "../lib/files";
 import { day, money, num, r2, uid } from "../lib/fmt";
-import { mArea, measureDoc } from "../lib/measure";
+import { mArea, mValid, measureDoc } from "../lib/measure";
 import { Doc, docHTML, makeAndShare } from "../lib/pdf";
 import { supabase } from "../lib/supabase";
 import { Btn, Card, Empty, Field, H1, Icon, Photo, Pill, Rise, Row, Screen, Segmented, Select, Sheet, T, Tile, useColors } from "../ui";
@@ -24,7 +24,7 @@ const SITE_WORDS = ["عمود", "سقف", "جدار", "دیوار", "طول", "�
 const ELEM: [RegExp, string, string][] = [[/seedh|straight|مستقيم|سیدھ/i, "جدار مستقيم", "سیدھی دیوار"], [/amood|amoot|amud|amod|column|pillar|عمود|اموت|امود|ستون/i, "عمود", "عمود"], [/saqaf|saqf|sakaf|ceiling|soffit|سقف|صقف|چھت/i, "سقف", "سقف"], [/beam|kamra|كمرة|بیم/i, "كمرة", "بیم"], [/deewar|diwar|dewar|wall|jidar|جدار|دیوار/i, "جدار", "دیوار"], [/darwaza|door|باب|دروازہ/i, "باب", "دروازہ"], [/khirki|window|شباك|نافذة|کھڑکی/i, "شباك", "کھڑکی"], [/zeena|stair|درج|سیڑھ/i, "درج", "سیڑھی"]];
 export const elemWord = (e: any, lang: string) => { const t = String(e || "").trim(); if (!t || lang === "en") return t; const hit = ELEM.find(([re]) => re.test(t)); return hit ? (lang === "ar" ? hit[1] : hit[2]) : t; };
 const blank = (kind: Kind) => kind === "material" ? { name: "", size: "", qty: "", unit: "حبة", note: "" } : kind === "stone" ? { place: "", l: "", w: "", qty: "", note: "" } : { place: "", element: "", qty: "", l: "", w: "", deduct: "", system: "", photo: "" };
-const filled = (kind: Kind, l: any) => kind === "material" ? String(l.name || "").trim() : n0(l.l) > 0 && n0(l.w) > 0;
+const filled = (kind: Kind, l: any) => kind === "material" ? String(l.name || "").trim() : kind === "measure" ? mValid(l) : n0(l.l) > 0 && n0(l.w) > 0;
 
 export default function Sheets() {
   const { d, lang, role, profile, reload } = useData(); const c = useColors();
