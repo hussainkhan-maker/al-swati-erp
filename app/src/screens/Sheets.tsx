@@ -12,13 +12,13 @@ import { pickPhoto, uploadFile } from "../lib/files";
 import { day, money, num, r2, uid } from "../lib/fmt";
 import { Doc, docHTML, makeAndShare } from "../lib/pdf";
 import { supabase } from "../lib/supabase";
-import { Btn, Card, Empty, Field, H1, Icon, Photo, Pill, Rise, Row, Screen, Select, Sheet, T, Tile, useColors } from "../ui";
+import { Btn, Card, Empty, Field, H1, Icon, Photo, Pill, Rise, Row, Screen, Segmented, Select, Sheet, T, Tile, useColors } from "../ui";
 
 type Kind = "material" | "stone" | "measure" | "pay";
 const n0 = (v: any) => { const x = num(v); return Number.isFinite(x) ? x : 0; };
 /** m² of one line: stone = length cm × width cm × pieces; measure = length m × width m − deduction. */
 export const lineArea = (kind: Kind, l: any) => kind === "stone" ? r2((n0(l.l) * n0(l.w) * n0(l.qty)) / 10000) : kind === "measure" ? r2(Math.max(0, n0(l.l) * n0(l.w) - n0(l.deduct))) : 0;
-const blank = (kind: Kind) => kind === "material" ? { name: "", size: "", qty: "", unit: "حبة", note: "" } : kind === "stone" ? { place: "", l: "", w: "", qty: "", note: "" } : { place: "", element: "", l: "", w: "", deduct: "", photo: "" };
+const blank = (kind: Kind) => kind === "material" ? { name: "", size: "", qty: "", unit: "حبة", note: "" } : kind === "stone" ? { place: "", l: "", w: "", qty: "", note: "" } : { place: "", element: "", l: "", w: "", deduct: "", system: "", photo: "" };
 const filled = (kind: Kind, l: any) => kind === "material" ? String(l.name || "").trim() : n0(l.l) > 0 && n0(l.w) > 0;
 
 export default function Sheets() {
@@ -137,6 +137,9 @@ function Editor({ init, onClose, L, title, canReopen }: { init: any; onClose: ()
   const lines = (f.lines as any[]).filter((l) => filled(kind, l));
   const total = r2(lines.reduce((s, l) => s + lineArea(kind, l), 0));
   const pieces = kind === "stone" ? lines.reduce((s, l) => s + n0(l.qty), 0) : 0;
+  // A subcontractor may have one rate for work on C-channel and another for work fixed on the wall: the m² are kept apart.
+  const bySystem = (["wall", "channel", ""] as const).map((k) => ({ k, m2: r2(lines.filter((l) => (l.system || "") === k).reduce((t, l) => t + lineArea(kind, l), 0)), n: lines.filter((l) => (l.system || "") === k).length })).filter((g) => g.m2 > 0);
+  const sysName = (k: string) => (k === "channel" ? "C-channel" : k === "wall" ? "Wall" : "");
   const setLine = (i: number, k: string, v: any) => setF((x: any) => ({ ...x, lines: x.lines.map((l: any, j: number) => (j === i ? { ...l, [k]: v } : l)) }));
 
   /** What the reader returned goes into the sheet. It says aloud what it wrote and asks back when something is unclear. */
@@ -190,7 +193,10 @@ function Editor({ init, onClose, L, title, canReopen }: { init: any; onClose: ()
       if (!(total > 0)) { setMsg(L("The total is 0.", "المجموع صفر.", "کل میٹر صفر ہے۔")); return; }
       setBusy("final");
       // The measured m² become the subcontractor's work on this project (the same entry as "speak the meters").
-      try { if (!added.current) await insert("progress", { project_id: f.project_id, sub_name: String(f.party).trim(), qty: total, unit: "sqm", work: `Measured, ${lines.length} places`, work_date: new Date().toISOString().slice(0, 10), heard: f.heard || null, flags: [] }); added.current = true; }
+      try {
+        if (!added.current) for (const g of bySystem) await insert("progress", { project_id: f.project_id, sub_name: String(f.party).trim(), qty: g.m2, unit: "sqm", kind: g.k || null, work: `Measured${g.k ? ", " + sysName(g.k) : ""}, ${g.n} places`, work_date: new Date().toISOString().slice(0, 10), heard: f.heard || null, flags: [] });
+        added.current = true;
+      }
       catch (e: any) { setMsg(e.message); setBusy(""); return; }
     }
     if (await save(kind === "measure" ? "paid" : "final")) { if (f.heard) supabase.functions.invoke("site", { body: { action: "learn", kind, heard: f.heard, lines } }).catch(() => {}); setMsg(kind === "measure" ? L(`Saved: ${money(total)} m² added to ${f.party}.`, `تم الحفظ: ${money(total)} م² أضيفت إلى ${f.party}.`, `محفوظ: ${money(total)} میٹر ${f.party} کے کھاتے میں۔`) : L("Final. Send the PDF. When it is paid, add the invoice photo here.", "نهائي. أرسل الملف. عند الدفع أضف صورة الفاتورة هنا.", "فائنل۔ PDF بھیجیں۔ ادائیگی پر بل کی تصویر یہاں ڈالیں۔")); }
@@ -262,6 +268,8 @@ function Editor({ init, onClose, L, title, canReopen }: { init: any; onClose: ()
             </Row>
             <Row wrap>
               {kind !== "measure" ? <View style={{ flex: 1, minWidth: 160 }}>{F(i, "note", L("Note", "ملاحظات", "نوٹ"))}</View> : null}
+              {kind === "measure" ? (locked ? <T muted size={13} style={{ minWidth: 90 }}>{l.system === "channel" ? L("On C-channel", "على القناة", "چینل پر") : l.system === "wall" ? L("On the wall", "على الجدار", "دیوار پر") : ""}</T>
+                : <View style={{ minWidth: 190 }}><Segmented value={l.system || ""} onChange={(v) => setLine(i, "system", v)} options={[["wall", L("On the wall", "على الجدار", "دیوار پر")], ["channel", L("On C-channel", "على القناة", "چینل پر")]]} /></View>) : null}
               {kind !== "material" ? <T bold style={{ minWidth: 90 }}>{money(lineArea(kind, l))} m²</T> : null}
               {kind === "measure" ? (l.photo ? <Photo path={l.photo} size={40} /> : !locked ? <Btn kind="ghost" icon={<Icon name="camera" size={16} color={c.accent} />} title={L("Photo", "صورة", "تصویر")} busy={busy === "photo" + i} onPress={() => photo(i)} /> : null) : null}
               {!locked && f.lines.length > 1 ? <Btn kind="ghost" title="✕" onPress={() => setF((x: any) => ({ ...x, lines: x.lines.filter((_: any, j: number) => j !== i) }))} /> : null}
@@ -269,6 +277,7 @@ function Editor({ init, onClose, L, title, canReopen }: { init: any; onClose: ()
           </View>))}
         {!locked ? <Btn kind="ghost" icon={<Icon name="plus" size={16} color={c.accent} />} title={L("Add a line", "أضف بندًا", "لائن ڈالیں")} onPress={() => setF((x: any) => ({ ...x, lines: [...x.lines, blank(kind)] }))} /> : null}
         {kind !== "material" ? <Row style={{ borderTopWidth: 1, borderColor: c.line, paddingTop: 10 }}><T bold style={{ flex: 1 }}>{L("Total", "المجموع", "کل")}{kind === "stone" ? ` · ${pieces} ${L("pieces", "حبة", "پتھر")}` : ""}</T><T bold size={20}>{money(total)} m²</T></Row> : null}
+        {kind === "measure" && bySystem.some((g) => g.k) ? <T muted size={14}>{bySystem.map((g) => `${g.k === "channel" ? L("On C-channel", "على القناة", "چینل پر") : g.k === "wall" ? L("On the wall", "على الجدار", "دیوار پر") : L("Not chosen", "غير محدد", "نہیں چنا")}: ${money(g.m2)} m²`).join("  ·  ")}</T> : null}
       </Card>
       {msg ? <T color={c.warn}>{msg}</T> : null}
       <Row wrap>

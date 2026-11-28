@@ -575,7 +575,8 @@ export function Projects() {
   };
   const saveSub = async () => {
     setBusy(true); setErr("");
-    try { const row = { name: s.name.trim(), rate: num(s.rate), unit: s.unit || "sqm", projects: s.projects || [] }; if (!row.name || !(row.rate >= 0)) throw new Error("Name and rate are required.");
+    try { const had = (d.subcontractors || []).find((x: any) => x.id === s.id)?.rates || {}; const rates: any = {}; const rc = num(s.rate_channel ?? had.channel ?? 0), rw = num(s.rate_wall ?? had.wall ?? 0); if (rc > 0) rates.channel = rc; if (rw > 0) rates.wall = rw;
+      const row = { name: s.name.trim(), rate: num(s.rate), unit: s.unit || "sqm", projects: s.projects || [], rates }; if (!row.name || !(row.rate >= 0)) throw new Error("Name and rate are required.");
       let id = s.id;
       if (id) await update("subcontractors", id, row); else id = (await insert("subcontractors", row)).data?.id;
       if (id && (s.phone || s.iqama || contacts.sub?.[id])) { await saveContact("sub", id, { phone: s.phone || "", iqama: s.iqama || "" }); await reload(["preferences"]); }
@@ -844,6 +845,8 @@ export function Projects() {
           <Field required label="Name" value={s.name} onChange={(v) => setS({ ...s, name: v })} />
           <Row wrap><Field label="Phone (optional)" value={s.phone} numeric onChange={(v) => setS({ ...s, phone: v })} /><Field label="Iqama number (optional)" value={s.iqama} numeric onChange={(v) => setS({ ...s, iqama: v })} /></Row>
           <Row><Field required label="Rate (SAR)" value={s.rate} numeric onChange={(v) => setS({ ...s, rate: v })} /><Select label="Unit" value={s.unit} onChange={(v) => setS({ ...s, unit: v })} options={["sqm", "rft", "pcs"].map((u) => ({ value: u, label: u }))} /></Row>
+          <T muted size={13}>If this subcontractor is paid differently for work on C-channel and work fixed on the wall, write both. A measurement marked "On C-channel" or "On the wall" then uses its own rate; anything else uses the rate above.</T>
+          <Row><Field label="Rate on the wall (SAR)" value={s.rate_wall ?? (d.subcontractors || []).find((x: any) => x.id === s.id)?.rates?.wall ?? ""} numeric onChange={(v) => setS({ ...s, rate_wall: v })} /><Field label="Rate on C-channel (SAR)" value={s.rate_channel ?? (d.subcontractors || []).find((x: any) => x.id === s.id)?.rates?.channel ?? ""} numeric onChange={(v) => setS({ ...s, rate_channel: v })} /></Row>
           <T bold>Projects</T>
           <Row wrap>{(d.projects || []).map((q: any) => { const on = (s.projects || []).includes(q.id); return <Btn key={q.id} kind={on ? "primary" : "default"} title={q.name} onPress={() => setS({ ...s, projects: on ? s.projects.filter((m: string) => m !== q.id) : [...(s.projects || []), q.id] })} />; })}</Row>
           <T size={13} muted>Work already reported keeps its rate. Work reported before any rate was set takes this one.</T>
