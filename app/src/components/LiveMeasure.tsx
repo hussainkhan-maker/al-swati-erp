@@ -9,13 +9,15 @@ import { Pressable, View } from "react-native";
 import { useData } from "../lib/data";
 import { money, num, r2 } from "../lib/fmt";
 import { speechLang } from "../lib/i18n";
+import { mQty, measureDoc } from "../lib/measure";
+import { mArea } from "../lib/measure";
 import { docHTML, makeAndShare } from "../lib/pdf";
 import { supabase } from "../lib/supabase";
 import { hush, isSpeaking, say, stopListening } from "../lib/talk";
 import { Btn, Card, Field, Icon, Row, Select, Sheet, T, useColors } from "../ui";
 
 const n0 = (v: any) => { const x = num(v); return Number.isFinite(x) ? x : 0; };
-const area = (l: any) => r2(Math.max(0, n0(l.l) * n0(l.w) - n0(l.deduct)));
+const area = mArea;
 const WORDS = ["عمود", "سقف", "جدار", "دیوار", "طول", "عرض", "خصم", "حدید", "سادہ", "چینل", "شانل", "ضرب", "في", "میٹر", "غلط", "بس"];
 const ELEM: [RegExp, string, string][] = [[/seedh|straight|مستقيم|سیدھ/i, "جدار مستقيم", "سیدھی دیوار"], [/amood|amoot|amud|amod|column|pillar|عمود|اموت|امود|ستون/i, "عمود", "عمود"], [/saqaf|saqf|sakaf|ceiling|soffit|سقف|صقف|چھت/i, "سقف", "سقف"], [/beam|kamra|كمرة|بیم/i, "كمرة", "بیم"], [/deewar|diwar|dewar|wall|jidar|جدار|دیوار/i, "جدار", "دیوار"], [/darwaza|door|باب|دروازہ/i, "باب", "دروازہ"], [/khirki|window|شباك|نافذة|کھڑکی/i, "شباك", "کھڑکی"], [/zeena|stair|درج|سیڑھ/i, "درج", "سیڑھی"]];
 const elemWord = (e: any, lang: string) => { const t = String(e || "").trim(); if (!t || lang === "en") return t; const hit = ELEM.find(([re]) => re.test(t)); return hit ? (lang === "ar" ? hit[1] : hit[2]) : t; };
@@ -23,7 +25,7 @@ const UNDO = /(غلط|ghalat|galat|مٹا|mita|ہٹا|hata|wrong|delete|undo|ا�
 const STOP = /^\s*(bas|بس|khatam|ختم|ho gaya|ہو گیا|خلاص|خلص|finish|done|stop|رک جا|ruk)/i;
 
 /** The sheet's columns, written the way the subcontractors' paper is: item, length, width, length × width. */
-const HEAD: [string, number][] = [["#", 0.5], ["البند", 2.2], ["الطول", 1], ["العرض", 1], ["م²", 1.2], ["", 0.5]];
+const HEAD: [string, number][] = [["#", 0.5], ["البند", 2], ["العدد", 0.8], ["الطول", 1], ["العرض", 1], ["م²", 1.2], ["", 0.5]];
 const CELL: any = { paddingVertical: 8, paddingHorizontal: 6, justifyContent: "center", borderLeftWidth: 1 };
 
 export function LiveMeasure({ init, onClose }: { init?: any; onClose: () => void }) {
@@ -75,12 +77,12 @@ export function LiveMeasure({ init, onClose }: { init?: any; onClose: () => void
     const said = r.party ? subs.find((x) => x.toLowerCase() === String(r.party).toLowerCase()) : "";
     if (said && now.current.party && said !== now.current.party) switchParty(said);
     if (r.party && !now.current.party) { const hit = subs.find((s) => s.toLowerCase() === String(r.party).toLowerCase()) || String(r.party); setParty(hit); now.current.party = hit; }
-    const got = (r.lines || []).map((l: any) => { if (l.system) sys.current = l.system; return { place: l.place || "", element: elemWord(l.element, "ar"), l: l.l, w: l.w, deduct: n0(l.deduct) || 0, system: l.system || sys.current || "", photo: "", heard: text }; }).filter((l: any) => n0(l.l) > 0 && n0(l.w) > 0);
+    const got = (r.lines || []).map((l: any) => { if (l.system) sys.current = l.system; return { place: l.place || "", element: elemWord(l.element, "ar"), qty: n0(l.qty) > 1 ? n0(l.qty) : 1, l: l.l, w: l.w, deduct: n0(l.deduct) || 0, system: l.system || sys.current || "", photo: "", heard: text }; }).filter((l: any) => n0(l.l) > 0 && n0(l.w) > 0);
     if (!got.length) { tell(/\d/.test(text) ? L("Say the length and the width.", "قل الطول والعرض.", "لمبائی اور چوڑائی بولیں۔") : L(`Ready${now.current.party ? ", " + now.current.party : ""}. Say each place.`, `جاهز${now.current.party ? "، " + now.current.party : ""}. قل كل مكان.`, `تیار${now.current.party ? "، " + now.current.party : ""}۔ ہر جگہ بولتے جائیں۔`)); return; }
     const next = [...now.current.lines, ...got]; setLines(next); now.current.lines = next;
     await save(next);
     const T = r2(next.reduce((t, l) => t + area(l), 0));
-    const back = got.map((l: any) => `${l.element || l.place || ""} ${l.l} ${L("by", "في", "ضرب")} ${l.w}${n0(l.deduct) ? ` ${L("minus", "خصم", "خصم")} ${l.deduct}` : ""}، ${money(area(l))}`).join("۔ ");
+    const back = got.map((l: any) => `${mQty(l) > 1 ? mQty(l) + " " : ""}${l.element || l.place || ""} ${l.l} ${L("by", "في", "ضرب")} ${l.w}${n0(l.deduct) ? ` ${L("minus", "خصم", "خصم")} ${l.deduct}` : ""}، ${money(area(l))}`).join("۔ ");
     tell(`${back}۔ ${L("Total", "المجموع", "کل")} ${money(T)}`); // no questions while he measures: the place is written, said back, and he goes on
   };
   const pump = async () => {
@@ -132,14 +134,8 @@ export function LiveMeasure({ init, onClose }: { init?: any; onClose: () => void
     setParty(v); now.current.party = v;
   };
   const pdf = async () => {
-    const en = role === "admin"; const X = (e: string, a: string) => (en ? e : a); const ls = now.current.lines;
-    const EN: Record<string, string> = { "عمود": "Column", "سقف": "Ceiling", "جدار": "Wall", "جدار مستقيم": "Straight wall", "كمرة": "Beam", "باب": "Door", "شباك": "Window", "درج": "Stairs" };
-    const sysN = (k: string) => (k === "channel" ? X("On C-channel (steel)", "على القناة (حديد)") : k === "wall" ? X("On the wall (plain)", "على الجدار (سادة)") : "");
-    const anyDed = ls.some((l) => n0(l.deduct) > 0), anySys = ls.some((l) => l.system);
-    const cols = ["#", X("Item", "البند"), ...(anySys ? [X("Type", "النوع")] : []), X("Length m", "الطول م"), X("Width m", "العرض م"), X("Length × width", "الطول × العرض"), ...(anyDed ? [X("Deduction m²", "الخصم م²"), X("Area m²", "المساحة م²")] : [])];
-    const rows = ls.map((l, i) => [String(i + 1), [en ? EN[l.element] || l.element : l.element, l.place].filter(Boolean).join(" - ") || "-", ...(anySys ? [sysN(l.system || "")] : []), String(l.l), String(l.w), money(r2(n0(l.l) * n0(l.w))), ...(anyDed ? [n0(l.deduct) ? money(n0(l.deduct)) : "", money(area(l))] : [])]);
-    const sum: [string, string][] = [...(anySys ? ["wall", "channel", ""].filter((k) => part(k) > 0).map((k) => [`${X("Total", "مجموع")} ${sysN(k) || X("not chosen", "غير محدد")} ${X("m²", "م²")}`, money(part(k))] as [string, string]) : []), [X("Total m²", "المجموع م²"), money(r2(ls.reduce((t, l) => t + area(l), 0)))]];
-    const doc: any = { title: `${X("Work measurement", "قياس أعمال")} - ${now.current.party || "-"} - ${projects.find((p: any) => p.id === now.current.pid)?.name || ""}`, cols, rows, sum, numCols: [cols.length - 1] };
+    const en = role === "admin";
+    const doc: any = measureDoc(now.current.lines, now.current.party, projects.find((p: any) => p.id === now.current.pid)?.name || "", en);
     try { await makeAndShare(doc, docHTML(doc, en ? "en" : "ar", profile.name)); } catch (e: any) { setMsg(e.message); }
   };
   const addTyped = () => { const t = typed.trim(); if (!t) return; setTyped(""); queue.current.push(t); pump(); };
@@ -184,10 +180,11 @@ export function LiveMeasure({ init, onClose }: { init?: any; onClose: () => void
             <Row key={i} style={{ borderTopWidth: 1, borderColor: c.line, gap: 0, alignItems: "stretch", backgroundColor: i === lines.length - 1 ? c.goodSoft : c.surface }}>
               <View style={[CELL, { flex: HEAD[0][1], borderColor: c.line }]}><T muted size={14}>{i + 1}</T></View>
               <View style={[CELL, { flex: HEAD[1][1], borderColor: c.line }]}><T bold size={16}>{[l.element, l.place].filter(Boolean).join(" - ") || "—"}</T>{l.system ? <T muted size={12}>{l.system === "channel" ? "حديد" : "سادة"}</T> : null}</View>
-              <View style={[CELL, { flex: HEAD[2][1], borderColor: c.line }]}><T size={16}>{String(l.l)}</T></View>
-              <View style={[CELL, { flex: HEAD[3][1], borderColor: c.line }]}><T size={16}>{String(l.w)}</T></View>
-              <View style={[CELL, { flex: HEAD[4][1], borderColor: c.line }]}><T bold size={16}>{money(area(l))}</T>{n0(l.deduct) ? <T muted size={12}>خصم {String(l.deduct)}</T> : null}</View>
-              <Pressable accessibilityRole="button" accessibilityLabel="remove" disabled={sent} onPress={() => removeAt(i)} style={[CELL, { flex: HEAD[5][1], borderColor: c.line, borderLeftWidth: 0, borderRightWidth: 0, alignItems: "center" }]}><T color={c.bad} size={16}>{sent ? "" : "✕"}</T></Pressable>
+              <View style={[CELL, { flex: HEAD[2][1], borderColor: c.line }]}><T size={16}>{String(mQty(l))}</T></View>
+              <View style={[CELL, { flex: HEAD[3][1], borderColor: c.line }]}><T size={16}>{String(l.l)}</T></View>
+              <View style={[CELL, { flex: HEAD[4][1], borderColor: c.line }]}><T size={16}>{String(l.w)}</T></View>
+              <View style={[CELL, { flex: HEAD[5][1], borderColor: c.line }]}><T bold size={16}>{money(area(l))}</T>{n0(l.deduct) ? <T muted size={12}>خصم {String(l.deduct)}</T> : null}</View>
+              <Pressable accessibilityRole="button" accessibilityLabel="remove" disabled={sent} onPress={() => removeAt(i)} style={[CELL, { flex: HEAD[6][1], borderColor: c.line, borderLeftWidth: 0, borderRightWidth: 0, alignItems: "center" }]}><T color={c.bad} size={16}>{sent ? "" : "✕"}</T></Pressable>
             </Row>))}
           {!lines.length ? <T muted style={{ padding: 10 }}>{L("Nothing yet. Example: \"Zar, hadeed, amood 3.2 by 0.6\"", "لا شيء بعد. مثال: \"زر، حديد، عمود 3.2 في 0.6\"", "ابھی کچھ نہیں۔ مثال: «زر، حدید، عمود 3.2 ضرب 0.6»")}</T> : null}
         </View>

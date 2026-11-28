@@ -10,6 +10,7 @@ import { Voice } from "../components/Voice";
 import { pname, useData } from "../lib/data";
 import { pickPhoto, uploadFile } from "../lib/files";
 import { day, money, num, r2, uid } from "../lib/fmt";
+import { mArea, measureDoc } from "../lib/measure";
 import { Doc, docHTML, makeAndShare } from "../lib/pdf";
 import { supabase } from "../lib/supabase";
 import { Btn, Card, Empty, Field, H1, Icon, Photo, Pill, Rise, Row, Screen, Segmented, Select, Sheet, T, Tile, useColors } from "../ui";
@@ -17,12 +18,12 @@ import { Btn, Card, Empty, Field, H1, Icon, Photo, Pill, Rise, Row, Screen, Segm
 type Kind = "material" | "stone" | "measure" | "pay";
 const n0 = (v: any) => { const x = num(v); return Number.isFinite(x) ? x : 0; };
 /** m² of one line: stone = length cm × width cm × pieces; measure = length m × width m − deduction. */
-export const lineArea = (kind: Kind, l: any) => kind === "stone" ? r2((n0(l.l) * n0(l.w) * n0(l.qty)) / 10000) : kind === "measure" ? r2(Math.max(0, n0(l.l) * n0(l.w) - n0(l.deduct))) : 0;
+export const lineArea = (kind: Kind, l: any) => kind === "stone" ? r2((n0(l.l) * n0(l.w) * n0(l.qty)) / 10000) : kind === "measure" ? mArea(l) : 0;
 const SITE_WORDS = ["عمود", "سقف", "جدار", "دیوار", "طول", "عرض", "خصم", "حدید", "سادہ", "چینل", "شانل", "زاویہ", "متر", "میٹر", "في", "ضرب"];
 /** What was measured, written the way the team says it (they do not read English): column → عمود, wall → دیوار / جدار… */
 const ELEM: [RegExp, string, string][] = [[/seedh|straight|مستقيم|سیدھ/i, "جدار مستقيم", "سیدھی دیوار"], [/amood|amoot|amud|amod|column|pillar|عمود|اموت|امود|ستون/i, "عمود", "عمود"], [/saqaf|saqf|sakaf|ceiling|soffit|سقف|صقف|چھت/i, "سقف", "سقف"], [/beam|kamra|كمرة|بیم/i, "كمرة", "بیم"], [/deewar|diwar|dewar|wall|jidar|جدار|دیوار/i, "جدار", "دیوار"], [/darwaza|door|باب|دروازہ/i, "باب", "دروازہ"], [/khirki|window|شباك|نافذة|کھڑکی/i, "شباك", "کھڑکی"], [/zeena|stair|درج|سیڑھ/i, "درج", "سیڑھی"]];
 export const elemWord = (e: any, lang: string) => { const t = String(e || "").trim(); if (!t || lang === "en") return t; const hit = ELEM.find(([re]) => re.test(t)); return hit ? (lang === "ar" ? hit[1] : hit[2]) : t; };
-const blank = (kind: Kind) => kind === "material" ? { name: "", size: "", qty: "", unit: "حبة", note: "" } : kind === "stone" ? { place: "", l: "", w: "", qty: "", note: "" } : { place: "", element: "", l: "", w: "", deduct: "", system: "", photo: "" };
+const blank = (kind: Kind) => kind === "material" ? { name: "", size: "", qty: "", unit: "حبة", note: "" } : kind === "stone" ? { place: "", l: "", w: "", qty: "", note: "" } : { place: "", element: "", qty: "", l: "", w: "", deduct: "", system: "", photo: "" };
 const filled = (kind: Kind, l: any) => kind === "material" ? String(l.name || "").trim() : n0(l.l) > 0 && n0(l.w) > 0;
 
 export default function Sheets() {
@@ -269,17 +270,7 @@ function Editor({ init, onClose, L, title, canReopen }: { init: any; onClose: ()
         ? { title: `${X("Material order", "طلب مواد")} - ${p}${who ? " - " + who : ""}`, cols: ["#", X("Item", "الصنف"), X("Size / type", "المقاس / النوع"), X("Qty", "الكمية"), X("Unit", "الوحدة"), X("Notes", "ملاحظات")], rows: lines.map((l, i) => [String(i + 1), l.name, l.size || "", String(l.qty ?? ""), l.unit || "", l.note || ""]), sum: [[X("Items", "عدد البنود"), String(lines.length)]], numCols: [] }
         : kind === "stone"
           ? { title: `${X("Stone sizes", "مقاسات الحجر")} - ${p}${who ? " - " + who : ""}`, cols: ["#", X("Place", "المكان"), X("Length cm", "الطول سم"), X("Width cm", "العرض سم"), X("Pieces", "العدد"), X("Notes", "ملاحظات"), X("m²", "م²")], rows: lines.map((l, i) => [String(i + 1), l.place || "", String(l.l), String(l.w), String(l.qty), l.note || "", lineArea(kind, l)]), sum: [[X("Pieces", "عدد القطع"), String(pieces)], [X("Total m²", "المجموع م²"), money(total)]], numCols: [6] }
-          : (() => {
-            // The subcontractor's sheet: what was measured (column, wall, ceiling), length, width, length × width, then the total.
-            const NAMES: [RegExp, string, string][] = [[/seedh|straight|مستقيم|سیدھ/i, "جدار مستقيم", "Straight wall"], [/amood|amoot|amud|amod|column|pillar|عمود|اموت|امود|ستون/i, "عمود", "Column"], [/saqaf|saqf|sakaf|ceiling|soffit|سقف|صقف|چھت/i, "سقف", "Ceiling"], [/beam|kamra|كمرة|بیم/i, "كمرة", "Beam"], [/deewar|diwar|dewar|wall|jidar|جدار|دیوار/i, "جدار", "Wall"], [/darwaza|door|باب|دروازہ/i, "باب", "Door"], [/khirki|window|شباك|نافذة|کھڑکی/i, "شباك", "Window"], [/zeena|stair|درج|سیڑھ/i, "درج", "Stairs"]];
-            const what = (l: any) => { const e = String(l.element || "").trim(); const hit = NAMES.find(([re]) => re.test(e)); const nm = hit ? (en ? hit[2] : hit[1]) : e; return [nm, String(l.place || "").trim()].filter(Boolean).join(" - ") || "-"; };
-            const sysAr = (k: string) => (k === "channel" ? X("On C-channel (steel)", "على القناة (حديد)") : k === "wall" ? X("On the wall (plain)", "على الجدار (سادة)") : "");
-            const anyDed = lines.some((l) => n0(l.deduct) > 0), anySys = lines.some((l) => l.system);
-            const cols = ["#", X("Item", "البند"), ...(anySys ? [X("Type", "النوع")] : []), X("Length m", "الطول م"), X("Width m", "العرض م"), X("Length × width", "الطول × العرض"), ...(anyDed ? [X("Deduction m²", "الخصم م²"), X("Area m²", "المساحة م²")] : [])];
-            const rows = lines.map((l, i) => [String(i + 1), what(l), ...(anySys ? [sysAr(l.system || "")] : []), String(l.l), String(l.w), money(r2(n0(l.l) * n0(l.w))), ...(anyDed ? [n0(l.deduct) ? money(n0(l.deduct)) : "", lineArea(kind, l)] : [])]);
-            const sum: [string, string][] = [...(anySys ? bySystem.map((g) => [`${X("Total", "مجموع")} ${sysAr(g.k) || X("not chosen", "غير محدد")} ${X("m²", "م²")}`, money(g.m2)] as [string, string]) : []), [X("Total m²", "المجموع م²"), money(total)]];
-            return { title: `${X("Work measurement", "قياس أعمال")} - ${who || "-"} - ${p}`, cols, rows, sum, numCols: [cols.length - 1] } as Doc;
-          })();
+          : (measureDoc(lines, who, p, en) as Doc);
       await makeAndShare(doc, docHTML(doc, en ? "en" : "ar", profile.name));
     } catch (e: any) { setMsg(e.message); }
     setBusy("");
@@ -318,7 +309,7 @@ function Editor({ init, onClose, L, title, canReopen }: { init: any; onClose: ()
             <Row wrap style={{ alignItems: "flex-end" }}>
               {kind === "material" ? [F(i, "name", L("Item", "الصنف", "چیز")), F(i, "size", L("Size / type", "المقاس / النوع", "سائز"), 150), F(i, "qty", L("Qty", "الكمية", "تعداد"), 90, true), F(i, "unit", L("Unit", "الوحدة", "یونٹ"), 90)]
                 : kind === "stone" ? [F(i, "place", L("Place", "المكان", "جگہ")), F(i, "l", L("Length cm", "الطول سم", "طول cm"), 100, true), F(i, "w", L("Width cm", "العرض سم", "عرض cm"), 100, true), F(i, "qty", L("Pieces", "العدد", "تعداد"), 90, true)]
-                  : [F(i, "place", L("Place", "المكان", "جگہ")), F(i, "element", L("Column, ceiling, wall…", "عمود، سقف، جدار…", "عمود، سقف، دیوار…"), 150), F(i, "l", L("Length m", "الطول م", "طول m"), 96, true), F(i, "w", L("Width m", "العرض م", "عرض m"), 96, true), F(i, "deduct", L("Deduct m²", "الخصم م²", "خصم m²"), 96, true)]}
+                  : [F(i, "place", L("Place", "المكان", "جگہ")), F(i, "element", L("Column, ceiling, wall…", "عمود، سقف، جدار…", "عمود، سقف، دیوار…"), 150), F(i, "qty", L("Count", "العدد", "تعداد"), 80, true), F(i, "l", L("Length m", "الطول م", "طول m"), 96, true), F(i, "w", L("Width m", "العرض م", "عرض m"), 96, true), F(i, "deduct", L("Deduct m²", "الخصم م²", "خصم m²"), 96, true)]}
             </Row>
             <Row wrap>
               {kind !== "measure" ? <View style={{ flex: 1, minWidth: 160 }}>{F(i, "note", L("Note", "ملاحظات", "نوٹ"))}</View> : null}
