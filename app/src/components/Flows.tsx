@@ -42,6 +42,13 @@ const METHODS = ["Cash", "Hawala", "Bank transfer", "Cheque", "STC Pay / card", 
 const today = () => new Date().toISOString().slice(0, 10);
 const LABEL: Record<string, [string, string, string]> = { income: ["Payment received", "دفعة مستلمة", "وصولی"], loan: ["Loan from company", "قرض من الشركة", "کمپنی سے قرض"], expense: ["Expense", "مصروف", "خرچہ"], subpay: ["Payment to subcontractor", "دفعة لمقاول", "سب کنٹریکٹر کو ادائیگی"], rate: ["Supplier rate", "سعر مورد", "سپلائر ریٹ"], progress: ["Work progress", "تقدم العمل", "کام کی پیشرفت"] };
 
+/** Work is counted in square metres. Another unit is kept only when he really said it (running metres, feet, pieces). */
+const workUnit = (u: any, said: string) => {
+  const x = String(u || "sqm").toLowerCase();
+  if (x === "sqm") return "sqm";
+  if (/rft|lm|run/.test(x)) return /(rft|running|run\s*f|feet|foot|فٹ|فت|قدم|tooli|طولي|طولی|linear|لمبائی میں)/i.test(said) ? x : "sqm";
+  return /(pcs|piece|عدد|دانہ|دانے|حبة|قطع|نگ)/i.test(said) ? x : "sqm";
+};
 /** Words that mean "I am measuring now": a length times a width, or the word for measuring / length / width / deduction. */
 const MEASURING = /(\d+(?:[.,]\d+)?\s*(?:by|x|×|\*|ضرب|في|فی|into|guna|گنا)\s*\d)|پیمائش|paimaish|pemaish|pimaish|قياس|قیاس|ناپ|\bnaap\b|طول|عرض|\btool\b|\bard\b|lambai|chorai|لمبائی|چوڑائی|khasam|خصم/i;
 // ───────────────────────── speak / type an entry ─────────────────────────
@@ -80,7 +87,7 @@ function SpeakSheet({ init, onClose, open }: { init?: any; onClose: () => void; 
       }
       if (!LABEL[a.intent] || (role === "supervisor" && !["progress", "expense"].includes(a.intent))) { setErr(t("notUnderstood")); return; }
       setO({ intent: a.intent, project_id: a.project_id || "", amount: a.amount ?? "", loan: a.loan ?? 0, sub_name: a.sub_name || "", material: a.lines?.[0]?.name || "", supplier: a.supplier || "", unit: a.lines?.[0]?.unit || "sqm", description: a.description || "", photo: null,
-        rows: (a.progress || []).map((p: any) => ({ sub_name: p.sub_name, qty: p.qty, unit: p.unit || "sqm", work: p.work || "" })) });
+        rows: (a.progress || []).map((p: any) => ({ sub_name: p.sub_name, qty: p.qty, unit: workUnit(p.unit, text), work: p.work || "" })) });
     } catch (e: any) { setErr(e.message); } finally { setBusy(false); }
   };
 

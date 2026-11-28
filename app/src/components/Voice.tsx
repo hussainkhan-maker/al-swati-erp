@@ -1,16 +1,16 @@
 // Voice input: the phone's own speech recognition (Urdu by default), with typing as the fallback.
 import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from "expo-speech-recognition";
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Pressable, View } from "react-native";
 import { useData } from "../lib/data";
 import { speechLang } from "../lib/i18n";
-import { hush, isSpeaking } from "../lib/talk";
+import { hush, isSpeaking, stopListening } from "../lib/talk";
 import { Field, Icon, T, useColors } from "../ui";
 
 export function Voice({ value, onChange, hints = [], placeholder }: { value: string; onChange: (v: string) => void; hints?: string[]; placeholder?: string }) {
   const { t, lang } = useData(); const c = useColors();
   const [on, setOn] = useState(false), [err, setErr] = useState("");
-  const base = useRef(""), kept = useRef("");
+  const base = useRef(""), kept = useRef(""), starting = useRef(0);
 
   useSpeechRecognitionEvent("result", (e: any) => {
     if (isSpeaking()) return; // the app's own voice is never written down
@@ -23,17 +23,24 @@ export function Voice({ value, onChange, hints = [], placeholder }: { value: str
     if (tr && e.isFinal) { base.current = (base.current + tr).trim() + " "; kept.current = (kept.current + " " + tr).trim(); }
     if (e.isFinal && typeof e.results?.[0]?.confidence === "number" && e.results[0].confidence > 0 && e.results[0].confidence < 0.35) setErr(t("voiceUnclear"));
   });
-  useSpeechRecognitionEvent("end", () => setOn(false));
-  useSpeechRecognitionEvent("error", (e: any) => { setOn(false); if (e.error !== "aborted") setErr(t("voiceUnclear")); });
+  useSpeechRecognitionEvent("end", () => { if (Date.now() - starting.current > 700) setOn(false); });
+  useSpeechRecognitionEvent("error", (e: any) => { if (e.error === "aborted") { if (Date.now() - starting.current > 700) setOn(false); return; } setOn(false); if (e.error !== "no-speech") setErr(t("voiceUnclear")); });
+
+  // The page is closed (cancel, save, back): the microphone is let go, so the next page can use it.
+  useEffect(() => () => { stopListening(); }, []);
 
   const toggle = async () => {
-    if (on) { ExpoSpeechRecognitionModule.stop(); return; }
+    if (on) { setOn(false); try { ExpoSpeechRecognitionModule.stop(); } catch { /* already stopped */ } return; }
     setErr(""); hush(); // the person wants to speak: the app stops talking at once
     const p = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
     if (!p.granted) { setErr(t("voiceUnclear")); return; }
     base.current = value ? value + " " : ""; kept.current = "";
-    ExpoSpeechRecognitionModule.start({ lang: speechLang(lang), interimResults: true, continuous: true, contextualStrings: hints.slice(0, 100) } as any);
-    setOn(true);
+    // Anything still listening from before (a page that was cancelled) is ended first; the phone refuses a second start otherwise.
+    stopListening();
+    await new Promise((r) => setTimeout(r, 250));
+    const go = () => ExpoSpeechRecognitionModule.start({ lang: speechLang(lang), interimResults: true, continuous: true, contextualStrings: hints.slice(0, 100) } as any);
+    try { go(); } catch { await new Promise((r) => setTimeout(r, 600)); try { go(); } catch { setErr(t("voiceUnclear")); return; } }
+    starting.current = Date.now(); setOn(true);
   };
 
   return (

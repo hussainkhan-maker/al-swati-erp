@@ -107,6 +107,7 @@ export function LiveMeasure({ init, onClose }: { init?: any; onClose: () => void
     hush();
     const p = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
     if (!p.granted) { setMsg(L("Allow the microphone for this app.", "اسمح بالميكروفون لهذا التطبيق.", "اس ایپ کو مائیک کی اجازت دیں۔")); return; }
+    stopListening(); await new Promise((r) => setTimeout(r, 250)); // anything left listening from another page is ended first
     errs.current = 0; want.current = true; listen();
   };
   const addTyped = () => { const t = typed.trim(); if (!t) return; setTyped(""); queue.current.push(t); pump(); };
