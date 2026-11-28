@@ -8,13 +8,14 @@ let speaking = false;
 export const isSpeaking = () => speaking;
 export function stopListening() { try { ExpoSpeechRecognitionModule.abort(); } catch { /* not listening */ } }
 export function hush() { speaking = false; try { Speech.stop(); } catch { /* no voice on this device */ } }
-export function say(text: string, opts: Record<string, any> = {}) {
-  if (!text) return;
+export function say(text: string, opts: Record<string, any> = {}, after?: () => void) {
+  if (!text) { after?.(); return; }
   stopListening();
   try { Speech.stop(); } catch { /* no voice on this device */ }
   speaking = true;
-  const done = () => { speaking = false; };
-  try { Speech.speak(text, { ...opts, onDone: done, onStopped: done, onError: done }); } catch { speaking = false; }
+  let ended = false;
+  const done = () => { if (ended) return; ended = true; speaking = false; after?.(); };
+  try { Speech.speak(text, { ...opts, onDone: done, onStopped: done, onError: done }); } catch { done(); }
   // If the device never reports the end, do not stay deaf for ever.
   setTimeout(done, Math.min(60000, 4000 + text.length * 120));
 }

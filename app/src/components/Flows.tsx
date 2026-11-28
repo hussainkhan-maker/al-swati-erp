@@ -13,9 +13,10 @@ import { speechLang } from "../lib/i18n";
 import { buildStatement, Doc, docHTML, makeAndShare, pdfChecks } from "../lib/pdf";
 import { ai, supabase } from "../lib/supabase";
 import { Btn, Card, Checks, Field, Icon, Photo, Pill, Row, Select, Sheet, T, Table, useColors } from "../ui";
+import { LiveMeasure } from "./LiveMeasure";
 import { Voice } from "./Voice";
 
-type Open = (kind: "speak" | "purchase" | "statement" | "ask", init?: any) => void;
+type Open = (kind: "speak" | "purchase" | "statement" | "ask" | "live", init?: any) => void;
 const FlowCtx = createContext<Open>(() => {});
 export const useFlows = () => useContext(FlowCtx);
 
@@ -30,6 +31,7 @@ export function FlowProvider({ children }: { children: React.ReactNode }) {
       {sheet?.kind === "purchase" && <PurchaseSheet key={sheet.key} init={sheet.init} onClose={close} />}
       {sheet?.kind === "statement" && <StatementSheet key={sheet.key} init={sheet.init} onClose={close} />}
       {sheet?.kind === "ask" && <AskSheet key={sheet.key} init={sheet.init} onClose={close} />}
+      {sheet?.kind === "live" && <LiveMeasure key={sheet.key} init={sheet.init} onClose={close} />}
     </FlowCtx.Provider>
   );
 }
@@ -40,6 +42,8 @@ const METHODS = ["Cash", "Hawala", "Bank transfer", "Cheque", "STC Pay / card", 
 const today = () => new Date().toISOString().slice(0, 10);
 const LABEL: Record<string, [string, string, string]> = { income: ["Payment received", "دفعة مستلمة", "وصولی"], loan: ["Loan from company", "قرض من الشركة", "کمپنی سے قرض"], expense: ["Expense", "مصروف", "خرچہ"], subpay: ["Payment to subcontractor", "دفعة لمقاول", "سب کنٹریکٹر کو ادائیگی"], rate: ["Supplier rate", "سعر مورد", "سپلائر ریٹ"], progress: ["Work progress", "تقدم العمل", "کام کی پیشرفت"] };
 
+/** Words that mean "I am measuring now": a length times a width, or the word for measuring / length / width / deduction. */
+const MEASURING = /(\d+(?:[.,]\d+)?\s*(?:by|x|×|\*|ضرب|في|فی|into|guna|گنا)\s*\d)|پیمائش|paimaish|pemaish|pimaish|قياس|قیاس|ناپ|\bnaap\b|طول|عرض|\btool\b|\bard\b|lambai|chorai|لمبائی|چوڑائی|khasam|خصم/i;
 // ───────────────────────── speak / type an entry ─────────────────────────
 function SpeakSheet({ init, onClose, open }: { init?: any; onClose: () => void; open: Open }) {
   const { t, lang, d, role, insert, profile, reload } = useData(); const c = useColors();
@@ -53,6 +57,9 @@ function SpeakSheet({ init, onClose, open }: { init?: any; onClose: () => void; 
 
   const understand = async () => {
     if (!text.trim()) return;
+    // He is measuring (a length by a width, or he says "paimaish"): the live measuring page opens and keeps listening,
+    // so he goes on talking place by place without pressing anything.
+    if (MEASURING.test(text)) { const pr = projects.length === 1 ? projects[0].id : (projects.find((p: any) => [p.name, ...(p.site?.aka || [])].some((n: string) => n && text.toLowerCase().includes(String(n).toLowerCase())))?.id || ""); onClose(); setTimeout(() => open("live", { text, project_id: pr }), 350); return; }
     setBusy(true); setErr(""); setO(null); setMrn(null);
     try {
       // The fast site reader (it knows the team's words and each project's nicknames); the older reader is the fallback.
