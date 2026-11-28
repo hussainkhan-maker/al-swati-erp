@@ -10,7 +10,7 @@ import { Field, Icon, T, useColors } from "../ui";
 export function Voice({ value, onChange, hints = [], placeholder }: { value: string; onChange: (v: string) => void; hints?: string[]; placeholder?: string }) {
   const { t, lang } = useData(); const c = useColors();
   const [on, setOn] = useState(false), [err, setErr] = useState("");
-  const base = useRef(""), kept = useRef(""), starting = useRef(0);
+  const base = useRef(""), kept = useRef(""), starting = useRef(0), held = useRef(false), pressedAt = useRef(0);
 
   useSpeechRecognitionEvent("result", (e: any) => {
     if (isSpeaking()) return; // the app's own voice is never written down
@@ -23,29 +23,41 @@ export function Voice({ value, onChange, hints = [], placeholder }: { value: str
     if (tr && e.isFinal) { base.current = (base.current + tr).trim() + " "; kept.current = (kept.current + " " + tr).trim(); }
     if (e.isFinal && typeof e.results?.[0]?.confidence === "number" && e.results[0].confidence > 0 && e.results[0].confidence < 0.35) setErr(t("voiceUnclear"));
   });
-  useSpeechRecognitionEvent("end", () => { if (Date.now() - starting.current > 700) setOn(false); });
-  useSpeechRecognitionEvent("error", (e: any) => { if (e.error === "aborted") { if (Date.now() - starting.current > 700) setOn(false); return; } setOn(false); if (e.error !== "no-speech") setErr(t("voiceUnclear")); });
+  useSpeechRecognitionEvent("end", () => {
+    if (held.current) { setTimeout(() => { if (held.current) go(); }, 150); return; } // the phone paused by itself: keep listening while he holds
+    if (Date.now() - starting.current > 500) setOn(false);
+  });
+  useSpeechRecognitionEvent("error", (e: any) => {
+    if (held.current && (e.error === "no-speech" || e.error === "aborted")) { setTimeout(() => { if (held.current) go(); }, 300); return; }
+    if (e.error === "aborted") { if (Date.now() - starting.current > 500) setOn(false); return; }
+    setOn(false); if (e.error !== "no-speech") setErr(t("voiceUnclear"));
+  });
 
   // The page is closed (cancel, save, back): the microphone is let go, so the next page can use it.
-  useEffect(() => () => { stopListening(); }, []);
+  useEffect(() => () => { held.current = false; stopListening(); }, []);
 
-  const toggle = async () => {
-    if (on) { setOn(false); try { ExpoSpeechRecognitionModule.stop(); } catch { /* already stopped */ } return; }
-    setErr(""); hush(); // the person wants to speak: the app stops talking at once
+  const go = () => { try { ExpoSpeechRecognitionModule.start({ lang: speechLang(lang), interimResults: true, continuous: true, contextualStrings: hints.slice(0, 100) } as any); setOn(true); } catch { /* already listening */ } };
+  // Hold to talk: listening starts when the button is pressed and stops the moment it is let go.
+  const pressIn = async () => {
+    held.current = true; pressedAt.current = Date.now(); setErr(""); hush(); // the person wants to speak: the app stops talking at once
     const p = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
-    if (!p.granted) { setErr(t("voiceUnclear")); return; }
+    if (!p.granted) { held.current = false; setErr(t("voiceUnclear")); return; }
+    if (!held.current) return;
     base.current = value ? value + " " : ""; kept.current = "";
-    // Anything still listening from before (a page that was cancelled) is ended first; the phone refuses a second start otherwise.
-    stopListening();
-    await new Promise((r) => setTimeout(r, 250));
-    const go = () => ExpoSpeechRecognitionModule.start({ lang: speechLang(lang), interimResults: true, continuous: true, contextualStrings: hints.slice(0, 100) } as any);
-    try { go(); } catch { await new Promise((r) => setTimeout(r, 600)); try { go(); } catch { setErr(t("voiceUnclear")); return; } }
-    starting.current = Date.now(); setOn(true);
+    stopListening(); await new Promise((r) => setTimeout(r, 150)); // anything still listening from a cancelled page is ended first
+    if (!held.current) return;
+    starting.current = Date.now(); go();
+  };
+  const pressOut = () => {
+    const short = Date.now() - pressedAt.current < 350;
+    held.current = false; setOn(false);
+    if (short) { stopListening(); setErr(t("holdSpeak")); return; }
+    try { ExpoSpeechRecognitionModule.stop(); } catch { /* already stopped */ }
   };
 
   return (
     <View style={{ gap: 10, alignItems: "stretch" }}>
-      <Pressable accessibilityRole="button" accessibilityLabel={t("tapSpeak")} onPress={toggle}
+      <Pressable accessibilityRole="button" accessibilityLabel={t("tapSpeak")} onPressIn={pressIn} onPressOut={pressOut} delayLongPress={100000}
         style={({ pressed }) => ({ alignSelf: "center", width: 132, height: 132, borderRadius: 66, borderWidth: 6, borderColor: on ? c.bad : c.accent, backgroundColor: on ? c.badSoft : c.surface, alignItems: "center", justifyContent: "center", opacity: pressed ? 0.8 : 1 })}>
         <Icon name={on ? "stop" : "mic"} size={54} color={on ? c.bad : c.accent} />
       </Pressable>

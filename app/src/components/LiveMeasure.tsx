@@ -37,7 +37,7 @@ export function LiveMeasure({ init, onClose }: { init?: any; onClose: () => void
   const [lines, setLines] = useState<any[]>([]);
   const [on, setOn] = useState(false), [hearing, setHearing] = useState(""), [busy, setBusy] = useState(false), [msg, setMsg] = useState("");
   const [typed, setTyped] = useState(""), [sent, setSent] = useState(false), [sure, setSure] = useState(false), [ending, setEnding] = useState(false);
-  const want = useRef(false), queue = useRef<string[]>([]), working = useRef(false), sheetId = useRef<string | null>(null), sys = useRef(""), kept = useRef(""), errs = useRef(0), started = useRef(0);
+  const want = useRef(false), queue = useRef<string[]>([]), working = useRef(false), sheetId = useRef<string | null>(null), sys = useRef(""), kept = useRef(""), errs = useRef(0), started = useRef(0), held = useRef(false), pressedAt = useRef(0), buf = useRef(""), partial = useRef("");
   const now = useRef({ pid, party, lines }); now.current = { pid, party, lines };
   const sl = lang === "ur" ? "ur-PK" : lang === "ar" ? "ar-SA" : "en-US";
   const total = r2(lines.reduce((t, l) => t + area(l), 0));
@@ -45,8 +45,8 @@ export function LiveMeasure({ init, onClose }: { init?: any; onClose: () => void
   const sysName = (k: string) => (k === "channel" ? L("C-channel (steel)", "قناة (حديد)", "چینل (حدید)") : k === "wall" ? L("Wall (plain)", "جدار (سادة)", "دیوار (سادہ)") : "");
 
   const listen = () => {
-    if (!want.current || isSpeaking() || working.current) return;
-    try { ExpoSpeechRecognitionModule.start({ lang: speechLang(lang), interimResults: true, continuous: false, contextualStrings: [...WORDS, ...subs].slice(0, 100) } as any); setOn(true); } catch { /* already listening */ }
+    if (!want.current) return;
+    try { ExpoSpeechRecognitionModule.start({ lang: speechLang(lang), interimResults: true, continuous: true, contextualStrings: [...WORDS, ...subs].slice(0, 100) } as any); setOn(true); } catch { /* already listening */ }
   };
   /** Say it aloud. The microphone stays off until he taps it for the next place. */
   const tell = (text: string) => { setMsg(text); say(text, { language: sl }); };
@@ -93,19 +93,29 @@ export function LiveMeasure({ init, onClose }: { init?: any; onClose: () => void
     if (queue.current.length) pump();
   };
 
+  // Hold to talk: while the button is held, everything heard is collected; when he lets go, that is one entry.
+  const flush = () => { const t = (buf.current + " " + partial.current).trim(); buf.current = ""; partial.current = ""; kept.current = ""; setHearing(""); if (t) { queue.current.push(t); pump(); } };
   useSpeechRecognitionEvent("result", (e: any) => {
     if (isSpeaking()) return; // its own voice is never written down
     let tr: string = String(e.results?.[0]?.transcript ?? "").trim(); if (!tr) return;
     if (kept.current && tr.startsWith(kept.current)) tr = tr.slice(kept.current.length).trim(); // some phones repeat everything said so far
     if (!tr) return;
-    errs.current = 0;
-    if (e.isFinal) { want.current = false; stopListening(); setOn(false); kept.current = ""; setHearing(""); queue.current.push(tr); pump(); } else setHearing(tr);
+    if (e.isFinal) { kept.current = (kept.current + " " + tr).trim(); buf.current = (buf.current + " " + tr).trim(); partial.current = ""; setHearing(buf.current); if (!held.current) flush(); }
+    else { partial.current = tr; setHearing((buf.current + " " + tr).trim()); }
   });
-  useSpeechRecognitionEvent("end", () => { if (Date.now() - started.current < 700) return; setOn(false); kept.current = ""; want.current = false; });
+  useSpeechRecognitionEvent("end", () => {
+    if (Date.now() - started.current < 500 && held.current) return; // the end of an earlier page, not of this hold
+    kept.current = "";
+    if (held.current) { setTimeout(() => { if (held.current) listen(); }, 150); return; } // the phone stopped by itself in a pause: keep listening while he holds
+    setOn(false); want.current = false; flush();
+  });
   useSpeechRecognitionEvent("error", (e: any) => {
-    if (e?.error === "aborted" && Date.now() - started.current < 700) return; // the end of the page before, not of this tap
-    setOn(false); kept.current = ""; want.current = false;
-    if (e?.error !== "aborted" && e?.error !== "no-speech") setMsg(L("Not heard. Tap and say it again.", "لم أسمع. اضغط وقلها مرة أخرى.", "سنائی نہیں دیا۔ دبا کر دوبارہ بولیں۔"));
+    if (e?.error === "aborted" && Date.now() - started.current < 500) return;
+    kept.current = "";
+    if (held.current && (e?.error === "no-speech" || e?.error === "aborted")) { setTimeout(() => { if (held.current) listen(); }, 300); return; }
+    setOn(false); want.current = false;
+    if (buf.current || partial.current) { flush(); return; }
+    if (e?.error !== "aborted" && e?.error !== "no-speech") setMsg(L("Not heard. Hold the button and say it again.", "لم أسمع. اضغط مطولًا وقلها مرة أخرى.", "سنائی نہیں دیا۔ بٹن دبا کر رکھیں اور دوبارہ بولیں۔"));
   });
   useEffect(() => {
     activateKeepAwakeAsync("measure").catch(() => {});
@@ -116,13 +126,22 @@ export function LiveMeasure({ init, onClose }: { init?: any; onClose: () => void
     return () => { want.current = false; stopListening(); hush(); try { deactivateKeepAwake("measure"); } catch { /* was not on */ } };
   }, []);
 
-  const toggle = async () => {
-    if (want.current) { want.current = false; stopListening(); setOn(false); return; }
-    hush();
+  const pressIn = async () => {
+    held.current = true; pressedAt.current = Date.now(); hush(); setMsg(""); buf.current = ""; partial.current = ""; kept.current = "";
     const p = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
-    if (!p.granted) { setMsg(L("Allow the microphone for this app.", "اسمح بالميكروفون لهذا التطبيق.", "اس ایپ کو مائیک کی اجازت دیں۔")); return; }
-    stopListening(); await new Promise((r) => setTimeout(r, 250)); // anything left listening from another page is ended first
-    errs.current = 0; want.current = true; started.current = Date.now(); setMsg(""); listen();
+    if (!p.granted) { held.current = false; setMsg(L("Allow the microphone for this app.", "اسمح بالميكروفون لهذا التطبيق.", "اس ایپ کو مائیک کی اجازت دیں۔")); return; }
+    if (!held.current) return; // he already let go (the permission question was on the screen)
+    stopListening(); await new Promise((r) => setTimeout(r, 150)); // anything left listening from another page is ended first
+    if (!held.current) return;
+    want.current = true; started.current = Date.now(); listen();
+  };
+  const pressOut = () => {
+    const short = Date.now() - pressedAt.current < 350;
+    held.current = false;
+    if (short && !buf.current && !partial.current) { want.current = false; stopListening(); setOn(false); setMsg(L("Hold the button while you talk. Let go when done.", "اضغط مطولًا وأنت تتكلم، واترك عند الانتهاء.", "بولتے وقت بٹن دبا کر رکھیں۔ بات ختم ہو تو چھوڑ دیں۔")); return; }
+    try { ExpoSpeechRecognitionModule.stop(); } catch { /* already stopped */ }
+    // If the phone never reports the end, what was heard is still written.
+    setTimeout(() => { if (!held.current && (buf.current || partial.current)) { setOn(false); want.current = false; flush(); } }, 1500);
   };
   const switchParty = (v: string) => {
     if (v === now.current.party) return;
@@ -158,11 +177,11 @@ export function LiveMeasure({ init, onClose }: { init?: any; onClose: () => void
             : <Field label={L("Subcontractor", "المقاول", "ٹھیکیدار")} value={party} onChange={(v: string) => { setParty(v); now.current.party = v; }} />}
         </Row>
         {!sent ? <Row style={{ alignItems: "center", gap: 12 }}>
-          <Pressable accessibilityRole="button" onPress={toggle} style={({ pressed }) => ({ width: 84, height: 84, borderRadius: 42, borderWidth: 5, borderColor: on ? c.bad : c.accent, backgroundColor: on ? c.badSoft : c.surface, alignItems: "center", justifyContent: "center", opacity: pressed ? 0.8 : 1 })}>
+          <Pressable accessibilityRole="button" onPressIn={pressIn} onPressOut={pressOut} delayLongPress={100000} style={({ pressed }) => ({ width: 84, height: 84, borderRadius: 42, borderWidth: 5, borderColor: on ? c.bad : c.accent, backgroundColor: on ? c.badSoft : c.surface, alignItems: "center", justifyContent: "center", opacity: pressed ? 0.8 : 1 })}>
             <Icon name={on ? "stop" : "mic"} size={38} color={on ? c.bad : c.accent} />
           </Pressable>
           <View style={{ flex: 1, gap: 2 }}>
-            <T bold size={17}>{busy ? L("Writing…", "أكتب…", "لکھ رہا ہوں…") : on ? L("Listening. Say each place.", "أسمع. قل كل مكان.", "سن رہا ہوں۔ ہر جگہ بولتے جائیں۔") : L("Tap, say one place", "اضغط وقل مكانًا واحدًا", "دبائیں، ایک جگہ بولیں")}</T>
+            <T bold size={17}>{busy ? L("Writing…", "أكتب…", "لکھ رہا ہوں…") : on ? L("Listening… let go when done", "أسمع… اترك عند الانتهاء", "سن رہا ہوں… بات ختم ہو تو چھوڑ دیں") : L("Hold and talk. Let go when done.", "اضغط مطولًا وتكلم، واترك عند الانتهاء", "دبا کر رکھیں اور بولیں۔ چھوڑیں تو رک جائے گا")}</T>
             {hearing ? <T muted size={15}>{hearing}</T> : <T muted size={13}>{L("\"Ghalat\" removes the last line. \"Bas\" stops.", "\"غلط\" يحذف آخر بند. \"بس\" يوقف.", "«غلط»: آخری لائن ہٹے گی۔ «بس»: رک جائے گا۔")}</T>}
           </View>
         </Row> : null}
