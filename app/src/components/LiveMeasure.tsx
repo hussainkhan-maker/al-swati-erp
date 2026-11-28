@@ -9,6 +9,7 @@ import { Pressable, View } from "react-native";
 import { useData } from "../lib/data";
 import { money, num, r2 } from "../lib/fmt";
 import { speechLang } from "../lib/i18n";
+import { docHTML, makeAndShare } from "../lib/pdf";
 import { supabase } from "../lib/supabase";
 import { hush, isSpeaking, say, stopListening } from "../lib/talk";
 import { Btn, Card, Field, Icon, Row, Select, Sheet, T, useColors } from "../ui";
@@ -26,7 +27,7 @@ const HEAD: [string, number][] = [["#", 0.5], ["البند", 2.2], ["الطول"
 const CELL: any = { paddingVertical: 8, paddingHorizontal: 6, justifyContent: "center", borderLeftWidth: 1 };
 
 export function LiveMeasure({ init, onClose }: { init?: any; onClose: () => void }) {
-  const { d, lang, role, insert, update, reload } = useData(); const c = useColors();
+  const { d, lang, role, profile, insert, update, reload } = useData(); const c = useColors();
   const L = (en: string, ar: string, ur: string) => (lang === "ar" ? ar : lang === "ur" ? ur : en);
   const projects = (d.projects || []).filter((p: any) => p.status !== "closed");
   const subs: string[] = (d.sub_names || (d.subcontractors || []).map((s: any) => s.name) || []).map((s: any) => (typeof s === "string" ? s : s?.name)).filter(Boolean);
@@ -35,7 +36,7 @@ export function LiveMeasure({ init, onClose }: { init?: any; onClose: () => void
   const [lines, setLines] = useState<any[]>([]);
   const [on, setOn] = useState(false), [hearing, setHearing] = useState(""), [busy, setBusy] = useState(false), [msg, setMsg] = useState("");
   const [typed, setTyped] = useState(""), [sent, setSent] = useState(false), [sure, setSure] = useState(false), [ending, setEnding] = useState(false);
-  const want = useRef(false), queue = useRef<string[]>([]), working = useRef(false), sheetId = useRef<string | null>(null), sys = useRef(""), kept = useRef(""), errs = useRef(0);
+  const want = useRef(false), queue = useRef<string[]>([]), working = useRef(false), sheetId = useRef<string | null>(null), sys = useRef(""), kept = useRef(""), errs = useRef(0), started = useRef(0);
   const now = useRef({ pid, party, lines }); now.current = { pid, party, lines };
   const sl = lang === "ur" ? "ur-PK" : lang === "ar" ? "ar-SA" : "en-US";
   const total = r2(lines.reduce((t, l) => t + area(l), 0));
@@ -44,10 +45,10 @@ export function LiveMeasure({ init, onClose }: { init?: any; onClose: () => void
 
   const listen = () => {
     if (!want.current || isSpeaking() || working.current) return;
-    try { ExpoSpeechRecognitionModule.start({ lang: speechLang(lang), interimResults: true, continuous: true, contextualStrings: [...WORDS, ...subs].slice(0, 100) } as any); setOn(true); } catch { /* already listening */ }
+    try { ExpoSpeechRecognitionModule.start({ lang: speechLang(lang), interimResults: true, continuous: false, contextualStrings: [...WORDS, ...subs].slice(0, 100) } as any); setOn(true); } catch { /* already listening */ }
   };
-  /** Say it aloud, then listen again by itself. */
-  const tell = (text: string) => { setMsg(text); say(text, { language: sl }, () => setTimeout(listen, 250)); };
+  /** Say it aloud. The microphone stays off until he taps it for the next place. */
+  const tell = (text: string) => { setMsg(text); say(text, { language: sl }); };
 
   const save = async (next: any[], status = "draft") => {
     const { pid: P, party: W } = now.current;
@@ -71,6 +72,8 @@ export function LiveMeasure({ init, onClose }: { init?: any; onClose: () => void
     const { data, error } = await supabase.functions.invoke("site", { body: { kind: "measure", text, lang, names: subs.slice(0, 60) } });
     if (error || (data as any)?.error) throw new Error((data as any)?.error || error?.message);
     const r = data as any;
+    const said = r.party ? subs.find((x) => x.toLowerCase() === String(r.party).toLowerCase()) : "";
+    if (said && now.current.party && said !== now.current.party) switchParty(said);
     if (r.party && !now.current.party) { const hit = subs.find((s) => s.toLowerCase() === String(r.party).toLowerCase()) || String(r.party); setParty(hit); now.current.party = hit; }
     const got = (r.lines || []).map((l: any) => { if (l.system) sys.current = l.system; return { place: l.place || "", element: elemWord(l.element, "ar"), l: l.l, w: l.w, deduct: n0(l.deduct) || 0, system: l.system || sys.current || "", photo: "", heard: text }; }).filter((l: any) => n0(l.l) > 0 && n0(l.w) > 0);
     if (!got.length) { tell(/\d/.test(text) ? L("Say the length and the width.", "قل الطول والعرض.", "لمبائی اور چوڑائی بولیں۔") : L(`Ready${now.current.party ? ", " + now.current.party : ""}. Say each place.`, `جاهز${now.current.party ? "، " + now.current.party : ""}. قل كل مكان.`, `تیار${now.current.party ? "، " + now.current.party : ""}۔ ہر جگہ بولتے جائیں۔`)); return; }
@@ -86,7 +89,7 @@ export function LiveMeasure({ init, onClose }: { init?: any; onClose: () => void
     working.current = true; setBusy(true);
     try { await handle(text); } catch { tell(L("Not understood. Say it again.", "لم أفهم. قلها مرة أخرى.", "سمجھ نہیں آیا۔ دوبارہ بولیں۔")); }
     working.current = false; setBusy(false);
-    if (queue.current.length) pump(); else if (!isSpeaking()) listen();
+    if (queue.current.length) pump();
   };
 
   useSpeechRecognitionEvent("result", (e: any) => {
@@ -95,21 +98,18 @@ export function LiveMeasure({ init, onClose }: { init?: any; onClose: () => void
     if (kept.current && tr.startsWith(kept.current)) tr = tr.slice(kept.current.length).trim(); // some phones repeat everything said so far
     if (!tr) return;
     errs.current = 0;
-    if (e.isFinal) { kept.current = (kept.current + " " + tr).trim(); setHearing(""); queue.current.push(tr); pump(); } else setHearing(tr);
+    if (e.isFinal) { want.current = false; stopListening(); setOn(false); kept.current = ""; setHearing(""); queue.current.push(tr); pump(); } else setHearing(tr);
   });
-  useSpeechRecognitionEvent("end", () => { setOn(false); kept.current = ""; if (want.current) setTimeout(listen, 300); });
+  useSpeechRecognitionEvent("end", () => { if (Date.now() - started.current < 700) return; setOn(false); kept.current = ""; want.current = false; });
   useSpeechRecognitionEvent("error", (e: any) => {
-    setOn(false); kept.current = "";
-    if (!want.current || e?.error === "aborted") return;
-    if (e?.error === "no-speech") { setTimeout(listen, 300); return; } // silence while he walks to the next wall
-    if (++errs.current >= 4) { want.current = false; setMsg(L("The microphone stopped. Tap it again.", "توقف الميكروفون. اضغط مرة أخرى.", "مائیک رک گیا۔ دوبارہ دبائیں۔")); return; }
-    setTimeout(listen, 800);
+    if (e?.error === "aborted" && Date.now() - started.current < 700) return; // the end of the page before, not of this tap
+    setOn(false); kept.current = ""; want.current = false;
+    if (e?.error !== "aborted" && e?.error !== "no-speech") setMsg(L("Not heard. Tap and say it again.", "لم أسمع. اضغط وقلها مرة أخرى.", "سنائی نہیں دیا۔ دبا کر دوبارہ بولیں۔"));
   });
   useEffect(() => {
     activateKeepAwakeAsync("measure").catch(() => {});
     (async () => {
       if (!init?.text) return;
-      try { const p = await ExpoSpeechRecognitionModule.requestPermissionsAsync(); if (p.granted) { errs.current = 0; want.current = true; } } catch { /* he can tap the microphone */ }
       queue.current.push(String(init.text)); pump();
     })();
     return () => { want.current = false; stopListening(); hush(); try { deactivateKeepAwake("measure"); } catch { /* was not on */ } };
@@ -121,7 +121,26 @@ export function LiveMeasure({ init, onClose }: { init?: any; onClose: () => void
     const p = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
     if (!p.granted) { setMsg(L("Allow the microphone for this app.", "اسمح بالميكروفون لهذا التطبيق.", "اس ایپ کو مائیک کی اجازت دیں۔")); return; }
     stopListening(); await new Promise((r) => setTimeout(r, 250)); // anything left listening from another page is ended first
-    errs.current = 0; want.current = true; listen();
+    errs.current = 0; want.current = true; started.current = Date.now(); setMsg(""); listen();
+  };
+  const switchParty = (v: string) => {
+    if (v === now.current.party) return;
+    if (now.current.lines.length && now.current.party) {
+      const was = now.current.party; sheetId.current = null; sys.current = ""; setLines([]); now.current.lines = [];
+      if (sent) { setSent(false); setMsg(""); } else setMsg(L(`${was}'s sheet is kept as a draft under Orders & measurements. New sheet: ${v || "—"}.`, `ورقة ${was} محفوظة كمسودة في الطلبات والقياسات. ورقة جديدة: ${v || "—"}.`, `${was} کی شیٹ ڈرافٹ میں محفوظ ہے (آرڈر / پیمائش)۔ نئی شیٹ: ${v || "—"}۔`));
+    }
+    setParty(v); now.current.party = v;
+  };
+  const pdf = async () => {
+    const en = role === "admin"; const X = (e: string, a: string) => (en ? e : a); const ls = now.current.lines;
+    const EN: Record<string, string> = { "عمود": "Column", "سقف": "Ceiling", "جدار": "Wall", "جدار مستقيم": "Straight wall", "كمرة": "Beam", "باب": "Door", "شباك": "Window", "درج": "Stairs" };
+    const sysN = (k: string) => (k === "channel" ? X("On C-channel (steel)", "على القناة (حديد)") : k === "wall" ? X("On the wall (plain)", "على الجدار (سادة)") : "");
+    const anyDed = ls.some((l) => n0(l.deduct) > 0), anySys = ls.some((l) => l.system);
+    const cols = ["#", X("Item", "البند"), ...(anySys ? [X("Type", "النوع")] : []), X("Length m", "الطول م"), X("Width m", "العرض م"), X("Length × width", "الطول × العرض"), ...(anyDed ? [X("Deduction m²", "الخصم م²"), X("Area m²", "المساحة م²")] : [])];
+    const rows = ls.map((l, i) => [String(i + 1), [en ? EN[l.element] || l.element : l.element, l.place].filter(Boolean).join(" - ") || "-", ...(anySys ? [sysN(l.system || "")] : []), String(l.l), String(l.w), money(r2(n0(l.l) * n0(l.w))), ...(anyDed ? [n0(l.deduct) ? money(n0(l.deduct)) : "", money(area(l))] : [])]);
+    const sum: [string, string][] = [...(anySys ? ["wall", "channel", ""].filter((k) => part(k) > 0).map((k) => [`${X("Total", "مجموع")} ${sysN(k) || X("not chosen", "غير محدد")} ${X("m²", "م²")}`, money(part(k))] as [string, string]) : []), [X("Total m²", "المجموع م²"), money(r2(ls.reduce((t, l) => t + area(l), 0)))]];
+    const doc: any = { title: `${X("Work measurement", "قياس أعمال")} - ${now.current.party || "-"} - ${projects.find((p: any) => p.id === now.current.pid)?.name || ""}`, cols, rows, sum, numCols: [cols.length - 1] };
+    try { await makeAndShare(doc, docHTML(doc, en ? "en" : "ar", profile.name)); } catch (e: any) { setMsg(e.message); }
   };
   const addTyped = () => { const t = typed.trim(); if (!t) return; setTyped(""); queue.current.push(t); pump(); };
   const removeAt = async (i: number) => { const next = lines.filter((_, j) => j !== i); setLines(next); now.current.lines = next; await save(next); };
@@ -131,24 +150,24 @@ export function LiveMeasure({ init, onClose }: { init?: any; onClose: () => void
     if (!String(party || "").trim()) { setMsg(L("Choose the subcontractor.", "اختر المقاول.", "ٹھیکیدار چنیں۔")); return; }
     if (!lines.length) { setMsg(L("Add at least one line.", "أضف بندًا واحدًا على الأقل.", "کم از کم ایک لائن ڈالیں۔")); return; }
     want.current = false; stopListening(); setOn(false); setEnding(true);
-    if (await save(lines, "final")) { await reload(["site_sheets"]); setSent(true); const m = role === "supervisor" ? L("Sent for approval. The m² are added when Abu or the owner approves.", "أُرسل للاعتماد. تضاف الأمتار بعد الموافقة.", "منظوری کے لیے بھیج دیا۔ منظوری کے بعد میٹر جڑیں گے۔") : L("Saved as final. Open it under Orders & measurements to approve.", "حُفظ نهائيًا. افتحه من الطلبات والقياسات للاعتماد.", "فائنل محفوظ۔ آرڈر اور پیمائش میں کھول کر منظور کریں۔"); setMsg(m); say(m, { language: sl }); }
+    if (await save(lines, "final")) { await reload(["site_sheets"]); setSent(true); const m = role === "supervisor" ? L("Sent for approval. The m² are added when Abu or the owner approves.", "أُرسل للاعتماد. تضاف الأمتار بعد الموافقة.", "منظوری کے لیے بھیج دیا۔ منظوری کے بعد میٹر جڑیں گے۔") : L("Saved as final. Open it under Orders & measurements to approve.", "حُفظ نهائيًا. افتحه من الطلبات والقياسات للاعتماد.", "فائنل محفوظ۔ آرڈر اور پیمائش میں کھول کر منظور کریں۔"); setMsg(m); say(m, { language: sl }); await pdf(); }
     setEnding(false);
   };
 
   return (
-    <Sheet open onClose={() => { want.current = false; stopListening(); hush(); reload(["site_sheets"]); onClose(); }} title={L("Measure: just talk", "القياس: تكلم فقط", "پیمائش: بس بولتے جائیں")}>
+    <Sheet open onClose={() => { want.current = false; stopListening(); hush(); reload(["site_sheets"]); onClose(); }} title={L("Measurement sheet", "ورقة القياس", "پیمائش کی شیٹ")}>
       <View style={{ gap: 12 }}>
         <Row wrap>
           <Select label={L("Project", "المشروع", "پراجیکٹ")} value={pid} onChange={(v: string) => setPid(v)} options={[{ value: "", label: "—" }, ...projects.map((p: any) => ({ value: p.id, label: p.name }))]} />
-          {subs.length ? <Select label={L("Subcontractor", "المقاول", "ٹھیکیدار")} value={party} onChange={(v: string) => setParty(v)} options={[{ value: "", label: "—" }, ...[...new Set([...subs, ...(party ? [party] : [])])].map((s) => ({ value: s, label: s }))]} />
-            : <Field label={L("Subcontractor", "المقاول", "ٹھیکیدار")} value={party} onChange={setParty} />}
+          {subs.length ? <Select label={L("Subcontractor", "المقاول", "ٹھیکیدار")} value={party} onChange={switchParty} options={[{ value: "", label: "—" }, ...[...new Set([...subs, ...(party ? [party] : [])])].map((s) => ({ value: s, label: s }))]} />
+            : <Field label={L("Subcontractor", "المقاول", "ٹھیکیدار")} value={party} onChange={(v: string) => { setParty(v); now.current.party = v; }} />}
         </Row>
         {!sent ? <Row style={{ alignItems: "center", gap: 12 }}>
           <Pressable accessibilityRole="button" onPress={toggle} style={({ pressed }) => ({ width: 84, height: 84, borderRadius: 42, borderWidth: 5, borderColor: on ? c.bad : c.accent, backgroundColor: on ? c.badSoft : c.surface, alignItems: "center", justifyContent: "center", opacity: pressed ? 0.8 : 1 })}>
-            <Icon name={want.current ? "stop" : "mic"} size={38} color={on ? c.bad : c.accent} />
+            <Icon name={on ? "stop" : "mic"} size={38} color={on ? c.bad : c.accent} />
           </Pressable>
           <View style={{ flex: 1, gap: 2 }}>
-            <T bold size={17}>{busy ? L("Writing…", "أكتب…", "لکھ رہا ہوں…") : on ? L("Listening. Say each place.", "أسمع. قل كل مكان.", "سن رہا ہوں۔ ہر جگہ بولتے جائیں۔") : want.current ? L("One moment…", "لحظة…", "ایک لمحہ…") : L("Tap once, then just talk", "اضغط مرة ثم تكلم فقط", "ایک بار دبائیں، پھر بس بولتے جائیں")}</T>
+            <T bold size={17}>{busy ? L("Writing…", "أكتب…", "لکھ رہا ہوں…") : on ? L("Listening. Say each place.", "أسمع. قل كل مكان.", "سن رہا ہوں۔ ہر جگہ بولتے جائیں۔") : L("Tap, say one place", "اضغط وقل مكانًا واحدًا", "دبائیں، ایک جگہ بولیں")}</T>
             {hearing ? <T muted size={15}>{hearing}</T> : <T muted size={13}>{L("\"Ghalat\" removes the last line. \"Bas\" stops.", "\"غلط\" يحذف آخر بند. \"بس\" يوقف.", "«غلط»: آخری لائن ہٹے گی۔ «بس»: رک جائے گا۔")}</T>}
           </View>
         </Row> : null}
@@ -176,7 +195,7 @@ export function LiveMeasure({ init, onClose }: { init?: any; onClose: () => void
           <View style={{ flex: 1, minWidth: 180 }}><Field label={L("Or type one place", "أو اكتب مكانًا", "یا ایک جگہ لکھیں")} value={typed} onChange={setTyped} /></View>
           <Btn title={L("Add", "أضف", "ڈالیں")} disabled={!typed.trim() || busy} onPress={addTyped} />
         </Row> : null}
-        {!sent ? <Btn big kind="primary" title={sure ? L("Tap again: this is final", "اضغط مرة أخرى: نهائي", "دوبارہ دبائیں: یہ فائنل ہے") : role === "supervisor" ? L("Final: send for approval", "نهائي: أرسل للاعتماد", "فائنل: منظوری کے لیے بھیجیں") : L("Final", "نهائي", "فائنل")} busy={ending} disabled={!lines.length} onPress={finish} style={{ alignSelf: "stretch" }} /> : null}
+        {!sent ? <Btn big kind="primary" title={sure ? L("Tap again: this is final", "اضغط مرة أخرى: نهائي", "دوبارہ دبائیں: یہ فائنل ہے") : role === "supervisor" ? L("Final: send for approval", "نهائي: أرسل للاعتماد", "فائنل: منظوری کے لیے بھیجیں") : L("Final", "نهائي", "فائنل")} busy={ending} disabled={!lines.length} onPress={finish} style={{ alignSelf: "stretch" }} /> : <Btn big kind="primary" title="PDF" onPress={pdf} style={{ alignSelf: "stretch" }} />}
       </View>
     </Sheet>
   );
