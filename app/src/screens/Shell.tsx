@@ -130,7 +130,7 @@ export default function Shell() {
     });
     // Laptop / web: sign out by itself after 30 minutes with no mouse, keyboard or touch, so an open browser is never left signed in.
     let idle: any = null;
-    const poke = () => { clearTimeout(idle); idle = setTimeout(() => supabase.auth.signOut(), 30 * 60e3); };
+    const poke = () => { clearTimeout(idle); idle = setTimeout(() => supabase.auth.signOut({ scope: "local" }), 30 * 60e3); };
     const evs = ["mousemove", "mousedown", "keydown", "touchstart", "scroll", "wheel"];
     if (Platform.OS === "web" && typeof window !== "undefined") { evs.forEach((e) => window.addEventListener(e, poke, { passive: true } as any)); poke(); }
     return () => { s.remove(); clearTimeout(idle); if (Platform.OS === "web" && typeof window !== "undefined") evs.forEach((e) => window.removeEventListener(e, poke)); };
@@ -140,7 +140,7 @@ export default function Shell() {
     <SafeAreaView style={{ flex: 1, backgroundColor: c.bg, alignItems: "center", justifyContent: "center", gap: 16, padding: 24 }}>
       <Icon name="check" size={48} color={c.accent} />
       <Btn big kind="primary" title="Unlock / افتح / کھولیں" onPress={unlock} style={{ alignSelf: "stretch" }} />
-      <Btn kind="ghost" title={lang === "ar" ? "خروج" : lang === "ur" ? "سائن آؤٹ" : "Sign out"} onPress={() => supabase.auth.signOut()} />
+      <Btn kind="ghost" title={lang === "ar" ? "خروج" : lang === "ur" ? "سائن آؤٹ" : "Sign out"} onPress={() => supabase.auth.signOut({ scope: "local" })} />
     </SafeAreaView>
   );
 
@@ -205,7 +205,7 @@ export default function Shell() {
       <View style={{ borderTopWidth: 1, borderColor: "rgba(255,255,255,0.10)", paddingTop: 12, paddingHorizontal: 8, flexDirection: "row", alignItems: "center", gap: 10 }}>
         <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: DEEP.bg2, alignItems: "center", justifyContent: "center" }}><Text style={{ color: DEEP.glow, fontSize: 13, fontWeight: "600" }}>{initials}</Text></View>
         <View style={{ flex: 1 }}><Text numberOfLines={1} style={{ color: DEEP.ink, fontSize: 13, fontWeight: "600" }}>{profile?.name || "Signed in"}</Text>
-          <Pressable onPress={() => supabase.auth.signOut()} style={{ cursor: "pointer" } as any}><Text style={{ color: DEEP.muted, fontSize: 12 }}>{lang === "ar" ? "خروج" : lang === "ur" ? "سائن آؤٹ" : "Sign out"}</Text></Pressable></View>
+          <Pressable onPress={() => supabase.auth.signOut({ scope: "local" })} style={{ cursor: "pointer" } as any}><Text style={{ color: DEEP.muted, fontSize: 12 }}>{lang === "ar" ? "خروج" : lang === "ur" ? "سائن آؤٹ" : "Sign out"}</Text></Pressable></View>
       </View>
     </View>
   );

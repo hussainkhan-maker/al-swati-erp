@@ -41,7 +41,7 @@ function Main() {
       const at = Date.parse(data.session?.user.last_sign_in_at || "");
       if (data.session && !stays && at && at < Date.now() - 7 * 864e5) {
         const { data: pr } = await supabase.from("profiles").select("role").eq("id", data.session.user.id).maybeSingle();
-        if (!pr || !["abu", "supervisor"].includes((pr as any).role)) { setProblem("For safety, please sign in again (every 7 days)."); supabase.auth.signOut(); return; }
+        if (!pr || !["abu", "supervisor"].includes((pr as any).role)) { setProblem("For safety, please sign in again (every 7 days)."); supabase.auth.signOut({ scope: "local" }); return; }
       }
       setMustSet(!!data.session?.user.user_metadata?.temp_password); load(data.session?.user.id);
     });
