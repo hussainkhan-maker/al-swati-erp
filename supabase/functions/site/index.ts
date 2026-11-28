@@ -14,11 +14,28 @@ const ANON = Deno.env.get("SUPABASE_ANON_KEY")!;
 const KEY = Deno.env.get("ANTHROPIC_API_KEY")!;
 const db = createClient(URL_, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 const MODEL = Deno.env.get("AI_MODEL_SITE") ?? "claude-sonnet-5-5";
+// Short notes are read by the small, fast model first (the person is standing on site waiting); the bigger one only if it fails.
+const FAST = Deno.env.get("AI_MODEL_SITE_FAST") ?? "claude-haiku-5-5";
+async function read(models: string[], system: string, content: string, max: number): Promise<{ text: string; model: string; usage: any }> {
+  let last = "";
+  for (const model of models) {
+    const r = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "x-api-key": KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+      body: JSON.stringify({ model, max_tokens: max, system, messages: [{ role: "user", content }] }) });
+    if (!r.ok) { last = `AI ${r.status}`; continue; }
+    const j = await r.json();
+    const text = (j.content ?? []).filter((c: { type: string }) => c.type === "text").map((c: { text: string }) => c.text).join("");
+    if (text.indexOf("{") >= 0 && text.lastIndexOf("}") > text.indexOf("{")) return { text, model, usage: j.usage || {} };
+    last = "No JSON";
+  }
+  throw new Error(last || "AI did not answer");
+}
+const cut = (t: string) => JSON.parse(t.slice(t.indexOf("{"), t.lastIndexOf("}") + 1));
 const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, content-type, apikey, x-client-info" };
 
 const SYSTEM = `You read short site notes of a stone cladding contractor in Saudi Arabia. The speaker is a site supervisor who mixes Urdu, Arabic and English; speech recognition may spell words badly. Return ONLY JSON, no other text.
 Rules: write exactly what was said. Never invent an item, a size or a number, never swap an item for a similar one, never tidy or round a size. Copy every number exactly as said, in digits 0-9. If something is unclear, keep the speaker's own words in "note" and leave the number null.
-You are also the one who talks back to him. In every answer add "ask": ONE short, friendly question in the language named as REPLY LANGUAGE (ur = Urdu in Urdu script, ar = Arabic, en = English), the way a helpful colleague on site would say it aloud, when something he needs is missing or could mean two things (a length without a width, a number that could be 16 or 60, an item without a quantity, a place without a name, no subcontractor named for a measurement). Ask about the most important gap only, and name the line. If everything is clear, "ask" is "". Never ask for something he already said.
+You are also the one who talks back to him. In every answer add "ask": ONE short, friendly question in the language named as REPLY LANGUAGE (ur = Urdu in Urdu script, ar = Arabic, en = English), the way a helpful colleague on site would say it aloud, when something he needs is missing or could mean two things (a length without a width, a number that could be 16 or 60, an item without a quantity, a place without a name, no subcontractor named for a measurement). Ask about the most important gap only, and name the line. If everything is clear, "ask" is "". Never ask for something he already said. Ask ONLY for what the sheet cannot be made without: a missing length, width or quantity, which subcontractor, which project. Never ask about thickness, stone type, colour, finish, price, date or anything else he did not bring up, and never ask whether he wants a PDF.
+Projects have nicknames: the team often calls a project by its area or by any name they like. If he names a place that is not in the project list, do not refuse and do not treat it as unknown when the answer is obvious: if the list has exactly one project, he means that one; if the name is clearly the area or another spelling of one listed project, he means that one. In both cases use that project and return the name he said in "alias", so it is remembered and never asked again.
 Site words: zawiya / زاوية = angle (bracket); tool / طول = length; ard / عرض = width; khasam / خصم = deduction (opening to subtract); amood / عمود = column; saqaf / سقف = ceiling or soffit; deewar / jidar / جدار = wall; seedhi deewar = straight wall; habba / حبة = piece; kartoon / كرتون = carton; bolt / مسمار / برغي; glue brands such as Abu Jamal (أبو جمال) or Om Jamal (أم جمال) are kept as brand names.`;
 
 const TASK: Record<string, string> = {
@@ -59,23 +76,62 @@ Deno.serve(async (req) => {
     // Voice first: the speaker only talks; this works out which of the four sheets he means and fills it.
     if (p.action === "route") {
       if (!text) return json({ error: "Nothing to read" }, 400);
-      const rr = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "x-api-key": KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-        body: JSON.stringify({ model: MODEL, max_tokens: 2500, system: SYSTEM, messages: [{ role: "user", content: `First decide what the speaker wants, then fill it. Return {"kind":"material|stone|measure|pay","project":"<project name if he said one, exactly as in PROJECTS, else empty>","party":"<supplier or subcontractor>","amount":<SAR paid, only for pay, else null>,"rate":<supplier's rate per m2 if said, only for stone, else null>,"method":"<Cash|Hawala|Bank transfer, only for pay>","lines":[...],"ask":"<as the system rules say, else empty>","new_project":"<only if he clearly names a project, site or area that is NOT in PROJECTS and is not one of the team's words for a listed project: that name as he said it, in Latin letters if he spoke Urdu or English, Arabic if he spoke Arabic. Else empty. Never a subcontractor, a supplier, a place inside a building or a stone type>"}
+      const got = await read([FAST, MODEL], SYSTEM, `First decide what the speaker wants, then fill it. Return {"kind":"material|stone|measure|pay","project":"<project name if he said one, exactly as in PROJECTS, else empty>","party":"<supplier or subcontractor>","amount":<SAR paid, only for pay, else null>,"rate":<supplier's rate per m2 if said, only for stone, else null>,"method":"<Cash|Hawala|Bank transfer, only for pay>","lines":[...],"ask":"<as the system rules say, else empty>","alias":"<the nickname he used for the chosen project when it is not that project's listed name, else empty>","new_project":"<only if he clearly names a project, site or area that is NOT in PROJECTS and is not one of the team's words for a listed project: that name as he said it, in Latin letters if he spoke Urdu or English, Arabic if he spoke Arabic. Else empty. Never a subcontractor, a supplier, a place inside a building or a stone type>"}
 REPLY LANGUAGE: ${replyLang}
 kind "material" = he orders accessories or materials. ${TASK.material}
 kind "stone" = he lists stone sizes ordered or arrived. ${TASK.stone}
 kind "measure" = he gives measured work of a subcontractor. ${TASK.measure}
 kind "pay" = he says money was paid to a stone supplier (cash, hawala): lines is [].
 ${terms.length ? "This team's own words (said → written): " + JSON.stringify(terms.slice(-120)) + "\n" : ""}PROJECTS: ${JSON.stringify((p.projects || []).slice(0, 40))}
+PROJECT NICKNAMES already learned (listed name → what the team calls it): ${JSON.stringify(p.aka || {}).slice(0, 1500)}
 Known names: ${JSON.stringify(p.names || []).slice(0, 1500)}
-THE NOTE: ${text}` }] }) });
-      if (!rr.ok) return json({ error: `AI ${rr.status}` }, 502);
-      const rt = ((await rr.json()).content ?? []).filter((c: { type: string }) => c.type === "text").map((c: { text: string }) => c.text).join("");
-      const ra = rt.indexOf("{"), rb = rt.lastIndexOf("}");
-      if (ra < 0 || rb <= ra) return json({ error: "Could not read it. Say it again." }, 422);
-      const o = JSON.parse(rt.slice(ra, rb + 1));
+THE NOTE: ${text}`, 1800);
+      const o = cut(got.text);
+      await db.from("ai_usage").insert({ user_id: who.user.id, task: "site_route", model: got.model, input_tokens: got.usage.input_tokens || 0, output_tokens: got.usage.output_tokens || 0 }).then(() => {}, () => {});
       if (!["material", "stone", "measure", "pay"].includes(o.kind)) return json({ error: "Could not tell what you need. Say: order, stone, measurement or payment." }, 422);
-      return json({ kind: o.kind, project: String(o.project || ""), party: String(o.party || "").slice(0, 120), amount: o.amount ?? null, rate: o.rate ?? null, method: String(o.method || ""), lines: Array.isArray(o.lines) ? o.lines.slice(0, 80) : [], ask: String(o.ask || "").slice(0, 300), new_project: String(o.new_project || "").replace(/[\u0000-\u001f<>]/g, "").trim().slice(0, 60) });
+      return json({ kind: o.kind, project: String(o.project || ""), party: String(o.party || "").slice(0, 120), amount: o.amount ?? null, rate: o.rate ?? null, method: String(o.method || ""), lines: Array.isArray(o.lines) ? o.lines.slice(0, 80) : [], ask: String(o.ask || "").slice(0, 300), alias: String(o.alias || "").replace(/[\u0000-\u001f<>]/g, "").trim().slice(0, 40), new_project: String(o.new_project || "").replace(/[\u0000-\u001f<>]/g, "").trim().slice(0, 60) });
+    }
+    // The app learns a project's nickname by itself: the name the person used is kept with the project, so it is understood
+    // next time without anyone being asked. Only for a project that person may see.
+    if (p.action === "alias") {
+      const alias = String(p.alias || "").replace(/[\u0000-\u001f<>]/g, "").trim().slice(0, 40), pid = String(p.project_id || "");
+      if (alias.length < 2 || !pid) return json({ ok: false });
+      const { data: pr } = await db.from("projects").select("id, name, owner, site").eq("id", pid).maybeSingle();
+      if (!pr) return json({ ok: false });
+      const mine = prof.role === "admin" || (prof.role === "abu" && pr.owner === "abu") || (prof.role === "supervisor" && !!(await db.from("project_members").select("project_id").eq("project_id", pid).eq("user_id", who.user.id).maybeSingle()).data);
+      if (!mine) return json({ ok: false }, 403);
+      const aka: string[] = Array.isArray((pr.site as any)?.aka) ? (pr.site as any).aka : [];
+      if (alias.toLowerCase() === String(pr.name).toLowerCase() || aka.some((a) => String(a).toLowerCase() === alias.toLowerCase())) return json({ ok: true, known: true });
+      await db.from("projects").update({ site: { ...((pr.site as any) || {}), aka: [...aka, alias].slice(-12) } }).eq("id", pid);
+      return json({ ok: true, learned: alias, project: pr.name });
+    }
+    // The everyday voice box ("Zar did 40 metres", "bought glue for 300"): one note becomes one action. Same answer shape as
+    // the older reader, but read by the fast model and with the team's own words and project nicknames.
+    if (p.action === "parse") {
+      if (!text) return json({ error: "Nothing to read" }, 400);
+      const langName = replyLang === "ar" ? "Arabic" : replyLang === "en" ? "English" : "Urdu";
+      const allowed = prof.role === "supervisor" ? "purchase|expense|progress|statement|unknown" : "purchase|expense|income|loan|subpay|rate|mrn|progress|statement|unknown";
+      const got = await read([FAST, MODEL], `You turn one spoken or typed note from a stone, marble and granite cladding contractor in Saudi Arabia into ONE JSON action. The note may mix Urdu, Arabic and English and comes from speech recognition, so spelling can be rough. Return ONLY JSON.`, `Context (JSON): ${JSON.stringify(p.context ?? {}).slice(0, 6000)}
+${terms.length ? "This team's own words (said → meaning): " + JSON.stringify(terms.slice(-120)) + "\n" : ""}Note: """${text.slice(0, 2000)}"""
+Return JSON only:
+{"intent":"${allowed}",
+ "project_id":"<id from context or null>",
+ "alias":"<the nickname he used for that project when it is not the project's listed name, else empty>",
+ "split":[{"project_id":"<id>","pct":<number>}],
+ "amount":<number|null>, "loan":<number|null>,
+ "vat_amount":<number|null>, "vat_company":"<company|null>",
+ "supplier":"<or null>", "sub_name":"<or null>",
+ "description":"<short, in ${langName}>",
+ "lines":[{"name":"<material>","qty":<n>,"unit":"<bag|sqm|rft|ton|pcs|...>","price":<n|null>}],
+ "progress":[{"sub_name":"<name>","qty":<n>,"unit":"sqm|rft|pcs","work":"<cladding|facade|wall|coping|...>"}],
+ "statement":{"kind":"project|sub|supplier|material|vat","target":"<name>"},
+ "heard":"<one short sentence in ${langName} restating what you understood, numbers as digits>",
+ "questions":["<short question in ${langName}, only for something the entry cannot be saved without>"]}
+Meaning of intents: income = money received from a client for a project (the total incl. VAT); loan = money borrowed from the company for a project; subpay = payment to a subcontractor; rate = a supplier price to remember; mrn = materials to request (material requisition); progress = meters done by subcontractors; statement = asking for an account or report.
+Rules: digits 0-9 only. Never invent a number that was not said: use null and ask. Use split only when one purchase is shared between projects; percentages must add to 100.
+Projects: the team calls a project by its area or any nickname. If the context has exactly one project, every note is about it. If he names a place that is clearly the area or another spelling of one listed project, it is that project. In both cases set project_id and put the name he said in "alias". Ask which project only when there are several and nothing points to one.`, 1200);
+      await db.from("ai_usage").insert({ user_id: who.user.id, task: "site_parse", model: got.model, input_tokens: got.usage.input_tokens || 0, output_tokens: got.usage.output_tokens || 0 }).then(() => {}, () => {});
+      return json(cut(got.text));
     }
     // A staff member named a project the app does not have, and said yes to adding it. It is made on Abu's side (the owner's
     // own projects stay his), the person who asked is put on it, and the owner is told in his approvals list. At most 3 a day each.
@@ -96,19 +152,9 @@ THE NOTE: ${text}` }] }) });
     }
     if (!TASK[kind] || !text) return json({ error: "Nothing to read" }, 400);
     const content = `${TASK[kind]} Add "ask" as the system rules say.\nREPLY LANGUAGE: ${replyLang}\n${terms.length ? "This team's own words, learned from earlier sheets (said → written): " + JSON.stringify(terms.slice(-120)) + "\n" : ""}${p.names?.length ? "Known names (subcontractors, suppliers): " + JSON.stringify(p.names).slice(0, 1500) + "\n" : ""}THE NOTE: ${text}`;
-    const r = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: { "x-api-key": KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-      body: JSON.stringify({ model: MODEL, max_tokens: 2500, system: SYSTEM, messages: [{ role: "user", content }] }),
-    });
-    if (!r.ok) return json({ error: `AI ${r.status}: ${(await r.text()).slice(0, 200)}` }, 502);
-    const j = await r.json();
-    const us = j.usage || {};
-    await db.from("ai_usage").insert({ user_id: who.user.id, task: "site_" + kind, model: MODEL, input_tokens: us.input_tokens || 0, output_tokens: us.output_tokens || 0 }).then(() => {}, () => {});
-    const out = (j.content ?? []).filter((c: { type: string }) => c.type === "text").map((c: { text: string }) => c.text).join("");
-    const a = out.indexOf("{"), b = out.lastIndexOf("}");
-    if (a < 0 || b <= a) return json({ error: "Could not read it. Say it again, one item at a time." }, 422);
-    const parsed = JSON.parse(out.slice(a, b + 1));
+    const got = await read([FAST, MODEL], SYSTEM, content, 1800);
+    await db.from("ai_usage").insert({ user_id: who.user.id, task: "site_" + kind, model: got.model, input_tokens: got.usage.input_tokens || 0, output_tokens: got.usage.output_tokens || 0 }).then(() => {}, () => {});
+    const parsed = cut(got.text);
     return json({ party: String(parsed.party || "").slice(0, 120), lines: Array.isArray(parsed.lines) ? parsed.lines.slice(0, 80) : [], ask: String(parsed.ask || "").slice(0, 300) });
   } catch (e) {
     return json({ error: String((e as Error).message || e) }, 500);

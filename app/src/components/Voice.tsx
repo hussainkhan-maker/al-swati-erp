@@ -10,12 +10,17 @@ import { Field, Icon, T, useColors } from "../ui";
 export function Voice({ value, onChange, hints = [], placeholder }: { value: string; onChange: (v: string) => void; hints?: string[]; placeholder?: string }) {
   const { t, lang } = useData(); const c = useColors();
   const [on, setOn] = useState(false), [err, setErr] = useState("");
-  const base = useRef("");
+  const base = useRef(""), kept = useRef("");
 
   useSpeechRecognitionEvent("result", (e: any) => {
     if (isSpeaking()) return; // the app's own voice is never written down
-    const tr = e.results?.[0]?.transcript ?? "";
+    let tr: string = e.results?.[0]?.transcript ?? "";
+    // The phone listens in pieces: after a pause it starts a new piece from nothing. What was already said is kept,
+    // so the box never starts again from the beginning while the person is still talking. (Some phones instead repeat
+    // everything said so far in each piece: then the part already kept is not written twice.)
+    if (kept.current && tr.trim().startsWith(kept.current.trim())) tr = tr.trim().slice(kept.current.trim().length).trim();
     if (tr) onChange((base.current + tr).trim());
+    if (tr && e.isFinal) { base.current = (base.current + tr).trim() + " "; kept.current = (kept.current + " " + tr).trim(); }
     if (e.isFinal && typeof e.results?.[0]?.confidence === "number" && e.results[0].confidence > 0 && e.results[0].confidence < 0.35) setErr(t("voiceUnclear"));
   });
   useSpeechRecognitionEvent("end", () => setOn(false));
@@ -26,7 +31,7 @@ export function Voice({ value, onChange, hints = [], placeholder }: { value: str
     setErr(""); hush(); // the person wants to speak: the app stops talking at once
     const p = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
     if (!p.granted) { setErr(t("voiceUnclear")); return; }
-    base.current = value ? value + " " : "";
+    base.current = value ? value + " " : ""; kept.current = "";
     ExpoSpeechRecognitionModule.start({ lang: speechLang(lang), interimResults: true, continuous: true, contextualStrings: hints.slice(0, 100) } as any);
     setOn(true);
   };

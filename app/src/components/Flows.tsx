@@ -42,7 +42,7 @@ const LABEL: Record<string, [string, string, string]> = { income: ["Payment rece
 
 // ───────────────────────── speak / type an entry ─────────────────────────
 function SpeakSheet({ init, onClose, open }: { init?: any; onClose: () => void; open: Open }) {
-  const { t, lang, d, role, insert, profile } = useData(); const c = useColors();
+  const { t, lang, d, role, insert, profile, reload } = useData(); const c = useColors();
   const [text, setText] = useState(init?.text || "");
   const [busy, setBusy] = useState(false), [err, setErr] = useState("");
   const [o, setO] = useState<any>(null), [parsed, setParsed] = useState<any>(null), [mrn, setMrn] = useState<Doc | null>(null);
@@ -55,7 +55,13 @@ function SpeakSheet({ init, onClose, open }: { init?: any; onClose: () => void; 
     if (!text.trim()) return;
     setBusy(true); setErr(""); setO(null); setMrn(null);
     try {
-      const a = await ai("parse", { text, lang, context: { projects: projects.map((p: any) => ({ id: p.id, name: p.site?.aka?.length ? `${p.name} (the team also calls it: ${p.site.aka.join(", ")})` : p.name, company: p.company })), subcontractors: subNames(d), companies: companiesOf(d), today: new Date().toISOString().slice(0, 10) } });
+      // The fast site reader (it knows the team's words and each project's nicknames); the older reader is the fallback.
+      const ctx = { projects: projects.map((p: any) => ({ id: p.id, name: p.site?.aka?.length ? `${p.name} (the team also calls it: ${p.site.aka.join(", ")})` : p.name, company: p.company })), subcontractors: subNames(d), companies: companiesOf(d), today: new Date().toISOString().slice(0, 10) };
+      let a: any;
+      try { const { data, error } = await supabase.functions.invoke("site", { body: { action: "parse", text, lang, context: ctx } }); if (error || (data as any)?.error || !(data as any)?.intent) throw new Error("fallback"); a = data; }
+      catch { a = await ai("parse", { text, lang, context: ctx }); }
+      // A nickname he used for a project is remembered by itself, so nobody has to teach the app each name.
+      if (a.alias && a.project_id) supabase.functions.invoke("site", { body: { action: "alias", project_id: a.project_id, alias: a.alias } }).then(() => reload(["projects"])).catch(() => {});
       setParsed(a);
       if (a.heard && role !== "admin") say(a.heard, { language: speechLang(lang) });
       if (a.intent === "purchase") { onClose(); setTimeout(() => open("purchase", { voice: a, text }), 350); return; }
@@ -385,7 +391,8 @@ function AskSheet({ init, onClose }: { init?: any; onClose: () => void }) {
     // 2) Otherwise send the AI only what the question needs (one project's entries, not everything).
     const pr = mentionedProject(d, qq), inP = (x: any) => !pr || x.project_id === pr.id || (x.split || []).some((s: any) => s.project_id === pr.id);
     const about = (re: RegExp) => re.test(qq.toLowerCase()) || re.test(page.toLowerCase());
-    const data: any = { projects: (d.projects || []).filter((p: any) => !pr || p.id === pr.id).map((p: any) => ({ id: p.id, name: p.name, company: p.company, fee_pct: p.fee_pct })) };
+    const data: any = { projects: (d.projects || []).filter((p: any) => !pr || p.id === pr.id).map((p: any) => ({ id: p.id, name: p.name, also_called: p.site?.aka || [], company: p.company, fee_pct: p.fee_pct })) };
+    if ((d.projects || []).length === 1) data.note = "This person has only this one project: whatever place or name he says, he means this project.";
     if (d.project_ledger) data.ledger = (d.project_ledger as any[]).filter((l) => !pr || l.project_id === pr.id);
     if (d.sub_ledger) data.subcontractors = d.sub_ledger;
     data.progress = active(d.progress).filter(inP).slice(0, pr ? 150 : 80).map((p: any) => ({ date: p.created_at?.slice(0, 10), project: pname(d, p.project_id), sub: p.sub_name, qty: p.qty, unit: p.unit, work: p.work }));

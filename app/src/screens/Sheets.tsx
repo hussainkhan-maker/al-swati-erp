@@ -61,7 +61,7 @@ export default function Sheets() {
     stopListening(); setSBusy(true); setSMsg("");
     try {
       const names = [...new Set([...(d.sub_names || (d.subcontractors || []).map((x: any) => x.name) || []).map((x: any) => (typeof x === "string" ? x : x?.name)), ...Object.keys(owed)])].filter(Boolean).slice(0, 80);
-      const { data, error } = await supabase.functions.invoke("site", { body: { action: "route", text, lang, projects: (d.projects || []).map((p: any) => p.name), names } });
+      const { data, error } = await supabase.functions.invoke("site", { body: { action: "route", text, lang, projects: (d.projects || []).map((p: any) => p.name), aka: Object.fromEntries((d.projects || []).filter((p: any) => p.site?.aka?.length).map((p: any) => [p.name, p.site.aka])), names } });
       if (error || (data as any)?.error) throw new Error((data as any)?.error || error?.message);
       const r = data as any;
       const hit = (d.projects || []).find((p: any) => r.project && String(p.name).toLowerCase() === String(r.project).toLowerCase())?.id || "";
@@ -72,7 +72,9 @@ export default function Sheets() {
         setSMsg(q); try { speak(q, { language: lang === "ur" ? "ur-PK" : lang === "ar" ? "ar-SA" : "en-US" }); } catch { /* no voice */ }
         setSay(""); setSBusy(false); return;
       }
-      openSheet(r, text, hit || pid || (d.projects || [])[0]?.id || "");
+      // A nickname he used for this project is remembered by itself.
+      if (hit && r.alias) supabase.functions.invoke("site", { body: { action: "alias", project_id: hit, alias: r.alias } }).then(() => reload(["projects"])).catch(() => {});
+      openSheet(r, text, hit || pid || ((d.projects || []).length === 1 ? d.projects[0].id : ""));
       setSay("");
     } catch (e: any) { setSMsg(e.message); }
     setSBusy(false);
@@ -110,6 +112,10 @@ export default function Sheets() {
         <Voice value={say} onChange={setSay} hints={[...SITE_WORDS, ...(d.projects || []).flatMap((p: any) => [p.name, ...(p.site?.aka || [])])]} placeholder={role === "supervisor" ? L("Order, stone sizes, or a contractor's measurement", "طلب، مقاسات حجر، أو قياس مقاول", "آرڈر، پتھر کے سائز، یا ٹھیکیدار کی پیمائش") : L("Order, stone sizes, a contractor's measurement, or a payment to the stone supplier", "طلب، مقاسات حجر، قياس مقاول، أو دفعة لمورد الحجر", "آرڈر، پتھر کے سائز، ٹھیکیدار کی پیمائش، یا پتھر والے کو ادائیگی")} />
         <Btn big kind="primary" title={L("Understand", "افهم", "سمجھو")} busy={sBusy} disabled={!say.trim()} onPress={understandAll} style={{ alignSelf: "stretch" }} />
         {sMsg ? <T color={c.warn}>{sMsg}</T> : null}
+        {pend && (d.projects || []).length ? <View style={{ gap: 6 }}>
+          <T muted size={14}>{L("Or is it one of these? Tap it and the app remembers the name.", "أم هو أحد هذه؟ اضغط عليه وسيتذكر التطبيق الاسم.", "یا یہ ان میں سے ہے؟ دبائیں، ایپ نام یاد رکھے گی۔")}</T>
+          <Row wrap style={{ gap: 8 }}>{(d.projects || []).filter((p: any) => p.status !== "closed").slice(0, 8).map((p: any) => <Btn key={p.id} title={p.name} onPress={() => { const q = pend; setPend(null); supabase.functions.invoke("site", { body: { action: "alias", project_id: p.id, alias: q.r.new_project } }).then(() => reload(["projects"])).catch(() => {}); openSheet(q.r, q.text, p.id); }} />)}</Row>
+        </View> : null}
         {pend ? <Row style={{ gap: 8 }}>
           <Btn big kind="primary" title={L("Yes, add it", "نعم، أضفه", "ہاں، بنا دو")} busy={sBusy} onPress={makeProject} style={{ flex: 1 }} />
           <Btn big title={L("No", "لا", "نہیں")} onPress={() => { const p = pend; setPend(null); openSheet(p.r, p.text, pid || ""); }} style={{ flex: 1 }} />
@@ -190,6 +196,8 @@ function Editor({ init, onClose, L, title, canReopen }: { init: any; onClose: ()
   };
   const understand = async () => {
     if (!text.trim()) return;
+    // "PDF", "share", "bhej do": he asks for the paper, not for another line.
+    if (/^\s*(pdf|p\.?d\.?f|پی ?ڈی ?ایف|بي ?دي ?اف|share|شیئر|بھیج|send|ارسل|أرسل)[\s\S]{0,40}$/i.test(text.trim()) && lines.length) { stopListening(); setText(""); share(); return; }
     stopListening(); setBusy("read"); setMsg("");
     try {
       const { data, error } = await supabase.functions.invoke("site", { body: { kind, text, lang, names: subs.slice(0, 60) } });
