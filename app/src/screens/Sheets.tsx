@@ -110,7 +110,7 @@ export default function Sheets() {
       <H1>{L("Orders & measurements", "الطلبات والقياسات", "آرڈر اور پیمائش")}</H1>
       <Card style={{ gap: 10 }}>
         <T bold center size={17}>{L("Just say it", "قلها فقط", "بس بول دیں")}</T>
-        <Voice value={say} onChange={setSay} hints={[...SITE_WORDS, ...(d.projects || []).flatMap((p: any) => [p.name, ...(p.site?.aka || [])])]} placeholder={role === "supervisor" ? L("Order, stone sizes, or a contractor's measurement", "طلب، مقاسات حجر، أو قياس مقاول", "آرڈر، پتھر کے سائز، یا ٹھیکیدار کی پیمائش") : L("Order, stone sizes, a contractor's measurement, or a payment to the stone supplier", "طلب، مقاسات حجر، قياس مقاول، أو دفعة لمورد الحجر", "آرڈر، پتھر کے سائز، ٹھیکیدار کی پیمائش، یا پتھر والے کو ادائیگی")} />
+        <Voice value={say} onChange={setSay} onDone={understandAll} hints={[...SITE_WORDS, ...(d.projects || []).flatMap((p: any) => [p.name, ...(p.site?.aka || [])])]} placeholder={role === "supervisor" ? L("Order, stone sizes, or a contractor's measurement", "طلب، مقاسات حجر، أو قياس مقاول", "آرڈر، پتھر کے سائز، یا ٹھیکیدار کی پیمائش") : L("Order, stone sizes, a contractor's measurement, or a payment to the stone supplier", "طلب، مقاسات حجر، قياس مقاول، أو دفعة لمورد الحجر", "آرڈر، پتھر کے سائز، ٹھیکیدار کی پیمائش، یا پتھر والے کو ادائیگی")} />
         <Btn big kind="primary" title={L("Understand", "افهم", "سمجھو")} busy={sBusy} disabled={!say.trim()} onPress={understandAll} style={{ alignSelf: "stretch" }} />
         {sMsg ? <T color={c.warn}>{sMsg}</T> : null}
         {pend && (d.projects || []).length ? <View style={{ gap: 6 }}>
@@ -301,7 +301,7 @@ function Editor({ init, onClose, L, title, canReopen }: { init: any; onClose: ()
         {kind === "stone" && amount ? <T size={14}>{money(total)} m² × {money(rate)} = <T bold size={14}>{money(amount)} SAR</T></T> : null}
       </Card>
       {!locked ? <Card>
-        <Voice value={text} onChange={setText} hints={[...SITE_WORDS, ...subs]} placeholder={kind === "material" ? "زاوية 5×5 مئة حبة، غراء أبو جمال 10 كرتون، مسمار 10×100 مئتين"
+        <Voice value={text} onChange={setText} onDone={understand} hints={[...SITE_WORDS, ...subs]} placeholder={kind === "material" ? "زاوية 5×5 مئة حبة، غراء أبو جمال 10 كرتون، مسمار 10×100 مئتين"
           : kind === "stone" ? "30×60 عشرين حبة للمدخل، 30×80 أربعين حبة للواجهة" : "عمود طول 3.2 عرض 0.6، سقف 4 في 2 خصم 0.5، جدار 6 في 3"} />
         <Btn big kind="primary" title={L("Understand", "افهم", "سمجھو")} busy={busy === "read"} disabled={!text.trim()} onPress={understand} style={{ alignSelf: "stretch" }} />
       </Card> : null}

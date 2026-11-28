@@ -7,10 +7,13 @@ import { speechLang } from "../lib/i18n";
 import { hush, isSpeaking, stopListening } from "../lib/talk";
 import { Field, Icon, T, useColors } from "../ui";
 
-export function Voice({ value, onChange, hints = [], placeholder }: { value: string; onChange: (v: string) => void; hints?: string[]; placeholder?: string }) {
+export function Voice({ value, onChange, hints = [], placeholder, onDone }: { value: string; onChange: (v: string) => void; hints?: string[]; placeholder?: string; onDone?: () => void }) {
   const { t, lang } = useData(); const c = useColors();
   const [on, setOn] = useState(false), [err, setErr] = useState("");
-  const base = useRef(""), kept = useRef(""), starting = useRef(0), held = useRef(false), pressedAt = useRef(0);
+  const base = useRef(""), kept = useRef(""), starting = useRef(0), held = useRef(false), pressedAt = useRef(0), fire = useRef(false), heard = useRef(false);
+  // When he lets go, what he said is acted on at once: no second button to press.
+  const doneRef = useRef(onDone); doneRef.current = onDone;
+  const finish = () => { if (!fire.current) return; fire.current = false; if (heard.current) setTimeout(() => doneRef.current?.(), 150); };
 
   useSpeechRecognitionEvent("result", (e: any) => {
     if (isSpeaking()) return; // the app's own voice is never written down
@@ -20,12 +23,15 @@ export function Voice({ value, onChange, hints = [], placeholder }: { value: str
     // everything said so far in each piece: then the part already kept is not written twice.)
     if (kept.current && tr.trim().startsWith(kept.current.trim())) tr = tr.trim().slice(kept.current.trim().length).trim();
     if (tr) onChange((base.current + tr).trim());
+    if (tr) heard.current = true;
+    if (e.isFinal && !held.current) finish();
     if (tr && e.isFinal) { base.current = (base.current + tr).trim() + " "; kept.current = (kept.current + " " + tr).trim(); }
     if (e.isFinal && typeof e.results?.[0]?.confidence === "number" && e.results[0].confidence > 0 && e.results[0].confidence < 0.35) setErr(t("voiceUnclear"));
   });
   useSpeechRecognitionEvent("end", () => {
     if (held.current) { setTimeout(() => { if (held.current) go(); }, 150); return; } // the phone paused by itself: keep listening while he holds
     if (Date.now() - starting.current > 500) setOn(false);
+    finish();
   });
   useSpeechRecognitionEvent("error", (e: any) => {
     if (held.current && (e.error === "no-speech" || e.error === "aborted")) { setTimeout(() => { if (held.current) go(); }, 300); return; }
@@ -46,13 +52,15 @@ export function Voice({ value, onChange, hints = [], placeholder }: { value: str
     base.current = value ? value + " " : ""; kept.current = "";
     stopListening(); await new Promise((r) => setTimeout(r, 150)); // anything still listening from a cancelled page is ended first
     if (!held.current) return;
-    starting.current = Date.now(); go();
+    heard.current = false; starting.current = Date.now(); go();
   };
   const pressOut = () => {
     const short = Date.now() - pressedAt.current < 350;
     held.current = false; setOn(false);
     if (short) { stopListening(); setErr(t("holdSpeak")); return; }
+    fire.current = true;
     try { ExpoSpeechRecognitionModule.stop(); } catch { /* already stopped */ }
+    setTimeout(finish, 1500); // if the phone never reports the end
   };
 
   return (

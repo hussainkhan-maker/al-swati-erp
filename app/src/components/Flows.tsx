@@ -163,7 +163,7 @@ function SpeakSheet({ init, onClose, open }: { init?: any; onClose: () => void; 
   return (
     <Sheet open onClose={onClose} title={o ? L(o.intent) : t("speak")}>
       {!o && !mrn && <>
-        <Voice value={text} onChange={setText} hints={hints} />
+        <Voice value={text} onChange={setText} hints={hints} onDone={understand} />
         <Btn big kind="primary" title={t("understand")} onPress={understand} busy={busy} disabled={!text.trim()} />
         <T muted size={14}>{t("byHand")}</T>
         <Row wrap>{kinds.map((k) => <Btn key={k} title={L(k)} onPress={() => byHand(k)} />)}</Row>
@@ -423,7 +423,7 @@ function AskSheet({ init, onClose }: { init?: any; onClose: () => void }) {
   return (
     <Sheet open onClose={() => { hush(); onClose(); }} title={(lang === "ar" ? "مساعدك" : lang === "ur" ? "آپ کا مددگار" : "Your assistant") + (page ? " · " + page : "")}>
       {quick.length ? <View style={{ gap: 8 }}>{quick.map((x) => <Btn key={x} title={x} onPress={() => ask(x)} disabled={busy} />)}</View> : null}
-      <Voice value={q} onChange={setQ} placeholder={lang === "en" ? "How much has Uzair done on Malqa, and what do we owe him?" : ""} />
+      <Voice value={q} onChange={setQ} onDone={() => ask()} placeholder={lang === "en" ? "How much has Uzair done on Malqa, and what do we owe him?" : ""} />
       <Btn big kind="primary" icon={<Icon name="spark" color={c.accentInk} />} title={lang === "ar" ? "اسأل" : lang === "ur" ? "پوچھیں" : "Ask"} onPress={() => ask()} busy={busy} disabled={!q.trim()} />
       {a ? <Card style={{ backgroundColor: c.accentSoft, borderColor: c.accentSoft }}><T size={17}>{a}</T></Card> : null}
     </Sheet>

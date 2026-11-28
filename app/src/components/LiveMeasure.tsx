@@ -25,6 +25,8 @@ const STOP = /^\s*(bas|بس|khatam|ختم|ho gaya|ہو گیا|خلاص|خلص|fi
 
 /** The sheet's columns, written the way the subcontractors' paper is: item, length, width, length × width. */
 const HEAD: [string, number][] = [["#", 0.5], ["البند", 2], ["العدد", 0.8], ["الطول", 1], ["العرض", 1], ["م²", 1.2], ["", 0.5]];
+/** The sheet is paper: always white with black writing, in light and dark mode, so it reads in the sun. */
+const P = { bg: "#FFFFFF", ink: "#000000", soft: "#3C3C3C", line: "#BDBDBD", head: "#EFEFEF", fresh: "#E3F3E6", dedBg: "#FCE9E7", ded: "#B3261E" };
 const CELL: any = { paddingVertical: 8, paddingHorizontal: 6, justifyContent: "center", borderLeftWidth: 1 };
 
 export function LiveMeasure({ init, onClose }: { init?: any; onClose: () => void }) {
@@ -186,25 +188,25 @@ export function LiveMeasure({ init, onClose }: { init?: any; onClose: () => void
           </View>
         </Row> : null}
         {msg ? <T center color={c.warn} size={16}>{msg}</T> : null}
-        <View style={{ borderWidth: 1, borderColor: c.line, borderRadius: 10, overflow: "hidden", backgroundColor: c.surface }}>
-          <Row style={{ backgroundColor: c.accentSoft, paddingVertical: 10, paddingHorizontal: 8, alignItems: "center", gap: 0 }}>
-            <View style={{ flex: 1 }}><T bold size={20}>المجموع</T>{lines.some(mIsDed) ? <T size={13} color={c.bad}>خصم: {money(r2(lines.filter(mIsDed).reduce((t, l) => t + area(l), 0)))}</T> : null}</View><T bold size={24}>{money(total)} m²</T>
+        <View style={{ borderWidth: 1, borderColor: P.line, borderRadius: 10, overflow: "hidden", backgroundColor: P.bg }}>
+          <Row style={{ backgroundColor: P.head, paddingVertical: 10, paddingHorizontal: 8, alignItems: "center", gap: 0 }}>
+            <View style={{ flex: 1 }}><T color={P.ink} bold size={20}>المجموع</T>{lines.some(mIsDed) ? <T size={13} color={P.ded}>خصم: {money(r2(lines.filter(mIsDed).reduce((t, l) => t + area(l), 0)))}</T> : null}</View><T color={P.ink} bold size={24}>{money(total)} m²</T>
           </Row>
-          {lines.some((l) => l.system) ? <T muted size={13} style={{ paddingHorizontal: 8, paddingVertical: 4 }}>{["wall", "channel", ""].filter((k) => part(k) > 0).map((k) => `${k === "channel" ? "حديد" : k === "wall" ? "سادة" : "—"}: ${money(part(k))}`).join("   ·   ")}</T> : null}
-          <Row style={{ backgroundColor: c.sunk, borderTopWidth: 1, borderColor: c.line, gap: 0 }}>
-            {HEAD.map(([h, fx], i) => <View key={i} style={[CELL, { flex: fx, borderColor: c.line }]}><T bold size={13}>{h}</T></View>)}
+          {lines.some((l) => l.system) ? <T color={P.soft} size={13} style={{ paddingHorizontal: 8, paddingVertical: 4 }}>{["wall", "channel", ""].filter((k) => part(k) > 0).map((k) => `${k === "channel" ? "حديد" : k === "wall" ? "سادة" : "—"}: ${money(part(k))}`).join("   ·   ")}</T> : null}
+          <Row style={{ backgroundColor: P.head, borderTopWidth: 1, borderColor: P.line, gap: 0 }}>
+            {HEAD.map(([h, fx], i) => <View key={i} style={[CELL, { flex: fx, borderColor: P.line }]}><T color={P.ink} bold size={13}>{h}</T></View>)}
           </Row>
           {lines.map((l, i) => ({ l, i })).reverse().map(({ l, i }) => (
-            <Row key={i} style={{ borderTopWidth: 1, borderColor: c.line, gap: 0, alignItems: "stretch", backgroundColor: mIsDed(l) ? c.badSoft : i === lines.length - 1 ? c.goodSoft : c.surface }}>
-              <View style={[CELL, { flex: HEAD[0][1], borderColor: c.line }]}><T muted size={14}>{i + 1}</T></View>
-              <View style={[CELL, { flex: HEAD[1][1], borderColor: c.line }]}><T bold size={16} color={mIsDed(l) ? c.bad : undefined}>{[mIsDed(l) ? "خصم" : "", l.element, l.place].filter(Boolean).join(" - ") || "—"}</T>{l.system ? <T muted size={12}>{l.system === "channel" ? "حديد" : "سادة"}</T> : null}</View>
-              <View style={[CELL, { flex: HEAD[2][1], borderColor: c.line }]}><T size={16}>{String(mQty(l))}</T></View>
-              <View style={[CELL, { flex: HEAD[3][1], borderColor: c.line }]}><T size={16}>{n0(l.l) > 0 ? String(l.l) : ""}</T></View>
-              <View style={[CELL, { flex: HEAD[4][1], borderColor: c.line }]}><T size={16}>{n0(l.w) > 0 ? String(l.w) : ""}</T></View>
-              <View style={[CELL, { flex: HEAD[5][1], borderColor: c.line }]}><T bold size={16} color={mIsDed(l) ? c.bad : undefined}>{money(area(l))}</T>{n0(l.deduct) ? <T muted size={12}>خصم {String(l.deduct)}</T> : null}</View>
-              <Pressable accessibilityRole="button" accessibilityLabel="remove" disabled={sent} onPress={() => removeAt(i)} style={[CELL, { flex: HEAD[6][1], borderColor: c.line, borderLeftWidth: 0, borderRightWidth: 0, alignItems: "center" }]}><T color={c.bad} size={16}>{sent ? "" : "✕"}</T></Pressable>
+            <Row key={i} style={{ borderTopWidth: 1, borderColor: P.line, gap: 0, alignItems: "stretch", backgroundColor: mIsDed(l) ? P.dedBg : i === lines.length - 1 ? P.fresh : P.bg }}>
+              <View style={[CELL, { flex: HEAD[0][1], borderColor: P.line }]}><T color={P.soft} size={14}>{i + 1}</T></View>
+              <View style={[CELL, { flex: HEAD[1][1], borderColor: P.line }]}><T bold size={16} color={mIsDed(l) ? P.ded : P.ink}>{[mIsDed(l) ? "خصم" : "", l.element, l.place].filter(Boolean).join(" - ") || "—"}</T>{l.system ? <T color={P.soft} size={12}>{l.system === "channel" ? "حديد" : "سادة"}</T> : null}</View>
+              <View style={[CELL, { flex: HEAD[2][1], borderColor: P.line }]}><T color={P.ink} size={16}>{String(mQty(l))}</T></View>
+              <View style={[CELL, { flex: HEAD[3][1], borderColor: P.line }]}><T color={P.ink} size={16}>{n0(l.l) > 0 ? String(l.l) : ""}</T></View>
+              <View style={[CELL, { flex: HEAD[4][1], borderColor: P.line }]}><T color={P.ink} size={16}>{n0(l.w) > 0 ? String(l.w) : ""}</T></View>
+              <View style={[CELL, { flex: HEAD[5][1], borderColor: P.line }]}><T bold size={16} color={mIsDed(l) ? P.ded : P.ink}>{money(area(l))}</T>{n0(l.deduct) ? <T color={P.soft} size={12}>خصم {String(l.deduct)}</T> : null}</View>
+              <Pressable accessibilityRole="button" accessibilityLabel="remove" disabled={sent} onPress={() => removeAt(i)} style={[CELL, { flex: HEAD[6][1], borderColor: P.line, borderLeftWidth: 0, borderRightWidth: 0, alignItems: "center" }]}><T color={P.ded} size={16}>{sent ? "" : "✕"}</T></Pressable>
             </Row>))}
-          {!lines.length ? <T muted style={{ padding: 10 }}>{L("Nothing yet. Example: \"Zar, hadeed, amood 3.2 by 0.6\"", "لا شيء بعد. مثال: \"زر، حديد، عمود 3.2 في 0.6\"", "ابھی کچھ نہیں۔ مثال: «زر، حدید، عمود 3.2 ضرب 0.6»")}</T> : null}
+          {!lines.length ? <T color={P.soft} style={{ padding: 10 }}>{L("Nothing yet. Example: \"Zar, hadeed, amood 3.2 by 0.6\"", "لا شيء بعد. مثال: \"زر، حديد، عمود 3.2 في 0.6\"", "ابھی کچھ نہیں۔ مثال: «زر، حدید، عمود 3.2 ضرب 0.6»")}</T> : null}
         </View>
         {!sent ? <Row wrap style={{ alignItems: "flex-end" }}>
           <View style={{ flex: 1, minWidth: 180 }}><Field label={L("Or type one place", "أو اكتب مكانًا", "یا ایک جگہ لکھیں")} value={typed} onChange={setTyped} /></View>
