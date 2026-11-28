@@ -73,7 +73,7 @@ export function LiveMeasure({ init, onClose }: { init?: any; onClose: () => void
     await save(next);
     const T = r2(next.reduce((t, l) => t + area(l), 0));
     const back = got.map((l: any) => `${l.element || l.place || ""} ${l.l} ${L("by", "في", "ضرب")} ${l.w}${n0(l.deduct) ? ` ${L("minus", "خصم", "خصم")} ${l.deduct}` : ""}، ${money(area(l))}`).join("۔ ");
-    tell(`${back}۔ ${L("Total", "المجموع", "کل")} ${money(T)}${r.ask ? "۔ " + r.ask : ""}`);
+    tell(`${back}۔ ${L("Total", "المجموع", "کل")} ${money(T)}`); // no questions while he measures: the place is written, said back, and he goes on
   };
   const pump = async () => {
     if (working.current) return;
