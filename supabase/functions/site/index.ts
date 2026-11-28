@@ -16,15 +16,18 @@ const db = createClient(URL_, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 const MODEL = Deno.env.get("AI_MODEL_SITE") ?? "claude-sonnet-5-5";
 // Short notes are read by the small, fast model first (the person is standing on site waiting); the bigger one only if it fails.
 const FAST = Deno.env.get("AI_MODEL_SITE_FAST") ?? "claude-haiku-5-5";
+let NO_THINK = true; // short notes need no long thinking; if the model refuses the switch, it is left as it is
 async function read(models: string[], system: string, content: string, max: number): Promise<{ text: string; model: string; usage: any }> {
   let last = "";
   for (const model of models) {
-    const r = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "x-api-key": KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-      body: JSON.stringify({ model, max_tokens: max, system, messages: [{ role: "user", content }] }) });
+    const send = (quiet: boolean) => fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "x-api-key": KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+      body: JSON.stringify({ model, max_tokens: max, system, messages: [{ role: "user", content }], ...(quiet ? { thinking: { type: "disabled" } } : {}) }) });
+    let quiet = NO_THINK, r = await send(quiet);
+    if (r.status === 400 && quiet) { NO_THINK = false; quiet = false; r = await send(false); }
     if (!r.ok) { last = `AI ${r.status}`; continue; }
     const j = await r.json();
     const text = (j.content ?? []).filter((c: { type: string }) => c.type === "text").map((c: { text: string }) => c.text).join("");
-    if (text.indexOf("{") >= 0 && text.lastIndexOf("}") > text.indexOf("{")) return { text, model, usage: j.usage || {} };
+    if (text.indexOf("{") >= 0 && text.lastIndexOf("}") > text.indexOf("{")) return { text, model: model + (quiet ? "" : " (thinking)"), usage: j.usage || {} };
     last = "No JSON";
   }
   throw new Error(last || "AI did not answer");
@@ -128,7 +131,7 @@ Return JSON only:
  "heard":"<one short sentence in ${langName} restating what you understood, numbers as digits>",
  "questions":["<short question in ${langName}, only for something the entry cannot be saved without>"]}
 Meaning of intents: income = money received from a client for a project (the total incl. VAT); loan = money borrowed from the company for a project; subpay = payment to a subcontractor; rate = a supplier price to remember; mrn = materials to request (material requisition); progress = meters done by subcontractors; statement = asking for an account or report.
-Rules: digits 0-9 only. Never invent a number that was not said: use null and ask. Use split only when one purchase is shared between projects; percentages must add to 100.
+Rules: digits 0-9 only. Never invent a number that was not said: use null and ask. For cladding work "meter / میٹر / متر" means square metres (unit "sqm") unless he clearly says running metres (tooli, rft, running, طولي). Leave out of the JSON any field that would be null or empty, except intent, heard and questions. Use split only when one purchase is shared between projects; percentages must add to 100.
 Projects: the team calls a project by its area or any nickname. If the context has exactly one project, every note is about it. If he names a place that is clearly the area or another spelling of one listed project, it is that project. In both cases set project_id and put the name he said in "alias". Ask which project only when there are several and nothing points to one.`, 1200);
       await db.from("ai_usage").insert({ user_id: who.user.id, task: "site_parse", model: got.model, input_tokens: got.usage.input_tokens || 0, output_tokens: got.usage.output_tokens || 0 }).then(() => {}, () => {});
       return json(cut(got.text));
