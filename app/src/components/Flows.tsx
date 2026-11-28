@@ -50,7 +50,7 @@ const workUnit = (u: any, said: string) => {
   return /(pcs|piece|عدد|دانہ|دانے|حبة|قطع|نگ)/i.test(said) ? x : "sqm";
 };
 /** Words that mean "I am measuring now": a length times a width, or the word for measuring / length / width / deduction. */
-const MEASURING = /(\d+(?:[.,]\d+)?\s*(?:by|x|×|\*|ضرب|في|فی|into|guna|گنا)\s*\d)|پیمائش|paimaish|pemaish|pimaish|قياس|قیاس|ناپ|\bnaap\b|طول|عرض|\btool\b|\bard\b|lambai|chorai|لمبائی|چوڑائی|khasam|خصم/i;
+const MEASURING = /(\d+(?:[.,]\d+)?\s*(?:by|x|×|\*|ضرب|في|فی|into|guna|گنا)\s*\d)|پیمائش|paimaish|pemaish|pimaish|قياس|قیاس|ناپ|\bnaap\b|طول|عرض|\btool\b|\bard\b|lambai|chorai|لمبائی|چوڑائی|khasam|خصم|meter\s*(kr|kar|karna|krna|shuru|start)|میٹر\s*(کر|شروع)|ميتر\s*(كر|شروع)|ابدأ القياس/i;
 // ───────────────────────── speak / type an entry ─────────────────────────
 function SpeakSheet({ init, onClose, open }: { init?: any; onClose: () => void; open: Open }) {
   const { t, lang, d, role, insert, profile, reload } = useData(); const c = useColors();

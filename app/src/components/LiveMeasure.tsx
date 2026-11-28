@@ -3,6 +3,7 @@
 // he hears it is right, and is saved at once. He never presses "save" between places. "Ghalat" takes the last line away,
 // "bas" ends the listening. Sending it for approval is one button at the end: that step is never done by voice alone.
 import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from "expo-speech-recognition";
+import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
 import React, { useEffect, useRef, useState } from "react";
 import { Pressable, View } from "react-native";
 import { useData } from "../lib/data";
@@ -19,6 +20,10 @@ const ELEM: [RegExp, string, string][] = [[/seedh|straight|مستقيم|سیدھ
 const elemWord = (e: any, lang: string) => { const t = String(e || "").trim(); if (!t || lang === "en") return t; const hit = ELEM.find(([re]) => re.test(t)); return hit ? (lang === "ar" ? hit[1] : hit[2]) : t; };
 const UNDO = /(غلط|ghalat|galat|مٹا|mita|ہٹا|hata|wrong|delete|undo|احذف|امسح|خطأ|کاٹ)/i;
 const STOP = /^\s*(bas|بس|khatam|ختم|ho gaya|ہو گیا|خلاص|خلص|finish|done|stop|رک جا|ruk)/i;
+
+/** The sheet's columns, written the way the subcontractors' paper is: item, length, width, length × width. */
+const HEAD: [string, number][] = [["#", 0.5], ["البند", 2.2], ["الطول", 1], ["العرض", 1], ["م²", 1.2], ["", 0.5]];
+const CELL: any = { paddingVertical: 8, paddingHorizontal: 6, justifyContent: "center", borderLeftWidth: 1 };
 
 export function LiveMeasure({ init, onClose }: { init?: any; onClose: () => void }) {
   const { d, lang, role, insert, update, reload } = useData(); const c = useColors();
@@ -67,8 +72,8 @@ export function LiveMeasure({ init, onClose }: { init?: any; onClose: () => void
     if (error || (data as any)?.error) throw new Error((data as any)?.error || error?.message);
     const r = data as any;
     if (r.party && !now.current.party) { const hit = subs.find((s) => s.toLowerCase() === String(r.party).toLowerCase()) || String(r.party); setParty(hit); now.current.party = hit; }
-    const got = (r.lines || []).map((l: any) => { if (l.system) sys.current = l.system; return { place: l.place || "", element: elemWord(l.element, lang), l: l.l, w: l.w, deduct: n0(l.deduct) || 0, system: l.system || sys.current || "", photo: "", heard: text }; }).filter((l: any) => n0(l.l) > 0 && n0(l.w) > 0);
-    if (!got.length) { tell(r.ask || L("Say the length and the width.", "قل الطول والعرض.", "لمبائی اور چوڑائی بولیں۔")); return; }
+    const got = (r.lines || []).map((l: any) => { if (l.system) sys.current = l.system; return { place: l.place || "", element: elemWord(l.element, "ar"), l: l.l, w: l.w, deduct: n0(l.deduct) || 0, system: l.system || sys.current || "", photo: "", heard: text }; }).filter((l: any) => n0(l.l) > 0 && n0(l.w) > 0);
+    if (!got.length) { tell(/\d/.test(text) ? L("Say the length and the width.", "قل الطول والعرض.", "لمبائی اور چوڑائی بولیں۔") : L(`Ready${now.current.party ? ", " + now.current.party : ""}. Say each place.`, `جاهز${now.current.party ? "، " + now.current.party : ""}. قل كل مكان.`, `تیار${now.current.party ? "، " + now.current.party : ""}۔ ہر جگہ بولتے جائیں۔`)); return; }
     const next = [...now.current.lines, ...got]; setLines(next); now.current.lines = next;
     await save(next);
     const T = r2(next.reduce((t, l) => t + area(l), 0));
@@ -100,7 +105,15 @@ export function LiveMeasure({ init, onClose }: { init?: any; onClose: () => void
     if (++errs.current >= 4) { want.current = false; setMsg(L("The microphone stopped. Tap it again.", "توقف الميكروفون. اضغط مرة أخرى.", "مائیک رک گیا۔ دوبارہ دبائیں۔")); return; }
     setTimeout(listen, 800);
   });
-  useEffect(() => { if (init?.text) { queue.current.push(String(init.text)); pump(); } return () => { want.current = false; stopListening(); hush(); }; }, []);
+  useEffect(() => {
+    activateKeepAwakeAsync("measure").catch(() => {});
+    (async () => {
+      if (!init?.text) return;
+      try { const p = await ExpoSpeechRecognitionModule.requestPermissionsAsync(); if (p.granted) { errs.current = 0; want.current = true; } } catch { /* he can tap the microphone */ }
+      queue.current.push(String(init.text)); pump();
+    })();
+    return () => { want.current = false; stopListening(); hush(); try { deactivateKeepAwake("measure"); } catch { /* was not on */ } };
+  }, []);
 
   const toggle = async () => {
     if (want.current) { want.current = false; stopListening(); setOn(false); return; }
@@ -130,30 +143,35 @@ export function LiveMeasure({ init, onClose }: { init?: any; onClose: () => void
           {subs.length ? <Select label={L("Subcontractor", "المقاول", "ٹھیکیدار")} value={party} onChange={(v: string) => setParty(v)} options={[{ value: "", label: "—" }, ...[...new Set([...subs, ...(party ? [party] : [])])].map((s) => ({ value: s, label: s }))]} />
             : <Field label={L("Subcontractor", "المقاول", "ٹھیکیدار")} value={party} onChange={setParty} />}
         </Row>
-        {!sent ? <View style={{ alignItems: "center", gap: 8 }}>
-          <Pressable accessibilityRole="button" onPress={toggle} style={({ pressed }) => ({ width: 132, height: 132, borderRadius: 66, borderWidth: 6, borderColor: on ? c.bad : c.accent, backgroundColor: on ? c.badSoft : c.surface, alignItems: "center", justifyContent: "center", opacity: pressed ? 0.8 : 1 })}>
-            <Icon name={want.current ? "stop" : "mic"} size={54} color={on ? c.bad : c.accent} />
+        {!sent ? <Row style={{ alignItems: "center", gap: 12 }}>
+          <Pressable accessibilityRole="button" onPress={toggle} style={({ pressed }) => ({ width: 84, height: 84, borderRadius: 42, borderWidth: 5, borderColor: on ? c.bad : c.accent, backgroundColor: on ? c.badSoft : c.surface, alignItems: "center", justifyContent: "center", opacity: pressed ? 0.8 : 1 })}>
+            <Icon name={want.current ? "stop" : "mic"} size={38} color={on ? c.bad : c.accent} />
           </Pressable>
-          <T center bold size={18}>{busy ? L("Writing…", "أكتب…", "لکھ رہا ہوں…") : on ? L("Listening. Say each place.", "أسمع. قل كل مكان.", "سن رہا ہوں۔ ہر جگہ بولتے جائیں۔") : want.current ? L("One moment…", "لحظة…", "ایک لمحہ…") : L("Tap once, then just talk", "اضغط مرة ثم تكلم فقط", "ایک بار دبائیں، پھر بس بولتے جائیں")}</T>
-          {hearing ? <T center muted size={16}>{hearing}</T> : null}
-          <T center muted size={13}>{L("\"Ghalat\" removes the last line. \"Bas\" stops.", "\"غلط\" يحذف آخر بند. \"بس\" يوقف.", "«غلط» بولیں تو آخری لائن ہٹ جائے گی۔ «بس» بولیں تو رک جائے گا۔")}</T>
-        </View> : null}
+          <View style={{ flex: 1, gap: 2 }}>
+            <T bold size={17}>{busy ? L("Writing…", "أكتب…", "لکھ رہا ہوں…") : on ? L("Listening. Say each place.", "أسمع. قل كل مكان.", "سن رہا ہوں۔ ہر جگہ بولتے جائیں۔") : want.current ? L("One moment…", "لحظة…", "ایک لمحہ…") : L("Tap once, then just talk", "اضغط مرة ثم تكلم فقط", "ایک بار دبائیں، پھر بس بولتے جائیں")}</T>
+            {hearing ? <T muted size={15}>{hearing}</T> : <T muted size={13}>{L("\"Ghalat\" removes the last line. \"Bas\" stops.", "\"غلط\" يحذف آخر بند. \"بس\" يوقف.", "«غلط»: آخری لائن ہٹے گی۔ «بس»: رک جائے گا۔")}</T>}
+          </View>
+        </Row> : null}
         {msg ? <T center color={c.warn} size={16}>{msg}</T> : null}
-        <Card style={{ gap: 8 }}>
-          <Row><T bold size={22} style={{ flex: 1 }}>{L("Total", "المجموع", "کل")}</T><T bold size={26}>{money(total)} m²</T></Row>
-          {lines.some((l) => l.system) ? <T muted size={14}>{["wall", "channel", ""].filter((k) => part(k) > 0).map((k) => `${sysName(k) || L("Not chosen", "غير محدد", "نہیں چنا")}: ${money(part(k))} m²`).join("  ·  ")}</T> : null}
+        <View style={{ borderWidth: 1, borderColor: c.line, borderRadius: 10, overflow: "hidden", backgroundColor: c.surface }}>
+          <Row style={{ backgroundColor: c.accentSoft, paddingVertical: 10, paddingHorizontal: 8, alignItems: "center", gap: 0 }}>
+            <T bold size={20} style={{ flex: 1 }}>المجموع</T><T bold size={24}>{money(total)} m²</T>
+          </Row>
+          {lines.some((l) => l.system) ? <T muted size={13} style={{ paddingHorizontal: 8, paddingVertical: 4 }}>{["wall", "channel", ""].filter((k) => part(k) > 0).map((k) => `${k === "channel" ? "حديد" : k === "wall" ? "سادة" : "—"}: ${money(part(k))}`).join("   ·   ")}</T> : null}
+          <Row style={{ backgroundColor: c.sunk, borderTopWidth: 1, borderColor: c.line, gap: 0 }}>
+            {HEAD.map(([h, fx], i) => <View key={i} style={[CELL, { flex: fx, borderColor: c.line }]}><T bold size={13}>{h}</T></View>)}
+          </Row>
           {lines.map((l, i) => ({ l, i })).reverse().map(({ l, i }) => (
-            <Row key={i} style={{ borderTopWidth: 1, borderColor: c.line, paddingTop: 8, alignItems: "center" }}>
-              <T muted size={14} style={{ minWidth: 26 }}>{i + 1}</T>
-              <View style={{ flex: 1 }}>
-                <T bold size={17}>{[l.element, l.place].filter(Boolean).join(" · ") || "—"}</T>
-                <T size={17}>{String(l.l)} × {String(l.w)}{n0(l.deduct) ? ` − ${l.deduct}` : ""} = <T bold size={17}>{money(area(l))} m²</T></T>
-                {l.system ? <T muted size={13}>{sysName(l.system)}</T> : null}
-              </View>
-              {!sent ? <Btn kind="ghost" title="✕" onPress={() => removeAt(i)} /> : null}
+            <Row key={i} style={{ borderTopWidth: 1, borderColor: c.line, gap: 0, alignItems: "stretch", backgroundColor: i === lines.length - 1 ? c.goodSoft : c.surface }}>
+              <View style={[CELL, { flex: HEAD[0][1], borderColor: c.line }]}><T muted size={14}>{i + 1}</T></View>
+              <View style={[CELL, { flex: HEAD[1][1], borderColor: c.line }]}><T bold size={16}>{[l.element, l.place].filter(Boolean).join(" - ") || "—"}</T>{l.system ? <T muted size={12}>{l.system === "channel" ? "حديد" : "سادة"}</T> : null}</View>
+              <View style={[CELL, { flex: HEAD[2][1], borderColor: c.line }]}><T size={16}>{String(l.l)}</T></View>
+              <View style={[CELL, { flex: HEAD[3][1], borderColor: c.line }]}><T size={16}>{String(l.w)}</T></View>
+              <View style={[CELL, { flex: HEAD[4][1], borderColor: c.line }]}><T bold size={16}>{money(area(l))}</T>{n0(l.deduct) ? <T muted size={12}>خصم {String(l.deduct)}</T> : null}</View>
+              <Pressable accessibilityRole="button" accessibilityLabel="remove" disabled={sent} onPress={() => removeAt(i)} style={[CELL, { flex: HEAD[5][1], borderColor: c.line, borderLeftWidth: 0, borderRightWidth: 0, alignItems: "center" }]}><T color={c.bad} size={16}>{sent ? "" : "✕"}</T></Pressable>
             </Row>))}
-          {!lines.length ? <T muted>{L("Nothing yet. Example: \"Zar, hadeed, amood 3.2 by 0.6\"", "لا شيء بعد. مثال: \"زر، حديد، عمود 3.2 في 0.6\"", "ابھی کچھ نہیں۔ مثال: «زر، حدید، عمود 3.2 ضرب 0.6»")}</T> : null}
-        </Card>
+          {!lines.length ? <T muted style={{ padding: 10 }}>{L("Nothing yet. Example: \"Zar, hadeed, amood 3.2 by 0.6\"", "لا شيء بعد. مثال: \"زر، حديد، عمود 3.2 في 0.6\"", "ابھی کچھ نہیں۔ مثال: «زر، حدید، عمود 3.2 ضرب 0.6»")}</T> : null}
+        </View>
         {!sent ? <Row wrap style={{ alignItems: "flex-end" }}>
           <View style={{ flex: 1, minWidth: 180 }}><Field label={L("Or type one place", "أو اكتب مكانًا", "یا ایک جگہ لکھیں")} value={typed} onChange={setTyped} /></View>
           <Btn title={L("Add", "أضف", "ڈالیں")} disabled={!typed.trim() || busy} onPress={addTyped} />

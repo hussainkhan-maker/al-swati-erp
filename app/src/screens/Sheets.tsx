@@ -166,7 +166,7 @@ export default function Sheets() {
 }
 
 function Editor({ init, onClose, L, title, canReopen }: { init: any; onClose: () => void; L: (en: string, ar: string, ur: string) => string; title: string; canReopen: boolean }) {
-  const { d, profile, insert, update, reload, lang } = useData(); const c = useColors(); const flows = useFlows();
+  const { d, profile, insert, update, reload, lang } = useData(); const role = profile.role; const c = useColors(); const flows = useFlows();
   const kind = init.kind as Kind;
   const [f, setF] = useState<any>({ ...init, lines: (init.lines || []).length ? init.lines : [blank(kind)] });
   const [text, setText] = useState(""), [busy, setBusy] = useState(""), [msg, setMsg] = useState(""), [sure, setSure] = useState(false);
@@ -263,22 +263,24 @@ function Editor({ init, onClose, L, title, canReopen }: { init: any; onClose: ()
     setBusy("pdf"); setMsg("");
     try {
       const p = pname(d, f.project_id), who = String(f.party || "").trim();
+      // Abu's and the supervisor's papers go to shops and subcontractors: Arabic. The owner's copy is in English.
+      const en = role === "admin"; const X = (e: string, a: string) => (en ? e : a);
       const doc: Doc = kind === "material"
-        ? { title: `طلب مواد - ${p}${who ? " - " + who : ""}`, cols: ["#", "الصنف", "المقاس / النوع", "الكمية", "الوحدة", "ملاحظات"], rows: lines.map((l, i) => [String(i + 1), l.name, l.size || "", String(l.qty ?? ""), l.unit || "", l.note || ""]), sum: [["عدد البنود", String(lines.length)]], numCols: [] }
+        ? { title: `${X("Material order", "طلب مواد")} - ${p}${who ? " - " + who : ""}`, cols: ["#", X("Item", "الصنف"), X("Size / type", "المقاس / النوع"), X("Qty", "الكمية"), X("Unit", "الوحدة"), X("Notes", "ملاحظات")], rows: lines.map((l, i) => [String(i + 1), l.name, l.size || "", String(l.qty ?? ""), l.unit || "", l.note || ""]), sum: [[X("Items", "عدد البنود"), String(lines.length)]], numCols: [] }
         : kind === "stone"
-          ? { title: `مقاسات الحجر - ${p}${who ? " - " + who : ""}`, cols: ["#", "المكان", "الطول سم", "العرض سم", "العدد", "ملاحظات", "م²"], rows: lines.map((l, i) => [String(i + 1), l.place || "", String(l.l), String(l.w), String(l.qty), l.note || "", lineArea(kind, l)]), sum: [["عدد القطع", String(pieces)], ["المجموع م²", money(total)]], numCols: [6] }
+          ? { title: `${X("Stone sizes", "مقاسات الحجر")} - ${p}${who ? " - " + who : ""}`, cols: ["#", X("Place", "المكان"), X("Length cm", "الطول سم"), X("Width cm", "العرض سم"), X("Pieces", "العدد"), X("Notes", "ملاحظات"), X("m²", "م²")], rows: lines.map((l, i) => [String(i + 1), l.place || "", String(l.l), String(l.w), String(l.qty), l.note || "", lineArea(kind, l)]), sum: [[X("Pieces", "عدد القطع"), String(pieces)], [X("Total m²", "المجموع م²"), money(total)]], numCols: [6] }
           : (() => {
-            // The subcontractor's sheet: what was measured, length, width, length × width, the deduction if any, the area, then the totals.
-            const AR: [RegExp, string][] = [[/seedh|straight|مستقيم|سیدھ/i, "جدار مستقيم"], [/amood|amud|column|pillar|عمود|ستون/i, "عمود"], [/saqaf|saqf|ceiling|soffit|سقف|چھت/i, "سقف"], [/beam|kamra|كمرة|بیم/i, "كمرة"], [/deewar|diwar|dewar|wall|jidar|جدار|دیوار/i, "جدار"], [/darwaza|door|باب|دروازہ/i, "باب"], [/khirki|window|شباك|نافذة|کھڑکی/i, "شباك"], [/zeena|stair|درج|سیڑھ/i, "درج"]];
-            const what = (l: any) => { const e = String(l.element || "").trim(); const ar = AR.find(([re]) => re.test(e))?.[1] || e; return [ar, String(l.place || "").trim()].filter(Boolean).join(" - ") || "-"; };
-            const sysAr = (k: string) => (k === "channel" ? "على القناة (حديد)" : k === "wall" ? "على الجدار (سادة)" : "");
+            // The subcontractor's sheet: what was measured (column, wall, ceiling), length, width, length × width, then the total.
+            const NAMES: [RegExp, string, string][] = [[/seedh|straight|مستقيم|سیدھ/i, "جدار مستقيم", "Straight wall"], [/amood|amoot|amud|amod|column|pillar|عمود|اموت|امود|ستون/i, "عمود", "Column"], [/saqaf|saqf|sakaf|ceiling|soffit|سقف|صقف|چھت/i, "سقف", "Ceiling"], [/beam|kamra|كمرة|بیم/i, "كمرة", "Beam"], [/deewar|diwar|dewar|wall|jidar|جدار|دیوار/i, "جدار", "Wall"], [/darwaza|door|باب|دروازہ/i, "باب", "Door"], [/khirki|window|شباك|نافذة|کھڑکی/i, "شباك", "Window"], [/zeena|stair|درج|سیڑھ/i, "درج", "Stairs"]];
+            const what = (l: any) => { const e = String(l.element || "").trim(); const hit = NAMES.find(([re]) => re.test(e)); const nm = hit ? (en ? hit[2] : hit[1]) : e; return [nm, String(l.place || "").trim()].filter(Boolean).join(" - ") || "-"; };
+            const sysAr = (k: string) => (k === "channel" ? X("On C-channel (steel)", "على القناة (حديد)") : k === "wall" ? X("On the wall (plain)", "على الجدار (سادة)") : "");
             const anyDed = lines.some((l) => n0(l.deduct) > 0), anySys = lines.some((l) => l.system);
-            const cols = ["#", "البند", ...(anySys ? ["النوع"] : []), "الطول م", "العرض م", "الطول × العرض", ...(anyDed ? ["الخصم م²"] : []), "المساحة م²"];
-            const rows = lines.map((l, i) => [String(i + 1), what(l), ...(anySys ? [sysAr(l.system || "")] : []), String(l.l), String(l.w), money(r2(n0(l.l) * n0(l.w))), ...(anyDed ? [n0(l.deduct) ? money(n0(l.deduct)) : ""] : []), lineArea(kind, l)]);
-            const sum: [string, string][] = [...(anySys ? bySystem.map((g) => [`مجموع ${sysAr(g.k) || "غير محدد"} م²`, money(g.m2)] as [string, string]) : []), ["المجموع م²", money(total)]];
-            return { title: `قياس أعمال - ${who || "-"} - ${p}`, cols, rows, sum, numCols: [cols.length - 1] } as Doc;
+            const cols = ["#", X("Item", "البند"), ...(anySys ? [X("Type", "النوع")] : []), X("Length m", "الطول م"), X("Width m", "العرض م"), X("Length × width", "الطول × العرض"), ...(anyDed ? [X("Deduction m²", "الخصم م²"), X("Area m²", "المساحة م²")] : [])];
+            const rows = lines.map((l, i) => [String(i + 1), what(l), ...(anySys ? [sysAr(l.system || "")] : []), String(l.l), String(l.w), money(r2(n0(l.l) * n0(l.w))), ...(anyDed ? [n0(l.deduct) ? money(n0(l.deduct)) : "", lineArea(kind, l)] : [])]);
+            const sum: [string, string][] = [...(anySys ? bySystem.map((g) => [`${X("Total", "مجموع")} ${sysAr(g.k) || X("not chosen", "غير محدد")} ${X("m²", "م²")}`, money(g.m2)] as [string, string]) : []), [X("Total m²", "المجموع م²"), money(total)]];
+            return { title: `${X("Work measurement", "قياس أعمال")} - ${who || "-"} - ${p}`, cols, rows, sum, numCols: [cols.length - 1] } as Doc;
           })();
-      await makeAndShare(doc, docHTML(doc, "ar", profile.name));
+      await makeAndShare(doc, docHTML(doc, en ? "en" : "ar", profile.name));
     } catch (e: any) { setMsg(e.message); }
     setBusy("");
   };
