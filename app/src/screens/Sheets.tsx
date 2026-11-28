@@ -225,7 +225,17 @@ function Editor({ init, onClose, L, title, canReopen }: { init: any; onClose: ()
         ? { title: `طلب مواد - ${p}${who ? " - " + who : ""}`, cols: ["#", "الصنف", "المقاس / النوع", "الكمية", "الوحدة", "ملاحظات"], rows: lines.map((l, i) => [String(i + 1), l.name, l.size || "", String(l.qty ?? ""), l.unit || "", l.note || ""]), sum: [["عدد البنود", String(lines.length)]], numCols: [] }
         : kind === "stone"
           ? { title: `مقاسات الحجر - ${p}${who ? " - " + who : ""}`, cols: ["#", "المكان", "الطول سم", "العرض سم", "العدد", "ملاحظات", "م²"], rows: lines.map((l, i) => [String(i + 1), l.place || "", String(l.l), String(l.w), String(l.qty), l.note || "", lineArea(kind, l)]), sum: [["عدد القطع", String(pieces)], ["المجموع م²", money(total)]], numCols: [6] }
-          : { title: `قياس أعمال - ${who || "-"} - ${p}`, cols: ["#", "المكان", "العنصر", "الطول م", "العرض م", "الخصم م²", "المساحة م²"], rows: lines.map((l, i) => [String(i + 1), l.place || "", l.element || "", String(l.l), String(l.w), String(n0(l.deduct) || ""), lineArea(kind, l)]), sum: [["المجموع م²", money(total)]], numCols: [6] };
+          : (() => {
+            // The subcontractor's sheet: what was measured, length, width, length × width, the deduction if any, the area, then the totals.
+            const AR: [RegExp, string][] = [[/seedh|straight|مستقيم|سیدھ/i, "جدار مستقيم"], [/amood|amud|column|pillar|عمود|ستون/i, "عمود"], [/saqaf|saqf|ceiling|soffit|سقف|چھت/i, "سقف"], [/beam|kamra|كمرة|بیم/i, "كمرة"], [/deewar|diwar|dewar|wall|jidar|جدار|دیوار/i, "جدار"], [/darwaza|door|باب|دروازہ/i, "باب"], [/khirki|window|شباك|نافذة|کھڑکی/i, "شباك"], [/zeena|stair|درج|سیڑھ/i, "درج"]];
+            const what = (l: any) => { const e = String(l.element || "").trim(); const ar = AR.find(([re]) => re.test(e))?.[1] || e; return [ar, String(l.place || "").trim()].filter(Boolean).join(" - ") || "-"; };
+            const sysAr = (k: string) => (k === "channel" ? "على القناة (حديد)" : k === "wall" ? "على الجدار (سادة)" : "");
+            const anyDed = lines.some((l) => n0(l.deduct) > 0), anySys = lines.some((l) => l.system);
+            const cols = ["#", "البند", ...(anySys ? ["النوع"] : []), "الطول م", "العرض م", "الطول × العرض", ...(anyDed ? ["الخصم م²"] : []), "المساحة م²"];
+            const rows = lines.map((l, i) => [String(i + 1), what(l), ...(anySys ? [sysAr(l.system || "")] : []), String(l.l), String(l.w), money(r2(n0(l.l) * n0(l.w))), ...(anyDed ? [n0(l.deduct) ? money(n0(l.deduct)) : ""] : []), lineArea(kind, l)]);
+            const sum: [string, string][] = [...(anySys ? bySystem.map((g) => [`مجموع ${sysAr(g.k) || "غير محدد"} م²`, money(g.m2)] as [string, string]) : []), ["المجموع م²", money(total)]];
+            return { title: `قياس أعمال - ${who || "-"} - ${p}`, cols, rows, sum, numCols: [cols.length - 1] } as Doc;
+          })();
       await makeAndShare(doc, docHTML(doc, "ar", profile.name));
     } catch (e: any) { setMsg(e.message); }
     setBusy("");
@@ -268,8 +278,8 @@ function Editor({ init, onClose, L, title, canReopen }: { init: any; onClose: ()
             </Row>
             <Row wrap>
               {kind !== "measure" ? <View style={{ flex: 1, minWidth: 160 }}>{F(i, "note", L("Note", "ملاحظات", "نوٹ"))}</View> : null}
-              {kind === "measure" ? (locked ? <T muted size={13} style={{ minWidth: 90 }}>{l.system === "channel" ? L("On C-channel", "على القناة", "چینل پر") : l.system === "wall" ? L("On the wall", "على الجدار", "دیوار پر") : ""}</T>
-                : <View style={{ minWidth: 190 }}><Segmented value={l.system || ""} onChange={(v) => setLine(i, "system", v)} options={[["wall", L("On the wall", "على الجدار", "دیوار پر")], ["channel", L("On C-channel", "على القناة", "چینل پر")]]} /></View>) : null}
+              {kind === "measure" ? (locked ? <T muted size={13} style={{ minWidth: 90 }}>{l.system === "channel" ? L("On C-channel (steel)", "على القناة (حديد)", "چینل پر (حدید)") : l.system === "wall" ? L("On the wall (plain)", "على الجدار (سادة)", "دیوار پر (سادہ)") : ""}</T>
+                : <View style={{ minWidth: 190 }}><Segmented value={l.system || ""} onChange={(v) => setLine(i, "system", v)} options={[["wall", L("On the wall (plain)", "على الجدار (سادة)", "دیوار پر (سادہ)")], ["channel", L("On C-channel (steel)", "على القناة (حديد)", "چینل پر (حدید)")]]} /></View>) : null}
               {kind !== "material" ? <T bold style={{ minWidth: 90 }}>{money(lineArea(kind, l))} m²</T> : null}
               {kind === "measure" ? (l.photo ? <Photo path={l.photo} size={40} /> : !locked ? <Btn kind="ghost" icon={<Icon name="camera" size={16} color={c.accent} />} title={L("Photo", "صورة", "تصویر")} busy={busy === "photo" + i} onPress={() => photo(i)} /> : null) : null}
               {!locked && f.lines.length > 1 ? <Btn kind="ghost" title="✕" onPress={() => setF((x: any) => ({ ...x, lines: x.lines.filter((_: any, j: number) => j !== i) }))} /> : null}
@@ -277,7 +287,7 @@ function Editor({ init, onClose, L, title, canReopen }: { init: any; onClose: ()
           </View>))}
         {!locked ? <Btn kind="ghost" icon={<Icon name="plus" size={16} color={c.accent} />} title={L("Add a line", "أضف بندًا", "لائن ڈالیں")} onPress={() => setF((x: any) => ({ ...x, lines: [...x.lines, blank(kind)] }))} /> : null}
         {kind !== "material" ? <Row style={{ borderTopWidth: 1, borderColor: c.line, paddingTop: 10 }}><T bold style={{ flex: 1 }}>{L("Total", "المجموع", "کل")}{kind === "stone" ? ` · ${pieces} ${L("pieces", "حبة", "پتھر")}` : ""}</T><T bold size={20}>{money(total)} m²</T></Row> : null}
-        {kind === "measure" && bySystem.some((g) => g.k) ? <T muted size={14}>{bySystem.map((g) => `${g.k === "channel" ? L("On C-channel", "على القناة", "چینل پر") : g.k === "wall" ? L("On the wall", "على الجدار", "دیوار پر") : L("Not chosen", "غير محدد", "نہیں چنا")}: ${money(g.m2)} m²`).join("  ·  ")}</T> : null}
+        {kind === "measure" && bySystem.some((g) => g.k) ? <T muted size={14}>{bySystem.map((g) => `${g.k === "channel" ? L("On C-channel (steel)", "على القناة (حديد)", "چینل پر (حدید)") : g.k === "wall" ? L("On the wall (plain)", "على الجدار (سادة)", "دیوار پر (سادہ)") : L("Not chosen", "غير محدد", "نہیں چنا")}: ${money(g.m2)} m²`).join("  ·  ")}</T> : null}
       </Card>
       {msg ? <T color={c.warn}>{msg}</T> : null}
       <Row wrap>
