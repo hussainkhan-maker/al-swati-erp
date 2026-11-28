@@ -14,9 +14,10 @@ import { buildStatement, Doc, docHTML, makeAndShare, pdfChecks } from "../lib/pd
 import { ai, supabase } from "../lib/supabase";
 import { Btn, Card, Checks, Field, Icon, Photo, Pill, Row, Select, Sheet, T, Table, useColors } from "../ui";
 import { LiveMeasure } from "./LiveMeasure";
+import { TeachSheet } from "./Teach";
 import { Voice } from "./Voice";
 
-type Open = (kind: "speak" | "purchase" | "statement" | "ask" | "live", init?: any) => void;
+type Open = (kind: "speak" | "purchase" | "statement" | "ask" | "live" | "teach", init?: any) => void;
 const FlowCtx = createContext<Open>(() => {});
 export const useFlows = () => useContext(FlowCtx);
 
@@ -32,6 +33,7 @@ export function FlowProvider({ children }: { children: React.ReactNode }) {
       {sheet?.kind === "statement" && <StatementSheet key={sheet.key} init={sheet.init} onClose={close} />}
       {sheet?.kind === "ask" && <AskSheet key={sheet.key} init={sheet.init} onClose={close} />}
       {sheet?.kind === "live" && <LiveMeasure key={sheet.key} init={sheet.init} onClose={close} />}
+      {sheet?.kind === "teach" && <TeachSheet key={sheet.key} onClose={close} />}
     </FlowCtx.Provider>
   );
 }

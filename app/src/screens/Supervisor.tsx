@@ -17,6 +17,7 @@ export function Home() {
       <View style={{ flexDirection: "row-reverse", flexWrap: "wrap", gap: 12 }}>
         <Tile icon="receipt" title={t("purchase")} sub={t("ck_photo")} onPress={() => flows("purchase")} />
         <Tile icon="doc" title={t("report")} sub="PDF" onPress={() => flows("statement")} />
+        <Tile icon="mic" title={lang === "ur" ? "الفاظ سکھائیں" : lang === "ar" ? "علّم الكلمات" : "Teach words"} sub={lang === "ur" ? "ایک ایک لفظ بول کر" : ""} onPress={() => flows("teach")} />
         <Tile icon="spark" title={lang === "ur" ? "مددگار سے پوچھیں" : "Ask"} sub={lang === "ur" ? "«عزیر نے کتنا کام کیا؟»" : ""} onPress={() => flows("ask")} />
       </View>
       <Card>
